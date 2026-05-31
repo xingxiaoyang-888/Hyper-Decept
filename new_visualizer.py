@@ -1,0 +1,186 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 尝试导入 shap，如果没有安装给出友好提示
+try:
+    import shap
+except ImportError:
+    shap = None
+    print("警告: 尚未安装 shap 库，SHAP 归因图将无法绘制。请执行 'pip install shap'")
+
+class CognitiveVisualizer:
+    def __init__(self, X_super, y_true, y_role, feature_names, save_dir=r"E:\fraud-detection2\Multi-agent-fraud-game-detection\new_result"):
+        """
+        深度心理与情感可视化引擎 (战术角色升级版)
+        """
+        self.X = X_super
+        self.y = y_true
+        self.y_role = y_role  # [新增] 接收精细化的战术角色
+        self.feature_names = feature_names
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+        
+        # 将矩阵转为 DataFrame 方便后续切片
+        self.df = pd.DataFrame(self.X, columns=self.feature_names)
+        
+        # [修改] 废弃二元标签，使用战术角色标签
+        self.df['Tactical_Role'] = self.y_role
+        
+        self.psycho_feats = [
+            'Empathy_Gap_Mean', 'Empathy_Gap_Max',
+            'Dark_Triad_Mean', 'Dark_Triad_Max',
+            'Contagion_Mean', 'Contagion_Max',
+            'Volatility_Mean', 'Volatility_Max'
+        ]
+
+        # 角色调色板：自动从实际数据中推断
+        self.role_palette = {}
+        unique_roles = sorted(set(self.y_role)) if self.y_role is not None else []
+        colors = sns.color_palette("husl", max(len(unique_roles), 4))
+        for i, r in enumerate(unique_roles):
+            self.role_palette[r] = colors[i]
+
+    def plot_radar_chart(self):
+        """方案一：多维数字心理侧写 (角色指纹雷达图)"""
+        print("\n 正在生成多角色心理学雷达图...")
+        missing = [f for f in self.psycho_feats if f not in self.df.columns]
+        if missing:
+            return None
+
+        angles = np.linspace(0, 2 * np.pi, len(self.psycho_feats), endpoint=False).tolist()
+        angles += angles[:1] # 闭合雷达图
+        
+        fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+        
+        # 遍历每一种战术角色，绘制其平均画像
+        for role, color in self.role_palette.items():
+            role_df = self.df[self.df['Tactical_Role'] == role]
+            if len(role_df) == 0:
+                continue
+                
+            mean_vals = role_df[self.psycho_feats].mean().values
+            mean_vals = np.concatenate((mean_vals, [mean_vals[0]])) # 闭合数据
+            
+            # Leader 用实线强调，其他用虚线或不同透明度
+            line_style = 'solid' if 'Leader' in role else 'dashed'
+            alpha_val = 0.3 if 'Leader' in role else 0.15
+            
+            ax.plot(angles, mean_vals, color=color, linewidth=2.5, linestyle=line_style, label=role)
+            ax.fill(angles, mean_vals, color=color, alpha=alpha_val)
+        
+        ax.set_xticks(angles[:-1])
+        short_names = ['Empathy\nMean', 'Empathy\nMax', 'Dark\nTriad\nMean', 'Dark\nTriad\nMax',
+                        'Contagion\nMean', 'Contagion\nMax', 'Volatility\nMean', 'Volatility\nMax']
+        ax.set_xticklabels(short_names, fontsize=12, fontweight='bold')
+        
+        plt.title('Psychological Profiling Radar by Tactical Role\n(Digital Fingerprints of Deception)', size=15, y=1.1, fontweight='bold')
+        plt.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
+        plt.tight_layout()
+        
+        save_path = os.path.join(self.save_dir, "psycho_radar_chart_tactical.png")
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        return fig
+
+    def plot_kde_distribution(self, target_feature='Empathy_Gap_Mean'):
+        """方案二：多维战术角色的核密度估计图"""
+        print(f"\n 正在生成 {target_feature} 的角色核密度分布图...")
+        if target_feature not in self.df.columns:
+            return None
+            
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # hue 改为 Tactical_Role，使用新配色
+        sns.kdeplot(
+            data=self.df, x=target_feature, hue='Tactical_Role', 
+            fill=True, common_norm=False, palette=self.role_palette, 
+            alpha=0.4, linewidth=2, ax=ax
+        )
+        
+        plt.title(f'KDE Distribution of {target_feature} by Tactical Role\n(Deconstructing the Camouflage)', fontsize=14, fontweight='bold')
+        plt.xlabel(target_feature, fontsize=12)
+        plt.ylabel('Density', fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.3)
+        
+        # 优化图例位置
+        sns.move_legend(ax, "upper right", bbox_to_anchor=(1.35, 1))
+        plt.tight_layout()
+        
+        save_path = os.path.join(self.save_dir, f"kde_tactical_{target_feature}.png")
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        return fig
+
+    def plot_3d_scatter(self):
+        """方案三：三维认知降维空间隔离图"""
+        print("\n 正在生成 3D 认知空间散点图...")
+        missing = [f for f in self.psycho_feats if f not in self.df.columns]
+        if missing:
+            return None
+            
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        self.df['_label'] = ['Bot' if v == 1 else 'Human' for v in self.y]
+        good_df = self.df[self.df['_label'] == 'Human']
+        bad_df = self.df[self.df['_label'] == 'Bot']
+
+        # 绘制人类点
+        ax.scatter(good_df[self.psycho_feats[0]], good_df[self.psycho_feats[1]], good_df[self.psycho_feats[2]],
+                   c='#3498db', label='Human', marker='o', s=50, alpha=0.6)
+        # 绘制水军点
+        ax.scatter(bad_df[self.psycho_feats[0]], bad_df[self.psycho_feats[1]], bad_df[self.psycho_feats[2]],
+                   c='#e74c3c', label='Bot', marker='X', s=80, alpha=0.9)
+
+        ax.set_xlabel(self.psycho_feats[0], fontweight='bold')
+        ax.set_ylabel(self.psycho_feats[1], fontweight='bold')
+        ax.set_zlabel(self.psycho_feats[2], fontweight='bold')
+        plt.title('3D Psychological Isolation Space', fontsize=16)
+        plt.legend()
+        plt.tight_layout()
+        
+        save_path = os.path.join(self.save_dir, "psycho_3d_scatter.png")
+        plt.savefig(save_path, dpi=300)
+        return fig
+
+    def plot_shap_summary(self, trained_xgb_model):
+        """方案四：SHAP 情感特征归因可解释性图"""
+        print("\n 正在进行 SHAP 可解释性归因分析...")
+        if shap is None:
+            return None
+            
+        # 剥离非特征列，还原为纯特征 DataFrame
+        X_df = self.df.drop(columns=['Tactical_Role', '_label'], errors='ignore')
+        
+        # 使用 TreeExplainer 解析 XGBoost 模型
+        explainer = shap.TreeExplainer(trained_xgb_model)
+        shap_values = explainer.shap_values(X_df)
+        
+        fig = plt.figure(figsize=(12, 8))
+        # max_display=15 只展示前15个最重要的特征，你的三大心理特征极有可能霸榜
+        shap.summary_plot(shap_values, X_df, plot_type="dot", max_display=15, show=False)
+        
+        plt.title('SHAP Feature Attribution (Impact on Detection)', fontsize=16)
+        plt.tight_layout()
+        
+        save_path = os.path.join(self.save_dir, "shap_summary_plot.png")
+        plt.savefig(save_path, dpi=300)
+        return fig
+
+    def generate_all_reports(self, trained_xgb_model=None):
+        """一键生成所有可视化报告"""
+        print("\n" + "="*50)
+        print(" 启动深度心理学可视化渲染引擎")
+        print("="*50)
+        
+        self.plot_radar_chart()
+        self.plot_kde_distribution('Empathy_Gap_Mean')
+        self.plot_kde_distribution('Dark_Triad_Mean')
+        self.plot_kde_distribution('Contagion_Mean')
+        self.plot_3d_scatter()
+        
+        if trained_xgb_model is not None:
+            self.plot_shap_summary(trained_xgb_model)
+            
+        print(f"\n 所有高清可视化图表已保存至: {self.save_dir}")

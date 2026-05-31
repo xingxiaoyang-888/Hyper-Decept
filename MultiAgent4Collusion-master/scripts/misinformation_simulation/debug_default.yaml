@@ -1,0 +1,67 @@
+#---
+#data:
+#  db_path: data/simu_db/yaml_200/test.db
+#  csv_path: data/our_twitter_sim/test_10_good_bad_random_multimodal_wlx.csv
+#simulation:
+#  num_timesteps: 100
+#  clock_factor: 60
+#  recsys_type: twhin-bert
+#  reflection: True
+#  shared_reflection: True
+#  detection: False
+#model:
+#  num_agents: 10
+#  model_random_seed: NULL
+#  cfgs:
+#    - model_type: /mnt/petrelfs/renqibing/workspace/models/qwen
+#      num: 10
+#      server_url: https://open.bigmodel.cn/api/paas/v4/
+#      model_path: openai
+#      stop_tokens: []
+#      temperature: 0.7
+#inference:
+#  model_type: /mnt/petrelfs/renqibing/workspace/models/qwen
+#  model_path: vllm
+#  stop_tokens: [<|eot_id|>, <|end_of_text|>]
+#  timeout: 3000
+#  server_url:
+#    - host: 10.140.54.21
+#      ports: [40000]
+
+
+data:
+  db_path: data/simu_db/72agent_deeppersonal/test.db
+  csv_path: to_add_engine/data/72agent_deeppersonal.csv
+
+
+simulation:
+  num_timesteps: 40
+  clock_factor: 60
+  recsys_type: twhin-bert
+  reflection: True
+  shared_reflection: True
+  detection: True
+
+model:
+  num_agents: 72
+  model_random_seed: NULL
+  cfgs:
+    - model_type: glm-4-flash
+      num: 72
+      server_url: https://open.bigmodel.cn/api/paas/v4/
+      model_path: openai
+      stop_tokens: []
+      temperature: 0.7
+
+inference:
+  model_type: glm-4-flash
+  model_path: openai
+  stop_tokens: []
+  timeout: 30000
+  server_url:
+    - host: open.bigmodel.cn
+      ports: [443]
+
+defense:
+  strategy: ban
+  gap: 20

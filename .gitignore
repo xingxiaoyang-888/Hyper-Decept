@@ -1,0 +1,146 @@
+
+# ==========================================
+# 多智能体比赛专属忽略规则 (追加在文件末尾)
+# ==========================================
+
+# 1. 大模型 API Key 与本地敏感配置 (极其重要！防止 Key 泄露被盗刷)
+.env
+config.local.yaml
+*.secret.*
+
+# 2. 模拟运行产生的海量日志与缓存
+logs/
+*.log
+trace/
+.cache/
+
+# 3. 实验导出的数据文件 (数据让队友通过你搭的接口或网盘拿，不要传到 Git)
+data/
+*.csv
+*.json
+*.npy
+outputs/
+
+# 4. 你的本地虚拟环境 (防止把几百MB的库传上去)
+venv/
+env/
+.venv/
+
+# 5. IDE 配置文件
+.vscode/
+.idea/
+.ipynb_checkpoints/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+.dmypy/
+
+# Pylint
+pylint.log
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.orig
+
+# macOS files
+.DS_Store
+
+# Docker
+*.log
+.dockerignore
+docker-compose.override.yml
+
+# Logs
+*.log
+
+# Models
+models/
+
+# Database files
+*.db
+*.sqlite3
+*.sqlite
+
+# datasets 
+data/twitter_dataset
+# Results
+results/
+experiment_results/
+
+post_stats_data.npy
+post_stats_over_time.png
+
+simulate.sh
+slurm-*.out
+tmp
+mac/
+.env

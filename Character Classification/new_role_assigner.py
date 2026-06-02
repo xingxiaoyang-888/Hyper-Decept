@@ -36,14 +36,14 @@ from sklearn.decomposition import PCA
 from sklearn.mixture import BayesianGaussianMixture
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from detection_module.hyper_newtest.config import (
+from config import (
     DATASET_CHOICES,
     PROJECT_ROOT,
     configure_utf8_streams,
     resolve_dataset_paths,
 )
-from detection_module.hyper_newtest.graph_builder import build_hetero_data
-from detection_module.visualizer import CognitiveVisualizer
+from graph_builder import build_hetero_data
+from visualizer import CognitiveVisualizer
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

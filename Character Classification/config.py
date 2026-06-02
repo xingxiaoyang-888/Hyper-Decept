@@ -8,7 +8,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import pandas as pd
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DATASET_PRESETS = {
     "agent72": (

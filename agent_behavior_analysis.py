@@ -34,8 +34,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 # ========== 配置 ==========
-DB_PATH = "data/simu_db/yaml_200/110_agent.db"
-CSV_PATH = "data/our_twitter_sim/test_110_good_bad_random_multimodal_wlx.csv"
+DB_PATH = "data/test_72.db"
+CSV_PATH = "data/72agent_deeppersonal.csv"
 OUTPUT_DIR = "behavior_analysis"
 # ==========================
 
@@ -271,4 +271,3 @@ print(f"\n[OK] All outputs saved to {OUTPUT_DIR}/")
 print("Files:")
 for f in Path(OUTPUT_DIR).iterdir():
     print(f"  {f.name}")
-PYEOF

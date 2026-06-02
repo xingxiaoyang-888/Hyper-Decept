@@ -28,7 +28,7 @@ from sklearn.base import clone
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_predict
 
-from detection_module.hyper_newtest.config import (
+from config import (
     DATASET_CHOICES,
     PROJECT_ROOT,
     build_text_fields,
@@ -39,15 +39,15 @@ from detection_module.hyper_newtest.config import (
     resolve_dataset_paths,
     write_manifest,
 )
-from detection_module.hyper_newtest.graph_builder import (
+from graph_builder import (
     add_knn_edges_to_graph,
     build_26dim_features,
     build_cosine_edges,
     compute_graph_features,
     get_original_graph,
 )
-from detection_module.hyper_newtest.new_feature_extractor import MultimodalExtractor as _Extractor
-from detection_module.visualizer import CognitiveVisualizer
+from new_feature_extractor import MultimodalExtractor as _Extractor
+from visualizer import CognitiveVisualizer
 
 try:
     import shap

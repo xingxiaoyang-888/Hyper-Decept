@@ -682,8 +682,10 @@ def generate_multiple_profiles(num_rounds: int = 8) -> None:
     # 获取项目根目录
     project_root = get_project_root()
     
-    # 创建输出目录
-    output_dir = "/home/zhou/deeppersona/generate_user_profile_final/output"
+    # Create output directory (directly to deeppersona_ai/ for downstream consumption)
+    deeppersona_root = os.path.dirname(os.path.abspath(__file__))  # .../generate_user_profile/
+    project_root = os.path.abspath(os.path.join(deeppersona_root, '..', '..'))  # = repo root /Hyper-Decept/
+    output_dir = os.path.join(project_root, "deeppersona_ai", "output")
     os.makedirs(output_dir, exist_ok=True)
     
     # 定义每个档案的属性数量
@@ -756,5 +758,15 @@ def generate_multiple_profiles(num_rounds: int = 8) -> None:
     print(f"\n所有 {all_profiles['metadata']['profiles_completed']} 个个人资料已成功生成并保存到: {all_profiles_path}")
     print(f"生成完成，耗时 {elapsed_time:.2f} 秒")
 
+    # 同时保存为列表格式，供 profile_chunker.py 使用
+    profile_list = []
+    for key, value in all_profiles.items():
+        if key.startswith("Profile_"):
+            profile_list.append(value)
+    deeppersonal_path = os.path.join(project_root, "deeppersona_ai", "deeppersonal_agents.json")
+    with open(deeppersonal_path, 'w', encoding='utf-8') as f:
+        json.dump(profile_list, f, ensure_ascii=False, indent=2)
+    print(f"列表格式已保存到: {deeppersonal_path} ({len(profile_list)} profiles)")
+
 if __name__ == "__main__":
-    generate_multiple_profiles(10)
+    generate_multiple_profiles(3)

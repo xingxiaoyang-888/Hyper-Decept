@@ -94,11 +94,22 @@ class EmpathyGapAnalyzer:
             self.nlp = spacy.load(spacy_model)
             self.has_dependency_parser = "parser" in self.nlp.pipe_names
         except OSError:
-            logger.warning(f"未找到 {spacy_model}，启用 spaCy 空白英文管线安全降级。")
-            self.nlp = spacy.blank("en")
-            if "sentencizer" not in self.nlp.pipe_names:
-                self.nlp.add_pipe("sentencizer")
-            self.has_dependency_parser = False
+            print(f"   未找到 {spacy_model}，尝试自动下载...")
+            try:
+                import subprocess
+                subprocess.check_call(
+                    [sys.executable, "-m", "spacy", "download", spacy_model],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                self.nlp = spacy.load(spacy_model)
+                self.has_dependency_parser = "parser" in self.nlp.pipe_names
+                print(f"   -> 自动下载完成，已加载 {spacy_model}")
+            except Exception:
+                logger.warning(f"自动下载失败，启用 spaCy 空白英文管线安全降级。")
+                self.nlp = spacy.blank("en")
+                if "sentencizer" not in self.nlp.pipe_names:
+                    self.nlp.add_pipe("sentencizer")
+                self.has_dependency_parser = False
 
         # 3. 认知流: GPT-2
         self.ppl_model_name = ppl_model_name

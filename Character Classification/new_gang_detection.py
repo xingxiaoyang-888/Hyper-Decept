@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 
-from detection_module.hyper_newtest.config import PROJECT_ROOT, configure_utf8_streams
+from config import PROJECT_ROOT, configure_utf8_streams
 
 
 warnings.filterwarnings("ignore")

@@ -13,6 +13,7 @@
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
 from __future__ import annotations
 
+import os
 import re
 import inspect
 import json
@@ -123,7 +124,7 @@ class SocialAgent:
         task_blackboard: "TaskBlackboard" = None,
         num_agents = None,
         num_bad = None,
-        prompt_dir: str = "scripts/twitter_simulation/align_with_real_world",
+        prompt_dir: str = "MultiAgent4Collusion-master/scripts/twitter_simulation/align_with_real_world",
     ):
         self.agent_id = agent_id
         self.user_info = user_info
@@ -138,11 +139,29 @@ class SocialAgent:
                 tools=self.env.action.get_openai_function_list(),
                 temperature=0.5,
             )
-            self.model_backend = ModelFactory.create(
-                model_platform=ModelPlatformType.OPENAI,
-                model_type=ModelType(model_type),
-                model_config_dict=model_config.as_dict(),
-            )
+            # Support OpenAI-compatible APIs (DeepSeek, etc.) via env vars
+            model_name = str(self.model_type)
+            deepseek_key = (os.environ.get("DEEPSEEK_API_KEY") or "").strip("\"' ")
+            if deepseek_key or "deepseek" in model_name.lower():
+                deepseek_url = (os.environ.get(
+                    "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1") or "").strip("\"' ")
+                self.model_backend = ModelFactory.create(
+                    model_platform=ModelPlatformType.OPENAI_COMPATIBILITY_MODEL,
+                    model_type=model_name,
+                    model_config_dict=model_config.as_dict(),
+                    url=deepseek_url,
+                    api_key=deepseek_key,
+                )
+            else:
+                try:
+                    resolved_type = ModelType(model_type)
+                except ValueError:
+                    resolved_type = model_type
+                self.model_backend = ModelFactory.create(
+                    model_platform=ModelPlatformType.OPENAI,
+                    model_type=resolved_type,
+                    model_config_dict=model_config.as_dict(),
+                )
 
         context_creator = ScoreBasedContextCreator(
             OpenAITokenCounter(ModelType.GPT_3_5_TURBO),
@@ -941,16 +960,58 @@ class SocialAgent:
             try:
                 response = self.model_backend.run(openai_messages)
                 agent_log.info(f"Agent {self.agent_id} response: {response}")
-                content = response
-                for tool_call in response.choices[0].message.tool_calls:
-                    action_name = tool_call.function.name
-                    args = json.loads(tool_call.function.arguments)
-                    agent_log.info(
-                        f"Agent {self.agent_id} is performing "
-                        f"action: {action_name} with args: {args}"
-                    )
-                    await getattr(self.env.action, action_name)(**args)
-                    self.perform_agent_graph_action(action_name, args)
+                msg = response.choices[0].message
+                content = msg.content or ""
+                # Try structured tool_calls first (OpenAI native)
+                if msg.tool_calls:
+                    functions_built = []
+                    for tool_call in msg.tool_calls:
+                        action_name = tool_call.function.name
+                        args = json.loads(tool_call.function.arguments)
+                        agent_log.info(
+                            f"Agent {self.agent_id} is performing "
+                            f"action: {action_name} with args: {args}"
+                        )
+                        await getattr(self.env.action, action_name)(**args)
+                        self.perform_agent_graph_action(action_name, args)
+                        self.past_actions.append({"name": action_name, "arguments": args})
+                        functions_built.append({"name": action_name, "arguments": args})
+                    if functions_built:
+                        await self.update_long_term_memory({"functions": functions_built})
+                else:
+                    # Fallback: parse JSON from text content (DeepSeek compat)
+                    text = msg.content or ""
+                    # Use stack-based matching to find outermost JSON object
+                    json_start = text.find("{")
+                    if json_start != -1:
+                        depth = 0
+                        for i in range(json_start, len(text)):
+                            if text[i] == "{":
+                                depth += 1
+                            elif text[i] == "}":
+                                depth -= 1
+                                if depth == 0:
+                                    json_str = text[json_start:i+1]
+                                    try:
+                                        parsed = json.loads(json_str)
+                                        for func in parsed.get("functions", []):
+                                            action_name = func["name"]
+                                            args = func.get("arguments", {})
+                                            agent_log.info(
+                                                f"Agent {self.agent_id} is performing "
+                                                f"action: {action_name} with args: {args} "
+                                                f"(parsed from text)"
+                                            )
+                                            await getattr(self.env.action, action_name)(**args)
+                                            self.perform_agent_graph_action(action_name, args)
+                                            self.past_actions.append({"name": action_name, "arguments": args})
+                                        await self.update_long_term_memory(parsed)
+                                    except json.JSONDecodeError:
+                                        agent_log.warning(
+                                            f"Agent {self.agent_id} JSON parse failed, "
+                                            f"raw text around JSON: {text[json_start:json_start+200]}"
+                                        )
+                                    break
             except Exception as e:
                 agent_log.error(e)
                 content = "No response."

@@ -35,6 +35,8 @@ from oasis.clock.clock import Clock
 from oasis.social_agent.agents_generator import generate_agents
 from oasis.social_platform.channel import Channel
 from oasis.social_platform.platform import Platform
+from oasis.social_platform.task_blackboard import TaskBlackboard
+from oasis.social_platform.post_stats import SharedMemory, TweetStats
 from oasis.social_platform.typing import ActionType
 
 social_log = logging.getLogger(name="social")
@@ -91,6 +93,7 @@ async def running(
     social_log.info(f"Start time: {start_time}")
     clock = Clock(k=clock_factor)
     twitter_channel = Channel()
+    tweet_stats = TweetStats()
     infra = Platform(
         db_path=db_path,
         channel=twitter_channel,
@@ -100,10 +103,14 @@ async def running(
         refresh_rec_post_count=2,
         max_rec_post_len=2,
         following_post_count=3,
+        tweet_stats=tweet_stats,
     )
     inference_channel = Channel()
+    detection_inference_channel = Channel()
+    task_blackboard = TaskBlackboard()
+    shared_memory = SharedMemory()
     twitter_task = asyncio.create_task(infra.running())
-    if inference_configs["model_type"][:3] == "gpt":
+    if inference_configs["model_type"][:3] == "gpt" or inference_configs["model_type"] == "deepseek-chat":
         is_openai_model = True
 
     try:
@@ -140,6 +147,10 @@ async def running(
         agent_info_path=csv_path,
         twitter_channel=twitter_channel,
         inference_channel=inference_channel,
+        detection_inference_channel=detection_inference_channel,
+        task_blackboard=task_blackboard,
+        tweet_stats=tweet_stats,
+        shared_memory=shared_memory,
         start_time=start_time,
         recsys_type=recsys_type,
         action_space_prompt=action_prompt,
@@ -148,6 +159,41 @@ async def running(
         **model_configs,
     )
     # agent_graph.visualize("initial_social_graph.png")
+
+    # ---- 初始化 tweet_stats ----
+    # 1. 从 DB 加载初始帖子到 tweet_stats.posts
+    try:
+        infra.pl_utils._execute_db_command(
+            "SELECT post_id, user_id, content FROM post"
+        )
+        initial_posts = infra.db_cursor.fetchall()
+        for post_id, user_id, content in initial_posts:
+            if post_id not in tweet_stats.posts:
+                tweet_stats._create_post(
+                    post_id=post_id, user_id=user_id, content=content
+                )
+        social_log.info(
+            f"[init] Loaded {len(initial_posts)} initial posts into tweet_stats"
+        )
+    except Exception as e:
+        social_log.error(f"[init] Failed to load initial posts: {e}")
+
+    # 2. 从 DB 填充 bad_agent_ids
+    try:
+        infra.pl_utils._execute_db_command(
+            "SELECT user_id, user_type FROM user"
+        )
+        all_users = infra.db_cursor.fetchall()
+        for user_id, user_type in all_users:
+            if "bad" in user_type:
+                tweet_stats.bad_agent_ids.add(user_id)
+        tweet_stats.benign_user_count = len(all_users) - len(tweet_stats.bad_agent_ids)
+        social_log.info(
+            f"[init] bad_agent_ids={tweet_stats.bad_agent_ids}, "
+            f"benign_user_count={tweet_stats.benign_user_count}"
+        )
+    except Exception as e:
+        social_log.error(f"[init] Failed to load user info: {e}")
 
     for timestep in range(1, num_timesteps + 1):
         os.environ["SANDBOX_TIME"] = str(timestep * 3)
@@ -173,7 +219,7 @@ async def running(
         await asyncio.gather(*tasks)
         # agent_graph.visualize(f"timestep_{timestep}_social_graph.png")
 
-    await twitter_channel.write_to_receive_queue((None, None, ActionType.EXIT))
+    await twitter_channel.write_to_receive_queue((None, None, ActionType.EXIT), agent_id=None)
     await twitter_task
 
 
@@ -187,6 +233,12 @@ if __name__ == "__main__":
         simulation_params = cfg.get("simulation")
         model_configs = cfg.get("model")
         inference_configs = cfg.get("inference")
+        # Set API key/URL from YAML to env vars (for DeepSeek compatibility mode)
+        if inference_configs:
+            if inference_configs.get("api_key"):
+                os.environ["DEEPSEEK_API_KEY"] = inference_configs["api_key"]
+            if inference_configs.get("api_base_url"):
+                os.environ["DEEPSEEK_BASE_URL"] = inference_configs["api_base_url"]
         actions = cfg.get("actions")
 
         asyncio.run(

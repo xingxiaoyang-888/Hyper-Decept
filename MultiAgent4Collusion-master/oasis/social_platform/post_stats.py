@@ -451,7 +451,10 @@ class TweetStats:
             post_id (int): The post ID of the post being viewed.
         """
         async with self._lock:
-            self._check_post_exists(post_id)
+            if post_id not in self.posts:
+                # 帖子在 SQLite 中存在但尚未初始化到 self.posts（如 CSV 初始帖）
+                # 跳过 viewer 记录，不阻塞 refresh 流程
+                return
             is_bad_guy = user_id in self.bad_agent_ids
             await self.posts[post_id].add_viewer(user_id, is_bad_guy)
             # record viewer in the root post

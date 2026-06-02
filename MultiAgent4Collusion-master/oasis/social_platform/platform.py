@@ -320,11 +320,23 @@ class Platform:
                 await self.tweet_stats.update_agent_visible_post_dict(
                     user_id=user_id, post_ids=selected_post_ids
                 )
-                await self.tweet_stats.add_viewers(
-                    user_id=user_id, post_ids=selected_post_ids
-                )
+                try:
+                    await self.tweet_stats.add_viewers(
+                        user_id=user_id, post_ids=selected_post_ids
+                    )
+                except Exception:
+                    twitter_log.warning(
+                        f"[refresh] add_viewers failed for user_id={user_id}, "
+                        f"continuing refresh"
+                    )
 
             placeholders = ", ".join("?" for _ in selected_post_ids)
+
+            twitter_log.info(
+                f"[DEBUG refresh] user_id={user_id} "
+                f"selected_post_ids={selected_post_ids} "
+                f"placeholders={placeholders}"
+            )
 
             post_query = (
                 f"SELECT post_id, user_id, original_post_id, content, "
@@ -333,7 +345,15 @@ class Platform:
             )
             self.pl_utils._execute_db_command(post_query, selected_post_ids)
             results = self.db_cursor.fetchall()
+            twitter_log.info(
+                f"[DEBUG refresh] post_query_result_count={len(results)} "
+                f"first_few={results[:2] if results else 'EMPTY'}"
+            )
             if not results:
+                twitter_log.info(
+                    f"[DEBUG refresh] NO POSTS FOUND for user_id={user_id} "
+                    f"selected_post_ids={selected_post_ids}"
+                )
                 return {"success": False, "message": "No posts found."}
             results_with_comments = self.pl_utils._add_comments_to_posts(results)
 
@@ -345,6 +365,9 @@ class Platform:
             twitter_log.info(f"results_with_comments: {results_with_comments}")
             return {"success": True, "posts": results_with_comments}
         except Exception as e:
+            twitter_log.exception(
+                f"[refresh] UNCAUGHT EXCEPTION for user_id={user_id}: {e}"
+            )
             return {"success": False, "error": str(e)}
 
     async def update_rec_table(self):

@@ -30,12 +30,12 @@
 
 
 data:
-  db_path: data/simu_db/72agent_deeppersonal/test.db
-  csv_path: to_add_engine/data/72agent_deeppersonal.csv
+  db_path: MultiAgent4Collusion-master/our_twitter_sim/test.db
+  csv_path: MultiAgent4Collusion-master/our_twitter_sim/input_agents.csv
 
 
 simulation:
-  num_timesteps: 40
+  num_timesteps: 5
   clock_factor: 60
   recsys_type: twhin-bert
   reflection: True
@@ -64,4 +64,4 @@ inference:
 
 defense:
   strategy: ban
-  gap: 20
+  gap: 5

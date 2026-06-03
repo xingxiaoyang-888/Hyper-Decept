@@ -1,639 +1,377 @@
-﻿# Hyper-Decept
-
-HyperDecept: A cross-dimensional multimodal framework integrating LLM-native psychological profiling and hyperbolic graph learning for detecting coordinated multi-agent deception.
-
----
-
-## 📋 Table of Contents
-
-1. [Project Architecture](#-project-architecture)
-2. [Prerequisites & Installation](#-prerequisites--installation)
-3. [Full Pipeline Walkthrough](#-full-pipeline-walkthrough)
-   - [Step 1: Generate Deep Personas (Deeppersona)](#step-1-generate-deep-personas-deeppersona)
-   - [Step 2: Build Semantic Vector Store (deeppersona_ai)](#step-2-build-semantic-vector-store-deeppersona_ai)
-   - [Step 3: Run Multi-Agent Simulation (MultiAgent4Collusion)](#step-3-run-multi-agent-simulation-multiagent4collusion)
-   - [Step 4: Run Emotional/Psychological Analysis (emotional_analysis)](#step-4-run-emotionalpsychological-analysis-emotional_analysis)
-   - [Step 5: Adapt Simulation Data (data_processing)](#step-5-adapt-simulation-data-data_processing)
-   - [Step 6: Build Hyperbolic Graph & Classify Roles (Character Classification)](#step-6-build-hyperbolic-graph--classify-roles-character-classification)
-   - [Step 7: Run the Ultimate Detector (main_detector.py)](#step-7-run-the-ultimate-detector-main_detectorpy)
-   - [Step 8: Behavior Visualization (agent_behavior_analysis.py)](#step-8-behavior-visualization-agent_behavior_analysispy)
-   - [Step 9: Advanced Visualizations (visualization/)](#step-9-advanced-visualizations-visualization)
-4. [Quick Start (Minimal Demo)](#-quick-start-minimal-demo)
-5. [Output Overview](#-output-overview)
-6. [Citation](#-citation)
 # Hyper-Decept
 
 HyperDecept: A cross-dimensional multimodal framework integrating LLM-native psychological profiling and hyperbolic graph learning for detecting coordinated multi-agent deception.
 
 ---
+## What This Project Does
 
-## 📋 Table of Contents
+The core of HyperDecept lies in **three detection scripts** under `Character Classification/`:
 
-1. [Project Architecture](#-project-architecture)
-2. [Prerequisites & Installation](#-prerequisites--installation)
-3. [Full Pipeline Walkthrough](#-full-pipeline-walkthrough)
-   - [Step 1: Generate Deep Personas (Deeppersona)](#step-1-generate-deep-personas-deeppersona)
-   - [Step 2: Build Semantic Vector Store (deeppersona_ai)](#step-2-build-semantic-vector-store-deeppersona_ai)
-   - [Step 3: Run Multi-Agent Simulation (MultiAgent4Collusion)](#step-3-run-multi-agent-simulation-multiagent4collusion)
-   - [Step 4: Run Emotional/Psychological Analysis (emotional_analysis)](#step-4-run-emotionalpsychological-analysis-emotional_analysis)
-   - [Step 5: Adapt Simulation Data (data_processing)](#step-5-adapt-simulation-data-data_processing)
-   - [Step 6: Build Hyperbolic Graph & Classify Roles (Character Classification)](#step-6-build-hyperbolic-graph--classify-roles-character-classification)
-   - [Step 7: Run the Ultimate Detector (main_detector.py)](#step-7-run-the-ultimate-detector-main_detectorpy)
-   - [Step 8: Behavior Visualization (agent_behavior_analysis.py)](#step-8-behavior-visualization-agent_behavior_analysispy)
-   - [Step 9: Advanced Visualizations (visualization/)](#step-9-advanced-visualizations-visualization)
-4. [Quick Start (Minimal Demo)](#-quick-start-minimal-demo)
-5. [Output Overview](#-output-overview)
-6. [Citation](#-citation)
+| Script | Task | Method |
+|--------|------|--------|
+| `new_main_classifier.py` | **Binary classification** | XGBoost on 26-dim multi-modal features |
+| `new_gang_detection.py` | **Bot gang detection** | Louvain community detection on bot subgraph |
+| `new_role_assigner.py` | **Tactical role discovery** | HGT + Poincaré ball + DPMM clustering |
+
+**Key innovations:**
+- **4-dimensional psychological features** — Empathy Gap, Dark Triad, Emotional Contagion, Emotion Volatility (from `emotional_analysis/`) are fused into the feature matrix to enhance detection
+- **Cosine-similarity augmented heterogeneous graph** — Feature vector cosine similarity is used to add edges between semantically similar nodes, compensating for sparse follow-graph connectivity
+
+Everything else in the repository (profile generation, vector store, simulation engine, visualization) serves these three detection scripts by providing additional data sources or analytical outputs.
 
 ---
+## Table of Contents
 
-## 🏗️ Project Architecture
+1. [Prerequisites & Installation](#prerequisites--installation)
+2. [Core: Multi-Modal Classification & Role Discovery](#core-multi-modal-classification--role-discovery-character-classification)
+   - [Data Sources](#data-sources)
+   - [Script 1: Binary Classifier](#script-1-binary-classifier-new_main_classifierpy)
+   - [Script 2: Bot Gang Detection](#script-2-bot-gang-detection-new_gang_detectionpy)
+   - [Script 3: Hyperbolic Role Discovery](#script-3-hyperbolic-role-discovery-new_role_assignerpy)
+3. [Supplementary Modules](#supplementary-modules)
+   - [Step A: Deep Persona Generation (Deeppersona)](#step-a-deep-persona-generation-deeppersona)
+   - [Step B: Semantic Vector Store (deeppersona_ai)](#step-b-semantic-vector-store-deeppersona_ai)
+   - [Step C: Multi-Agent Simulation (MultiAgent4Collusion)](#step-c-multi-agent-simulation-multiagent4collusion)
+   - [Step D: Emotional/Psychological Analysis (emotional_analysis)](#step-d-emotionalpsychological-analysis-emotional_analysis)
+   - [Step E: Data Adapter (data_processing)](#step-e-data-adapter-data_processing)
+
+---
+## Project Architecture
 
 ```
-                                HyperDecept Pipeline
-┌──────────────────────────────────────────────────────────────────────────┐
-│                                                                          │
-│  ① Deeppersona (LLM-based Personality Generation Engine)                  │
-│     generate_profile.py  →  Deep multi-dimensional agent profiles        │
-│              │                                                           │
-│              ▼                                                           │
-│  ② deeppersona_ai/ (Semantic Vector Store)                               │
-│     profile_chunker.py      →  Split profiles into semantic chunks       │
-│     build_vector_store.py   →  Encode → ChromaDB (384-dim vectors)       │
-│              │                                                           │
-│              ▼                                                           │
-│  ③ MultiAgent4Collusion (Multi-Agent Simulation Engine)                  │
-│     Twitter/Reddit game-theoretic simulations                             │
-│     Output: SQLite DB + CSV                                              │
-│              │                                                           │
-│              ▼                                                           │
-│  ④ emotional_analysis/ (4-Dimensional Psychological Feature Extractors)  │
-│     • Empathy Gap         (Affective × Cognitive Rigidity)               │
-│     • Dark Triad          (Machiavellianism / Narcissism / Psychopathy)  │
-│     • Emotional Contagion (Semantic Payload Alignment)                   │
-│     • Emotion Volatility  (28-D Emotion Vector Euclidean Distance)       │
-│              │                                                           │
-│              ▼                                                           │
-│  ⑤ data_processing/ (Data Adapter Layer)                                 │
-│     Standardizes simulation output → DB + CSV                            │
-│              │                                                           │
-│              ▼                                                           │
-│  ⑥ Character Classification/ (Hyperbolic Graph + Role Detection)         │
-│     graph_builder.py        →  Poincaré ball embedding                   │
-│     new_role_assigner.py    →  Tactical role assignment                  │
-│     new_main_detector.py    →  Fused classification                      │
-│              │                                                           │
-│              ▼                                                           │
-│  ⑦ main_detector.py (Ultimate Tribunal)                                  │
-│     Fuses: Psychology + Behavior + Semantics + Topology                  │
-│     XGBoost + SHAP → Explainable bot detection                          │
-│              │                                                           │
-│              ▼                                                           │
-│  ⑧ agent_behavior_analysis.py + visualization/                          │
-│     PCA plots / KDE distributions / Radar charts / Neo4j networks        │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  ┌─────────── Core Pipeline ───────────┐                                    │
+│  │                                     │                                    │
+│  │  Character Classification/          │                                    │
+│  │    new_main_classifier.py  (main)   │  ← XGBoost binary classification   │
+│  │    new_gang_detection.py   (gang)   │  ← Louvain gang detection          │
+│  │    new_role_assigner.py    (role)   │  ← HGT + Poincaré + DPMM          │
+│  │                                     │                                    │
+│  │  Input: DB + CSV (72-agent demo     │                                    │
+│  │         or TwiBot-22 processed)     │                                    │
+│  └─────────────────────────────────────┘                                    │
+│              │                                                              │
+│  ┌─────────── Supplementary Modules ───┐                                    │
+│  │ ① Deeppersona           (profiles)  │  → agents.json                     │
+│  │ ② deeppersona_ai        (vector DB) │  → vector_store/                   │
+│  │ ③ MultiAgent4Collusion  (simulation)│  → .db + .csv (feeds core)         │
+│  │ ④ emotional_analysis    (psychology)│  → feature vectors (feeds core)     │
+│  │ ⑤ data_processing       (adapter)   │  → standardized DB + CSV           │
+│  └─────────────────────────────────────┘                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
-
-## 📦 Prerequisites & Installation
+## Prerequisites & Installation
 
 ### System Requirements
 
 - **Python**: 3.10+ (recommended 3.11)
-- **GPU**: CUDA-compatible GPU recommended for LLM inference and model training (CPU fallback available)
-- **RAM**: 16GB+ minimum, 32GB+ recommended for large-scale simulations
+- **GPU**: CUDA-compatible GPU recommended (CPU fallback available)
+- **RAM**: 16GB+ minimum, 32GB+ for large-scale simulation
 
-### Install Core Dependencies
+### Install Dependencies
 
 ```bash
-# Core scientific computing
-pip install numpy pandas scikit-learn matplotlib seaborn
-
-# Deep learning & transformers
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install transformers sentence-transformers spacy
-
-# Vector database
-pip install chromadb
-
-# Graph & network analysis
-pip install networkx
-
-# XGBoost & SHAP (explainable AI)
-pip install xgboost shap
-
-# Imbalanced learning
-pip install imbalanced-learn
-
-# Serialization
-pip install ijson
-
-# Neo4j visualization (optional, for dynamic follow networks)
-pip install neo4j
+# Install all required packages
+pip install -r requirements.txt
 
 # Download spaCy language model
 python -m spacy download en_core_web_sm
 ```
 
-### Environment Variables (for LLM-based components)
+### HuggingFace Mirror (if blocked in your region)
 
 ```bash
-# OpenAI API (for personality generation and simulation)
-export OPENAI_API_KEY="your-openai-api-key"
-export OPENAI_API_BASE_URL="https://api.openai.com/v1"  # or your proxy
-
-# Or for Hugging Face models
-export HF_TOKEN="your-huggingface-token"
+set HF_ENDPOINT=https://hf-mirror.com
 ```
 
 ---
+## Core: Multi-Modal Classification & Role Discovery (`Character Classification`)
 
-## 🚀 Full Pipeline Walkthrough
+This is the **central module** of HyperDecept. It performs coordinated deception detection through three scripts:
 
-Below are the complete steps to run the entire HyperDecept pipeline from persona generation to final deception detection and visualization.
+1. **Binary classification** (main) — XGBoost on 26-dim multi-modal features
+2. **Bot gang detection** (gang) — Louvain community detection on bot subgraph
+3. **Hyperbolic role discovery** (role) — HGT + Poincaré ball + DPMM clustering
 
----
+### Data Sources
 
-### Step 1: Generate Deep Personas (`Deeppersona`)
+The pipeline accepts two kinds of input:
 
-> **What**: Uses LLMs to generate rich, multi-dimensional psychological profiles for each agent (demographics, career, values, lifestyle, social context, interests + first-person narrative summary).
->
-> **Input**: Attribute templates from `Deeppersona/data/`
->
-> **Output**: `deeppersona_ai/deeppersonal_agents.json` — 30 agents with 6-dimensional deep personality profiles
+#### Mode A: Demo Data
 
+The `data/` directory (included in this repository) contains a pre-packaged 72-agent dataset:
+
+| File | Description |
+|------|-------------|
+| `data/test_72.db` | SQLite database with user, post, follow, like tables |
+| `data/72agent_deeppersonal.csv` | Multi-modal feature CSV with `user_id`, `user_char`, `previous_tweets`, `user_type` (good/bad) |
+
+Use this to quickly verify the pipeline. These are synthetically generated, not real social media data.
+
+#### Mode B: TwiBot-22 Benchmark
+
+For research-grade results, the [TwiBot-22](https://github.com/DigitalHominids/TwiBot-22) dataset must be processed through `data_processing/` before it can be consumed by the core pipeline.
+
+> **Note**: The TwiBot-22 processing pipeline (steps below) takes a **long time** to run. Pre-processed files are available for download: **[link TBD — to be added]**.
+
+**If processing from raw data:**
 ```bash
-cd Deeppersona/generate_user_profile
-
-# Generate multiple rounds of profiles (each round generates profiles with 100-350 attributes)
-python generate_profile.py
-
-# This will:
-#   1. Select random occupations and life stories from data/
-#   2. For each agent, sequentially generate 6 personality dimensions via LLM
-#   3. Generate a first-person narrative summary (100-400 words)
-#   4. Save all profiles to deeppersona_ai/deeppersonal_agents.json
-
-cd ../..
-```
-
-**Verification**: Open `deeppersona_ai/deeppersonal_agents.json` — you should see ~30 agents with fields like `Summary`, `Demographic Information`, `Career and Work Identity`, `Core Values, Beliefs, and Philosophy`, `Lifestyle and Daily Routine`, `Cultural and Social Context`, `Hobbies, Interests, and Lifestyle`.
-
----
-
-### Step 2: Build Semantic Vector Store (`deeppersona_ai`)
-
-> **What**: Chunks the structured personality profiles into semantic text blocks, then encodes them into 384-dimensional vectors using SentenceTransformer and stores them in ChromaDB for fast semantic retrieval.
->
-> **Input**: `deeppersona_ai/deeppersonal_agents.json`
->
-> **Output**: `deeppersona_ai/chunked_profiles.json` + `deeppersona_ai/vector_store/`
-
-```bash
-cd deeppersona_ai
-
-# Step 2a: Chunk profiles into semantic blocks
-python profile_chunker.py
-# Output: chunked_profiles.json (~210 chunks = 30 agents × 7 sections each)
-# Each chunk contains: agent_id, section (summary/demographic/career/values/...), text
-
-# Step 2b: Build ChromaDB vector store
-python build_vector_store.py
-# Output: vector_store/ (persistent ChromaDB with 384-dim embeddings)
-# This also runs a retrieval test with 5 sample queries to verify correctness
-
-cd ..
-```
-
-**Verification**: After running `build_vector_store.py`, you should see retrieval results like:
-```
-Query: "elderly Singaporean gardening balcony chili kangkong"
-  Top-2 matches:
-    [agent_12_interests] distance=0.8234  agent=12 section=interests
-    [agent_12_summary]   distance=0.9102  agent=12 section=summary
-```
-
----
-
-### Step 3: Run Multi-Agent Simulation (`MultiAgent4Collusion`)
-
-> **What**: Runs a social network simulation where LLM-driven agents interact (post, comment, like, follow, repost) in a Twitter/Reddit-like environment. Agents are assigned `good` (human-like) or `bad` (bot/attacker) roles with distinct behavioral profiles.
->
-> **Input**: YAML configuration files specifying agents, topics, and simulation parameters
->
-> **Output**: SQLite database (`.db`) containing all agent actions, follow relationships, and post contents
-
-```bash
-cd MultiAgent4Collusion-master
-
-# --- Option A: Twitter Simulation with Real-World Alignment ---
-python scripts/twitter_simulation/align_with_real_world/twitter_simulation_large.py \
-    --config_path scripts/twitter_simulation/align_with_real_world/yaml_200/sub1/False_Business_0.yaml
-
-# --- Option B: Twitter Group Polarization Simulation ---
-python scripts/twitter_simulation/group_polarization/twitter_simulation_group_polar.py \
-    --config_path scripts/twitter_simulation/group_polarization/group_polarization.yaml
-
-# --- Option C: Reddit Simulation Aligned with Human Behavior ---
-python scripts/reddit_simulation_align_with_human/reddit_simulation_align_with_human.py \
-    --config_path scripts/reddit_simulation_align_with_human/business_3600.yaml
-
-# --- Option D: Reddit Counterfactual Content Simulation ---
-python scripts/reddit_simulation_counterfactual/reddit_simulation_counterfactual.py \
-    --config_path scripts/reddit_simulation_counterfactual/control_100.yaml
-
-# --- Option E: Quick GPT-based Twitter Demo (low cost, ~33 agent inferences) ---
-python scripts/twitter_gpt_example/twitter_simulation_large.py \
-    --config_path scripts/twitter_gpt_example/gpt_example.yaml
-
-cd ..
-```
-
-**Verification**: A `.db` file (e.g., `110_agent.db`) and a `.json` log file will be generated in the output directory. You can inspect them with:
-```bash
-python -c "import sqlite3; conn=sqlite3.connect('path/to/output.db'); \
-  print('Users:', conn.execute('SELECT count(*) FROM user').fetchone()[0]); \
-  print('Posts:', conn.execute('SELECT count(*) FROM post').fetchone()[0]); \
-  print('Follows:', conn.execute('SELECT count(*) FROM follow').fetchone()[0])"
-```
-
-**Note for large-scale runs**: For LLM inference with open-source models, see `tutorials/installation.md` for vLLM deployment instructions.
-
----
-
-### Step 4: Run Emotional/Psychological Analysis (`emotional_analysis`)
-
-> **What**: Four independent heavy-duty NLP engines analyze each agent's tweets along four psychological dimensions. Each engine loads its own pre-trained transformer model (RoBERTa, BART, SentenceTransformer, GPT-2).
->
-> **Input**: Agent tweet texts (from simulation output)
->
-> **Output**: Per-agent psychological feature vectors (8 core features: mean/max for each dimension)
-
-| Engine | Model | Dimension | What It Measures |
-|---|---|---|---|
-| `EmpathyGapAnalyzer` | RoBERTa + spaCy + GPT-2 | **Empathy Gap** | Affective arousal × Syntactic cognitive rigidity |
-| `DarkTriadAnalyzer` | BART-large-MNLI | **Dark Triad** | Machiavellianism + Narcissism + Psychopathy via NLI |
-| `ContagionAnalyzer` | SentenceTransformer | **Emotional Contagion** | Semantic alignment with manipulation payload anchors |
-| `EmotionVolatilityAnalyzer` | RoBERTa (28 emotions) | **Emotion Volatility** | Euclidean distance between consecutive 28-D emotion vectors |
-
-**Quick test** (these are singleton classes called by the feature extractor pipeline, but can be tested standalone):
-
-```python
-from emotional_analysis import EmpathyGapAnalyzer, DarkTriadAnalyzer, ContagionAnalyzer, EmotionVolatilityAnalyzer
-
-# Initialize (each is a singleton, auto-loads models on first call)
-empathy = EmpathyGapAnalyzer()
-dark = DarkTriadAnalyzer()
-contagion = ContagionAnalyzer()
-volatility = EmotionVolatilityAnalyzer()
-
-# Analyze a single agent's tweet history
-tweets = ["I lost my job and feel hopeless.", "The system is completely rigged."]
-
-empathy_result = empathy.evaluate_agent(tweets)
-# → {"Agent_Mean_Empathy_Gap": 0.42, "Agent_Max_Empathy_Gap": 0.78, "Agent_Anomaly_Ratio": 0.15}
-
-dark_result = dark.evaluate_agent(tweets)
-# → {"Agent_Mean_Dark_Triad": 0.35, "Agent_Max_Dark_Triad": 0.82, "Agent_Manipulative_Ratio": 0.22}
-
-contagion_result = contagion.evaluate_agent(tweets)
-# → {"Agent_Mean_Alignment": 0.56, "Agent_Contagion_Spike": 0.91, "Agent_Frictionless_Index": 0.91}
-
-volatility_result = volatility.evaluate_agent(tweets)
-# → {"Agent_Mean_Volatility": 0.34, "Agent_Max_Volatility": 1.25, "Insufficient_Data": False}
-```
-
----
-
-### Step 5: Adapt Simulation Data (`data_processing`)
-
-> **What**: Converts raw simulation output (or TwiBot-22 benchmark data) into a standardized format (CSV + SQLite) that downstream modules can consume. Handles text truncation, follow-graph sampling, and metadata extraction.
->
-> **Input**: Raw simulation DB / TwiBot-22 dataset directory
->
-> **Output**: Standardized `twibot_{N}_v5.db` + `twibot_{N}_multimodal_v5.csv`
-
-```bash
-# For TwiBot-22 benchmark data:
 cd data_processing
 
 python twinbot_adapter_dynamic.py \
-    --twibot-dir "path/to/twibot22/data" \
+    --twibot-dir "path/to/raw/twibot22" \
     --output-dir "path/to/output" \
     --total-sample-size 1000 \
     --max-actions 50 \
     --max-follows 100
 
-# Or use the V5.3 interactive version:
-python twinbot_adapter.py
-
 cd ..
 ```
 
-**Output format**:
-- **CSV**: `user_id`, `user_char` (bio), `followers_count`, `following_count`, `previous_tweets` (pipe-separated), `user_type` (good/bad)
-- **DB Tables**: `user`, `follow`, `agent_actions` (with indexed columns for fast queries)
+This produces the standardized `twibot_{N}_v5.db` and `twibot_{N}_multimodal_v5.csv` files consumed by the core pipeline.
 
----
+#### Dataset Presets
 
-### Step 6: Multi-Modal Classification & Role Discovery (`Character Classification`)
-
-> **What**: A three-script pipeline that extracts multi-modal features (semantic + behavioral + psychological), builds an enhanced heterogeneous graph with cosine-similarity edges, runs XGBoost binary bot classification (Script 1), detects bot gang communities (Script 2), and discovers tactical roles via HGT + Poincaré hyperbolic projection + DPMM clustering (Script 3).
->
-> **Input**: Standardized DB + CSV from Step 5
->
-> **Output**: Classification reports, gang detection results, and hyperbolic role assignments
-
-**Script 1 — Classifier (required, runs first):**
-
-```bash
-cd "Character Classification"
-
-# Build 26-dim multi-modal features (semantic PCA + behavior stats + 4 psychology dimensions)
-# → Construct enhanced heterogeneous graph (follow edges + cosine-similarity edges)
-# → XGBoost binary classification with adaptive CV (LOOCV for ≤20, 5-Fold SMOTE for larger)
-# → SHAP feature attribution + confusion matrix
-python new_main_classifier.py --dataset agent72
-# Output: new_result/hyper_newtest/classification_results.csv
-#         new_result/hyper_newtest/node_features.csv
-#         new_result/hyper_newtest/enhanced_graph_edges.csv
-#         new_result/hyper_newtest/confusion_matrix.png
-#         new_result/hyper_newtest/shap_summary_plot.png
-
-cd ..
-```
-
-Available datasets (from `config.py` presets, or use `--db`/`--csv` for custom paths):
+All available datasets are configured in `Character Classification/config.py`:
 
 | `--dataset` | DB file | CSV file | Description |
-|---|---|---|---|
-| `agent72` / `72` | `data/test_72.db` | `data/72agent_deeppersonal.csv` | 72-agent small demo |
-| `twibot120` | `data/twibot_120_v5.db` | `data/twibot_120_multimodal_v5.csv` | TwiBot-120 benchmark |
-| `twibot1000` / `twibot` | `data/twibot_1000_v5.db` | `data/twibot_1000_multimodal_v5.csv` | TwiBot-1000 benchmark |
-| `sim1000` / `sim` | `data/simu_db/test_1000_ver2.db` | `data/simu_db/test_1000_good_bad_random_bernoulli_.csv` | 1000-agent simulation |
+|-------------|---------|----------|-------------|
+| `agent72` / `72` | `data/test_72.db` | `data/72agent_deeppersonal.csv` | 72-agent demo (Mode A) |
+| `twibot120` | `data/twibot_120_v5.db` | `data/twibot_120_multimodal_v5.csv` | TwiBot-120 benchmark (Mode B) |
+| `twibot1000` / `twibot` | `data/twibot_1000_v5.db` | `data/twibot_1000_multimodal_v5.csv` | TwiBot-1000 benchmark (Mode B) |
+| `sim1000` / `sim` | `data/simu_db/test_1000_ver2.db` | `data/simu_db/test_1000_good_bad_random_bernoulli_.csv` | 1000-agent simulation (Mode A) |
 
-**Script 2 — Bot Gang Detection (optional, runs after Script 1):**
+---
+### Script 1: Binary Classifier (`new_main_classifier.py`)
 
-> **Note**: Script 1 saves outputs to a timestamped subfolder under `{save_dir}` (e.g., `new_result/hyper_newtest/classifier_agent72_.../`). You must pass this folder path to `--save-dir` so Script 2 can find the required files.
+> Extracts 26-dimensional multi-modal features (semantic PCA + behavior stats + psychology dimensions), constructs an enhanced heterogeneous graph (follow edges + cosine-similarity edges), and runs XGBoost binary bot classification with adaptive cross-validation and SHAP explainability.
+
+Open `new_main_classifier.py` in your IDE and click the run button. Configure the `--dataset` parameter in `config.py` to select the dataset (default is `agent72`). The output folder name will be printed in the console log after execution completes.
+
+**Output**: `new_result/hyper_newtest/{run_name}/`
+```
+classification_results.csv    # Per-agent predictions + probabilities
+node_features.csv             # 26-dim feature vectors
+enhanced_graph_edges.csv      # Graph edges (follow + cosine-similarity)
+confusion_matrix.png          # Human vs Bot confusion matrix
+shap_summary_plot.png         # Top-15 feature attribution beeswarm
+```
+
+---
+### Script 2: Bot Gang Detection (`new_gang_detection.py`)
+
+> Loads the bot subgraph from Script 1's output, runs Louvain community detection to identify bot gangs, and produces per-gang psychological profiling with PCA scatter visualization.
+
+**Prerequisites**: Script 1 (`new_main_classifier.py`) must have been run **first**. This script reads the `enhanced_graph_edges.csv` and `node_features.csv` generated by Script 1. You must pass Script 1's output folder to `--save-dir`. Run from the project root directory:
 
 ```bash
-cd "Character Classification"
+# Replace the folder name with the actual one generated by Script 1
+python "Character Classification/new_gang_detection.py" \
+    --save-dir "new_result/hyper_newtest/classifier_agent72_test_72_20260603_110704"
+```
 
-# Unsupervised bot community detection on the enhanced graph
-# → Loads bot subgraph from Script 1's enhanced_graph_edges.csv
-# → Louvain community detection → gang assignments
-# → Per-gang psychological profiling + PCA scatter visualization
-python new_gang_detection.py --save-dir "{Script1_output_dir}"
-# Output: {save_dir}/gang_results.csv
-#         {save_dir}/gang_profiles.csv
-#         {save_dir}/gang_scatter.png
+> **Note**: The folder name contains a timestamp (e.g., `classifier_agent72_test_72_20260603_110704`). Check Script 1's console output to get the exact name, then substitute it into the command above.
 
+**Output** (written to the same `--save-dir`):
+```
+gang_results.csv       # Per-agent gang assignment
+gang_profiles.csv      # Per-gang psychological profile summary
+bot_gang_edges.csv     # Edges within bot subgraph
+gang_scatter.png       # PCA scatter colored by gang
+```
+
+---
+### Script 3: Hyperbolic Role Discovery (`new_role_assigner.py`)
+
+> Trains a Heterogeneous Graph Transformer (HGT) with Poincaré distance contrastive loss to learn structural embeddings, then runs DPMM (Dirichlet Process Mixture Model) to automatically discover tactical roles such as Opinion Leader, Information Bridge, Amplifier, Community Builder, etc.
+
+**Prerequisites**: Script 1 (`new_main_classifier.py`) must have been run **first**. This script reads Script 1's output to build the heterogeneous graph. You must pass Script 1's output folder to `--save-dir`. Run from the project root directory:
+
+```bash
+# Replace the folder name with the actual one generated by Script 1
+python "Character Classification/new_role_assigner.py" \
+    --save-dir "new_result/hyper_newtest/classifier_agent72_test_72_20260603_110704"
+```
+
+> **Note**: The folder name contains a timestamp (e.g., `classifier_agent72_test_72_20260603_110704`). Check Script 1's console output to get the exact name, then substitute it into the command above.
+
+**Output** (written to the same `--save-dir`):
+```
+role_assignments.csv       # user_id, role label, poincare_radius, cluster
+poincare_disk.png          # Agents projected on Poincaré disk
+radius_distribution.png    # Distribution of Poincaré radii
+dpmm_weights.png           # DPMM cluster weights
+```
+
+---
+
+## Supplementary Modules
+
+These modules provide additional data, features, or visualizations for the core pipeline. They can be run independently or in sequence depending on your needs.
+
+---
+### Step A: Deep Persona Generation (`Deeppersona`)
+
+> Uses an LLM (OpenAI/DeepSeek) to generate rich, multi-dimensional psychological profiles (demographics, career, values, lifestyle, social context, interests + narrative summary) for simulated agents.
+>
+> This step is based on the [Deeppersona](https://github.com/thzva/Deeppersona) framework. Download the project and run it to generate agent profiles. The output JSON file must be named `deeppersonal_agents.json` and placed in the `deeppersona_ai/` folder.
+>
+> A pre-generated 72-agent file is already provided at `deeppersona_ai/deeppersonal_agents.json` to skip this step.
+
+---
+### Step B: Semantic Vector Store (`deeppersona_ai`)
+
+> Chunks personality profiles into semantic text blocks, encodes them into 384-dim vectors via SentenceTransformer, and stores in ChromaDB for fast semantic retrieval (used as RAG memory for simulation agents). This is a prerequisite for the [simulation pipeline](#step-c-multi-agent-simulation-multiagent4collusion).
+
+**Input**: `deeppersona_ai/deeppersonal_agents.json`
+**Output**: `chunked_profiles.json` + `vector_store/`
+
+```bash
+cd deeppersona_ai
+python profile_chunker.py      # Profiles → semantic chunks
+python build_vector_store.py   # Chunks → 384-dim ChromaDB
 cd ..
 ```
 
-**Script 3 — Hyperbolic Role Discovery (optional, runs after Script 1):**
+---
+### Step C: Multi-Agent Simulation (`MultiAgent4Collusion`)
 
-> **Note**: Same as Script 2 — pass the Script 1 output folder to `--save-dir`.
+> **Note**: The `data/` folder already contains a set of pre-generated simulation data (`test_72.db` + `72agent_deeppersonal.csv`). If your goal is to run the core detection pipeline (classification, role labeling, gang detection), you already have everything you need and can skip this step entirely.
+>
+> The simulation engine below is only needed if you want to walk through the full simulation pipeline and generate new simulation data from scratch. This is **not** the main focus of this project.
+
+The simulation framework is adapted from **MultiAgent4Collusion** by Shanghai Jiao Tong University ([GitHub](https://github.com/renqibing/MultiAgent4Collusion)), built on top of the CAMEL-AI OASIS framework. It runs LLM-driven agents in a Twitter-like social environment where agents can post, reply, like, follow, and repost based on their personality profiles.
+
+#### Quick Start (Skip Simulation)
+
+If you only want the detection pipeline, use the pre-generated data already in the repository:
+
+| File | Source |
+|------|--------|
+| `data/test_72.db` | Pre-built simulation database (72 agents) |
+| `data/72agent_deeppersonal.csv` | Pre-built multi-modal feature CSV (72 agents) |
+
+These files are ready to be consumed directly by the core detection pipeline (Scripts 1-3).
+
+#### Full Simulation Pipeline
+
+To generate new simulation data from scratch, follow these steps. Before starting, ensure you have completed [Step A](#step-a-deep-persona-generation-deeppersona) (persona generation) and [Step B](#step-b-semantic-vector-store-deeppersona_ai) (vector store) to prepare the required agent profiles.
+
+##### Step 1: Prepare the Agent CSV
+
+The simulation engine reads agent information from a CSV file. Use the provided `generate_simulation_csv.py` script to generate one from the Deeppersona profile JSON:
 
 ```bash
-cd "Character Classification"
-
-# HGT (Heterogeneous Graph Transformer) + Poincaré ball projection + DPMM
-# → Learns structural embeddings via Poincaré distance contrastive loss
-# → Automatically discovers tactical roles (Opinion Leader, Information Bridge, etc.)
-# → Visualizes agents on Poincaré disk with role-based coloring
-python new_role_assigner.py --save-dir "{Script1_output_dir}"
-# Output: {save_dir}/role_assignments.csv
-#         {save_dir}/poincare_disk.png
-#         {save_dir}/radius_distribution.png
-
+cd MultiAgent4Collusion-master
+python generate_simulation_csv.py
 cd ..
 ```
 
-**Template for full Step 6 workflow:**
-```bash
-# 1. First, list available dataset presets:
-python "Character Classification/new_main_classifier.py" --help
+Before running, edit the configuration constants at the top of `MultiAgent4Collusion-master/generate_simulation_csv.py`:
 
-# 2. Run Script 1 (classifier) — pick your dataset, outputs go to a timestamped folder:
-cd "E:\Hyper-Decept\Hyper-Decept"
-python "Character Classification/new_main_classifier.py" --dataset agent72
-
-# 3. Find the output folder name (printed in the log, e.g. "Output: .../classifier_agent72_20260602_123456"):
-#    Then pass it as --save-dir to Script 2 and 3:
-python "Character Classification/new_gang_detection.py" --save-dir "new_result/hyper_newtest/classifier_agent72_20260602_123456"
-python "Character Classification/new_role_assigner.py" --save-dir "new_result/hyper_newtest/classifier_agent72_20260602_123456"
+```python
+NUM_BAD_LEADER = 1      # Number of bad_leader agents
+NUM_BAD_MEMBER = 1      # Number of bad_member agents
+NUM_BAD = 0             # Number of bad agents (regular)
+NUM_TWEETS_PER_AGENT = 5  # Seed tweets per agent
 ```
 
-**Key output**: `role_assignments.csv` contains:
-- `user_id`: Agent identifier
-- `role`: e.g., `Opinion Leader`, `Information Bridge`, `Amplifier`, `Community Builder`, `Peripheral`, `Fringe Node`, `Boundary Node`, `Outsider`
-- `poincare_radius`: Distance from origin in Poincaré ball (smaller = more central)
-- `cluster`: DPMM cluster index
-- `user_type` / `is_bad`: Ground truth labels (merged if available)
+These three malicious agent types (`bad_leader`, `bad_member`, `bad`) are manually configured — adjust the counts based on your experiment design. The rest of the agents are automatically assigned `good`.
 
----
+The script also requires tweet pool JSON files in `MultiAgent4Collusion-master/data/tweets/` (e.g., `real_tweets_COVID.json`, `fake_tweets_COVID.json`) as seed content.
 
-### Step 7: Run the Ultimate Detector (`main_detector.py`)
+**Output**: `MultiAgent4Collusion-master/our_twitter_sim/False_Business_0.csv`
 
-> **What**: The "Supreme Tribunal" — fuses all cross-dimensional features (psychology + behavior stats + semantic PCA + hyperbolic topology roles) into a unified feature matrix, then trains an XGBoost classifier with adaptive cross-validation and generates SHAP-based explainability reports.
->
-> **Input**:
-> - `DB_FILE`: Standardized SQLite database
-> - `CSV_FILE`: Multi-modal CSV with user labels
-> - `ROLE_CSV`: Hyperbolic role assignments from Step 6
->
-> **Output**: Classification metrics + SHAP summary plots + confusion matrix
+The CSV contains these required columns:
 
-```bash
-# First, update the paths at the top of main_detector.py:
-#   DB_FILE  → your simulation .db file
-#   CSV_FILE → your multi-modal .csv file
-#   ROLE_CSV → hetero_hyperrole_assignments.csv
-#   SAVE_DIR → where results will be saved (default: results/)
+| Column | Description | Example |
+|--------|-------------|---------|
+| `user_id` | Unique agent ID | 0 |
+| `user_char` | Personality description | "I live in Tokyo, a software engineer..." |
+| `user_type` | Agent role | good / bad / bad_leader / bad_member |
+| `previous_tweets` | Seed tweets (semicolon-separated) | "tweet1; tweet2" |
+| `activity_level_frequency` | Activity frequency label | high / medium / low |
+| `activity_level` | Numeric activity score | 0.8 |
+| `username` | Display name | @User_1 |
 
-python main_detector.py
+A pre-built example is available at `MultiAgent4Collusion-master/data/simu_db/input_agents.csv`.
+
+##### Step 2: Configure and Run the Simulation
+
+Edit the YAML config file at `MultiAgent4Collusion-master/scripts/twitter_gpt_example/gpt_example.yaml`:
+
+```yaml
+data:
+  csv_path: path/to/your_agents.csv        # Agent CSV from Step 1
+  db_path: path/to/output_simulation.db    # Where to save the simulation DB
+simulation:
+  num_timesteps: 10                         # Number of simulation rounds
+  clock_factor: 60                          # Time scaling factor
+  recsys_type: twhin-bert                   # Recommendation system backend
+inference:
+  model_type: deepseek-chat                 # LLM model for agent reasoning
+  api_key: sk-xxx                           # Your API key
+  api_base_url: https://api.deepseek.com/v1 # API endpoint
 ```
 
-**What happens internally**:
-1. **Data Fusion Bus**: Parses tweet lists (handles string-encoded Python lists via `ast.literal_eval`), aligns user IDs across DB, CSV, and role data
-2. **Feature Matrix Assembly**: Concatenates `Semantic_PCA_{i}` + `Behavior_Stat_{i}` + 8 psychology features + one-hot encoded tactical roles + Poincaré radius
-3. **Adaptive Classification**:
-   - **N ≤ 20**: Leave-One-Out Cross-Validation (LOOCV)
-   - **N > 20**: Stratified 5-Fold CV with SMOTE oversampling
-   - Automatic `scale_pos_weight` balancing for imbalanced classes
-4. **SHAP Explainability**: TreeExplainer decomposes each prediction into feature contributions
-
-**Expected output in `results/`**:
-```
-results/
-├── confusion_matrix.png       # Confusion matrix (Human vs Bot)
-├── shap_summary_plot.png      # Top-15 feature attribution beeswarm plot
-└── (console output)           # Classification report + ROC-AUC score
-```
-
----
-
-### Step 8: Behavior Visualization (`agent_behavior_analysis.py`)
-
-> **What**: Reads the simulation DB + CSV and generates 5 exploratory data analysis plots showing behavioral differences between `good`, `bad`, `bad_leader`, and `bad_member` agent types.
->
-> **Input**: Simulation DB (e.g., `data/simu_db/yaml_200/110_agent.db`) + labeled CSV
->
-> **Output**: `behavior_analysis/` directory with 5 visualization files
+Then launch the simulation:
 
 ```bash
-# First, update the paths at the top of agent_behavior_analysis.py:
-#   DB_PATH  → path to your simulation .db
-#   CSV_PATH → path to your labeled .csv
-#   OUTPUT_DIR → "behavior_analysis"
-
-python agent_behavior_analysis.py
-```
-
-**Output files**:
-```
-behavior_analysis/
-├── feature_table.csv          # Per-agent numerical feature table
-├── action_counts.png          # Box plots: posts, comments, likes, follows by agent type
-├── pca_behavior.png           # 2D PCA projection colored by agent type
-├── network_graph.png          # Directed follow-graph (top-40 nodes by in-degree)
-└── feature_importance.png     # ANOVA F-score ranking of feature discriminative power
-```
-
----
-
-### Step 9: Advanced Visualizations (`visualization/`)
-
-> **What**: Additional high-level visualizations for paper-quality figures.
-
-#### 9a. Psychological Radar Charts & KDE Distributions
-
-```bash
-# Use the CognitiveVisualizer from new_visualizer.py
-python new_visualizer.py
-```
-
-Generates:
-- `psycho_radar_chart_tactical.png` — 8-axis radar chart of psychological fingerprints by tactical role
-- `kde_tactical_Empathy_Gap_Mean.png` — KDE distribution of empathy gap per role
-- `kde_tactical_Dark_Triad_Mean.png` — KDE distribution of dark triad per role
-- `psycho_3d_scatter.png` — 3D psychological isolation space (Empathy × Dark Triad × Contagion)
-- `shap_summary_plot.png` — SHAP feature attribution
-
-#### 9b. Dynamic Follow Network (Neo4j)
-
-```bash
-# Prerequisites: Neo4j instance credentials in environment variables
-#   NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
-
-pip install neo4j
-
-cd visualization/dynamic_follow_network/code
-
-# For Reddit
-python vis_neo4j_reddit.py
-
-# For Twitter
-python vis_neo4j_twitter.py
-
-# Then open https://console.neo4j.io/ and explore user-follow-user with timestamp slicer
-cd ../../..
-```
-
-#### 9c. Reddit Score Analysis
-
-```bash
-cd visualization/reddit_simulation_align_with_human/code
-python analysis_all.py
-# Output: Score comparison plot across treated/control/up-treated groups
-cd ../../..
-```
-
-#### 9d. Twitter Group Polarization
-
-```bash
-cd visualization/twitter_simulation/group_polarization
-python group_polarization_eval.py
-cd ../../..
-```
-
----
-
-## 🔬 Quick Start (Minimal Demo)
-
-If you want to quickly verify the entire pipeline works end-to-end without running full-scale simulations, follow this minimal path:
-
-```bash
-# 1. Generate personas (requires OpenAI API key)
-cd Deeppersona/generate_user_profile && python generate_profile.py && cd ../..
-
-# 2. Build vector store
-cd deeppersona_ai && python profile_chunker.py && python build_vector_store.py && cd ..
-
-# 3. Run a small Twitter simulation (~33 agent inferences, GPT-3.5 cost ~$0.01)
 cd MultiAgent4Collusion-master
 python scripts/twitter_gpt_example/twitter_simulation_large.py \
     --config_path scripts/twitter_gpt_example/gpt_example.yaml
 cd ..
+```
 
-# 4. Run the ultimate detector with the generated DB + CSV
-#    (update DB_FILE and CSV_FILE paths in main_detector.py first)
-python main_detector.py
+**Output**: The simulation produces a SQLite database (`.db`) containing the full interaction record (users, posts, follows, likes) and can optionally export a CSV with aggregated features. These files can be consumed by the core detection pipeline.
 
-# 5. (Optional) Generate visualizations
-python agent_behavior_analysis.py
-python new_visualizer.py
+> **⚠️ Note**: The simulation requires LLM API access (OpenAI, DeepSeek, or compatible) and can be slow for large agent counts. For quick validation of the detection pipeline, use the pre-generated data in `data/` instead.
+
+---
+### Step D: Emotional/Psychological Analysis (`emotional_analysis`)
+
+> Four independent NLP engines loading pre-trained transformers (RoBERTa, BART, SentenceTransformer, GPT-2) to extract psychological dimensions from agent text.
+
+| Engine | Model | Dimension |
+|--------|-------|-----------|
+| `EmpathyGapAnalyzer` | RoBERTa + spaCy + GPT-2 | Empathy Gap (affective × cognitive rigidity) |
+| `DarkTriadAnalyzer` | BART-large-MNLI | Machiavellianism, Narcissism, Psychopathy |
+| `ContagionAnalyzer` | SentenceTransformer | Emotional contagion (semantic alignment) |
+| `EmotionVolatilityAnalyzer` | RoBERTa (28 emotions) | Emotion volatility (Euclidean distance) |
+
+```python
+from emotional_analysis import EmpathyGapAnalyzer, DarkTriadAnalyzer, ContagionAnalyzer, EmotionVolatilityAnalyzer
+
+empathy = EmpathyGapAnalyzer()
+result = empathy.evaluate_agent(["I lost my job and feel hopeless."])
+# → {"Agent_Mean_Empathy_Gap": 0.42, ...}
+```
+
+**Note**: First run downloads ~2-5 GB of model weights from HuggingFace.
+
+---
+### Step E: Data Adapter (`data_processing`)
+
+> Converts raw TwiBot-22 data into the standardized DB + CSV format consumed by the core pipeline.
+
+**Input**: Raw TwiBot-22 dataset directory
+**Output**: Standardized `twibot_{N}_v5.db` + `twibot_{N}_multimodal_v5.csv`
+
+```bash
+cd data_processing
+python twinbot_adapter_dynamic.py \
+    --twibot-dir "path/to/twibot22/data" \
+    --output-dir "path/to/output" \
+    --total-sample-size 1000
+cd ..
 ```
 
 ---
-
-## 📊 Output Overview
-
-After running the full pipeline, your output structure will look like:
-
-```
-project_root/
-│
-├── deeppersona_ai/
-│   ├── deeppersonal_agents.json      # 30 deep personality profiles
-│   ├── chunked_profiles.json          # ~210 semantic chunks
-│   └── vector_store/                  # ChromaDB (384-dim embeddings)
-│
-├── MultiAgent4Collusion-master/
-│   └── data/simu_db/.../
-│       └── 110_agent.db               # Simulation output
-│
-├── data/
-│   ├── twibot_1000_v5.db              # Standardized graph database
-│   ├── twibot_1000_multimodal_v5.csv  # Multi-modal feature CSV
-│   └── hyperrole_results/
-│       └── hetero_hyperrole_assignments.csv  # Tactical role labels
-│
-├── results/
-│   ├── confusion_matrix.png           # Detection confusion matrix
-│   └── shap_summary_plot.png          # SHAP feature attribution
-│
-├── behavior_analysis/
-│   ├── feature_table.csv
-│   ├── action_counts.png
-│   ├── pca_behavior.png
-│   ├── network_graph.png
-│   └── feature_importance.png
-│
-└── new_result/
-    ├── psycho_radar_chart_tactical.png
-    ├── kde_tactical_*.png
-    └── psycho_3d_scatter.png
-```
-
----
-
-## 📝 Citation
-
-If you use HyperDecept in your research, please cite:
+### Citation
 
 ```bibtex
 @inproceedings{hyperdecept2025,

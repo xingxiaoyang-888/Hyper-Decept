@@ -8,26 +8,21 @@ from datetime import datetime
 OPENAI_API_KEY = "OPENAI_API_KEY"
 GPT_MODEL = "gpt-4o"
 
-
-
 class OutputManager:
     def __init__(self):
-        """Initialize output manager with outputs directory in the current script's directory"""
-        # 获取当前脚本文件的目录
+        """Initialize the output manager with an outputs directory in the current script's directory."""
         script_dir = os.path.dirname(os.path.abspath(__file__))
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # 创建outputs目录
         self.outputs_dir = os.path.join(script_dir, "outputs")
         os.makedirs(self.outputs_dir, exist_ok=True)
         
-        # 创建时间戳目录
         self.output_dir = os.path.join(self.outputs_dir, f"run_{self.timestamp}")
         os.makedirs(self.output_dir, exist_ok=True)
         print(f"Created output directory: {self.output_dir}")
     
     def get_output_path(self, filename: str) -> str:
-        """Get full path for output file"""
+        """Get the full path for an output file."""
         return os.path.join(self.output_dir, filename)
 
 @dataclass
@@ -52,7 +47,7 @@ class TreeNode:
         return self.original_path == other.original_path
 
 def json_to_tree(json_data: Dict, current_key: str = "root", level: int = 0, path: str = "") -> TreeNode:
-    """Convert JSON data to TreeNode object"""
+    """Converts JSON data into a TreeNode object."""
     node = TreeNode(value=current_key, level=level, original_path=path)
     
     if isinstance(json_data, dict):
@@ -64,17 +59,16 @@ def json_to_tree(json_data: Dict, current_key: str = "root", level: int = 0, pat
     return node
 
 def tree_to_json(node: TreeNode) -> Dict:
-    """Convert TreeNode back to JSON format with consistent structure"""
+    """Converts a TreeNode back to a JSON format with a consistent structure."""
     result = {}
     
-    # Sort children by key to maintain consistent order
     for key, child in sorted(node.children.items()):
         result[key] = tree_to_json(child)
         
     return result
 
 def get_nodes_at_level(root: TreeNode, target_level: int) -> List[TreeNode]:
-    """Get all nodes at a specific level"""
+    """Retrieves all nodes at a specific depth level."""
     if target_level == root.level:
         return [root]
     nodes = []
@@ -83,7 +77,7 @@ def get_nodes_at_level(root: TreeNode, target_level: int) -> List[TreeNode]:
     return nodes
 
 def validate_gpt_response(response_text: str) -> Dict[str, str]:
-    """Validate and clean up GPT response to ensure it's valid JSON"""
+    """Validates and cleans up the GPT response to ensure it is valid JSON."""
     try:
         return json.loads(response_text)
     except json.JSONDecodeError:
@@ -96,7 +90,7 @@ def validate_gpt_response(response_text: str) -> Dict[str, str]:
             return {}
 
 def process_merge_response(mapping: Dict[str, str], nodes_to_merge: List[TreeNode]) -> Dict[str, TreeNode]:
-    """Process merge mapping and create merged nodes"""
+    """Processes the merge mapping and creates the merged nodes."""
     if not mapping:
         return {node.value: node for node in nodes_to_merge}
         
@@ -123,7 +117,7 @@ def process_merge_response(mapping: Dict[str, str], nodes_to_merge: List[TreeNod
     return new_nodes
 
 def merge_level_nodes(nodes: List[TreeNode], level: int, client: OpenAI) -> Dict[str, TreeNode]:
-    """Merge nodes at the same level with personalization and abstraction requirements"""
+    """Merges nodes at the same level based on personalization and abstraction requirements."""
     if len(nodes) <= 1:
         return {node.value: node for node in nodes}
 
@@ -141,7 +135,6 @@ Merging Strategy:
    - If nodes share core concept/purpose (>80% similar): Directly merge
    - If completely different (<80% similar): Keep separate
 
-
 STRICT REQUIREMENTS:
 1. User-Centric Focus:
    - Must be user personalization attributes that reflect individual characteristics/attributes
@@ -151,8 +144,6 @@ STRICT REQUIREMENTS:
 3. Must logically refine parent level
   
 4. Attributes must be highly general, enabling GPT to generate rich content for that attribute
-
-
 """
 
         response = client.chat.completions.create(
@@ -172,7 +163,7 @@ STRICT REQUIREMENTS:
         return {node.value: node for node in nodes}
 
 def validate_parent_attribute(node: TreeNode, client: OpenAI) -> str:
-    """Validate and potentially update parent attribute name to ensure it meets requirements"""
+    """Validates and potentially updates the parent attribute name to ensure it meets requirements."""
     if not node.original_path or '.' not in node.original_path:
         return node.value
         
@@ -188,7 +179,6 @@ def validate_parent_attribute(node: TreeNode, client: OpenAI) -> str:
 
 3. Clarity and Meaningfulness:
    - MUST be clear and meaningful in describing personality traits
-
 
 Attribute to analyze: {parent_path}
 
@@ -223,39 +213,31 @@ Provide ONLY the response in the format above, no other text."""
         return parent_path
 
 def process_tree_level_by_level(root: TreeNode, client: OpenAI, output_manager: OutputManager) -> None:
-    """Process the tree level by level while preserving first level attributes"""
+    """Processes the tree level by level while preserving first-level attributes."""
     max_level = 4
     
-    # First, restructure the tree to separate content before and after first dot
     for first_level_key, first_level_node in list(root.children.items()):
-        # Process each first level node's children
         new_children = {}
         for child_key, child_node in first_level_node.children.items():
             if '.' in child_key:
-                # Split at first dot and restructure
                 prefix, rest = child_key.split('.', 1)
                 if prefix == first_level_key:
-                    # If prefix matches parent, just use the rest
                     child_node.value = rest
                     child_node.original_path = f"{first_level_key}.{rest}"
                     new_children[rest] = child_node
             else:
-                # Keep nodes without dots unchanged
                 new_children[child_key] = child_node
         first_level_node.children = new_children
     
-    # Save the initial state after restructuring
     save_intermediate_results(root, 1, output_manager)
     
-    # 处理Y层（第2层）
-    print("\n处理Y层...")
+    print("\nProcessing Level 2...")
     for first_level_key, first_level_node in root.children.items():
         if first_level_node.children:
-            print(f"\n处理 '{first_level_key}' 下的Y层节点...")
+            print(f"\nProcessing Level 2 nodes under '{first_level_key}'...")
             new_nodes = merge_level_nodes(list(first_level_node.children.values()), 2, client)
             first_level_node.children = new_nodes
             
-            # Validate parent attributes for merged nodes
             for node in new_nodes.values():
                 new_parent = validate_parent_attribute(node, client)
                 if new_parent != first_level_key:
@@ -263,16 +245,14 @@ def process_tree_level_by_level(root: TreeNode, client: OpenAI, output_manager: 
     
     save_intermediate_results(root, 2, output_manager)
     
-    # 处理Z层（第3层）
-    print("\n处理Z层...")
+    print("\nProcessing Level 3...")
     for x_node in root.children.values():
         for y_key, y_node in list(x_node.children.items()):
             if y_node.children:
-                print(f"\n处理 '{x_node.value}.{y_key}' 下的Z层节点...")
+                print(f"\nProcessing Level 3 nodes under '{x_node.value}.{y_key}'...")
                 new_nodes = merge_level_nodes(list(y_node.children.values()), 3, client)
                 y_node.children = new_nodes
                 
-                # Validate parent attributes for merged nodes
                 parent_path = f"{x_node.value}.{y_key}"
                 for node in new_nodes.values():
                     new_parent = validate_parent_attribute(node, client)
@@ -281,8 +261,7 @@ def process_tree_level_by_level(root: TreeNode, client: OpenAI, output_manager: 
     
     save_intermediate_results(root, 3, output_manager)
     
-    # 检查并处理第4层
-    print("\n检查第4层...")
+    print("\nChecking Level 4...")
     has_fourth_level = False
     for x_node in root.children.values():
         for y_node in x_node.children.values():
@@ -296,23 +275,23 @@ def process_tree_level_by_level(root: TreeNode, client: OpenAI, output_manager: 
             break
     
     if has_fourth_level:
-        print("发现第4层节点，开始处理...")
+        print("Level 4 nodes found. Processing...")
         for x_node in root.children.values():
             for y_node in x_node.children.values():
                 for z_key, z_node in list(y_node.children.items()):
                     if z_node.children:
-                        print(f"\n处理 '{x_node.value}.{y_node.value}.{z_key}' 下的节点...")
+                        print(f"\nProcessing nodes under '{x_node.value}.{y_node.value}.{z_key}'...")
                         new_nodes = merge_level_nodes(list(z_node.children.values()), 4, client)
                         z_node.children = new_nodes
         save_intermediate_results(root, 4, output_manager)
-        print("第4层处理完成")
+        print("Level 4 processing complete.")
     else:
-        print("未发现第4层节点，跳过处理")
+        print("No Level 4 nodes found. Skipping.")
     
-    print("\n全部处理完成")
+    print("\nAll levels processed successfully.")
 
 def save_intermediate_results(root: TreeNode, level: int, output_manager: OutputManager) -> None:
-    """Save intermediate results in the same format as input JSON"""
+    """Saves intermediate results in the same format as the input JSON."""
     output_path = output_manager.get_output_path(f"attributes_level_{level}.json")
     json_data = tree_to_json(root)
     
@@ -322,15 +301,14 @@ def save_intermediate_results(root: TreeNode, level: int, output_manager: Output
 
 def build_simple_tree_structure(attributes: list) -> dict:
     """
-    将点分隔的属性列表转换为简单的嵌套树结构
+    Converts a list of dot-separated attributes into a nested dictionary tree structure.
     
     Args:
-        attributes: 点分隔的属性列表，如 ["X.Y.Z", "X.Y2.Z2"]
+        attributes: List of dot-separated attributes, e.g., ["X.Y.Z", "X.Y2.Z2"]
         
     Returns:
-        dict: 嵌套的树结构字典
+        dict: Nested tree structure dictionary.
     """
-    # 构建树结构
     tree = {}
     for attr in attributes:
         parts = attr.split('.')
@@ -347,21 +325,17 @@ def main():
     output_manager = OutputManager()
     
     try:
-        # 读取属性列表并构建树结构
         print("Building and optimizing tree structure...")
         with open(input_file, 'r', encoding='utf-8') as f:
             attributes = json.load(f)
         
-        # 构建初始树结构
         tree = build_simple_tree_structure(attributes)
         
-        # 保存初始树结构
         initial_tree_path = output_manager.get_output_path("initial_tree.json")
         with open(initial_tree_path, 'w', encoding='utf-8') as f:
             json.dump(tree, f, indent=2, ensure_ascii=False)
         print(f"Saved initial tree structure to {initial_tree_path}")
         
-        # 转换为TreeNode结构
         print("Converting to TreeNode structure...")
         root = TreeNode(value="root", level=0)
         for key, value in sorted(tree.items()):
@@ -373,21 +347,17 @@ def main():
         print(f"Error building tree structure: {str(e)}")
         return
     
-    # 初始化OpenAI客户端
     client = OpenAI(api_key=OPENAI_API_KEY)
     
-    # 开始合并过程
     print("\nStarting tree merge process...")
     process_tree_level_by_level(root, client, output_manager)
     
-    # 保存最终结果
     print("Saving final results...")
     final_json = tree_to_json(root)
     output_path = output_manager.get_output_path("attributes_merged.json")
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(final_json, f, indent=2, ensure_ascii=False)
     print(f"Final merged attributes saved to {output_path}")
-
 
 if __name__ == "__main__":
     main()

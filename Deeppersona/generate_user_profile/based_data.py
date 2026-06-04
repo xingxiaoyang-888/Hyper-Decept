@@ -1,12 +1,3 @@
-"""数据源模块，负责从各种数据源获取用户配置信息。
-
-此模块包含以下主要功能：
-- 从本地文件获取职业数据
-- 生成真实的地理位置信息
-- 生成年龄信息
-- 生成性别信息
-"""
-
 import json
 import os
 import random
@@ -17,21 +8,13 @@ from config import get_completion, parse_gpt_response, parse_json_response, extr
 _occupations_cache = None
 
 def get_occupations() -> List[str]:
-    """从本地文件获取职业数据。
-
-    从预定义的JSON文件中读取职业列表。使用缓存机制避免重复读取文件。
-    如果文件读取失败，将返回空列表。
-
-    Returns:
-        List[str]: 职业列表。如果获取失败则返回空列表
-    """
+    """Retrieves occupations from a local JSON file using caching."""
     global _occupations_cache
 
     if _occupations_cache is not None:
         return _occupations_cache
 
     try:
-        # 修改路径，使用项目根目录下的data文件夹
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         file_path = os.path.join(project_root, 'data', 'occupations_english.json')
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -42,34 +25,23 @@ def get_occupations() -> List[str]:
         return []
 
 def generate_age_info() -> Dict[str, Union[int, str]]:
-    """生成年龄信息。
-
-    首先在3-95岁范围内随机生成一个年龄，然后根据年龄确定对应的年龄组。
-    年龄组包括：幼儿、儿童、青少年、青年、成年、中年、老年。
-
-    Returns:
-        Dict[str, Union[int, str]]: 包含以下字段的字典：
-            - age: 具体年龄（整数）
-            - age_group: 年龄组类别
-    """
-    # 首先随机生成年龄
+    """Generates a random age (7-85) and assigns a corresponding age group."""
     age = random.randint(7, 85)
 
-    # 根据年龄确定年龄组
     if age <= 6:
-        age_group = "toddler"  # 幼儿
+        age_group = "toddler"
     elif age <= 12:
-        age_group = "child"    # 儿童
+        age_group = "child"
     elif age <= 19:
-        age_group = "adolescent"  # 青少年
+        age_group = "adolescent"
     elif age <= 29:
-        age_group = "young_adult"  # 青年
+        age_group = "young_adult"
     elif age <= 45:
-        age_group = "adult"  # 成年
+        age_group = "adult"
     elif age <= 65:
-        age_group = "middle_aged"  # 中年
+        age_group = "middle_aged"
     else:
-        age_group = "senior"  # 老年
+        age_group = "senior"
 
     return {
         "age": age,
@@ -77,24 +49,12 @@ def generate_age_info() -> Dict[str, Union[int, str]]:
     }
 
 def generate_career_info(age: int) -> Dict[str, str]:
-    """生成职业相关信息。
-
-    根据年龄决定职业生成方式：
-    - 对18岁以下和65岁以上的人，职业状态将由GPT根据年龄生成
-    - 其他年龄段的人，从本地职业数据库中随机选择职业
-
-    Args:
-        age: 年龄
-
-    Returns:
-        Dict[str, str]: 职业相关信息，包含职业状态
-    """
+    """Generates occupation status. Uses GPT for ages < 18 or > 65, otherwise samples from the local DB."""
     if age < 18 or age > 65:
-        # 对18岁以下和65岁以上的人，职业状态由GPT生成
         prompt = f"Generate an appropriate occupation or status for a {age} year old person. "
         if age < 18:
             prompt += "Consider that the individuals are likely in school or engaged in youth activities. They may not have any formal occupation. If appropriate, you can mention their student status or indicate they have no occupation yet. Only in some cases, consider potential interest in early employment opportunities, internships, or non-traditional educational paths."
-        else:  # age > 65
+        else:
             prompt += "Consider they might be retired but could still be active in various ways."
 
         messages = [
@@ -107,7 +67,6 @@ def generate_career_info(age: int) -> Dict[str, str]:
             return {"status": ""}
         return {"status": status}
 
-    # 其他年龄段从职业数据库选择
     occupations = get_occupations()
     if not occupations:
         return {"status": ""}
@@ -116,23 +75,13 @@ def generate_career_info(age: int) -> Dict[str, str]:
     return {"status": career_status}
 
 def generate_location() -> Dict[str, str]:
-    """生成真实的地理位置信息。
-
-    使用 GeoNames 数据库随机选择一个国家和城市。
-
-    Returns:
-        Dict[str, str]: 包含以下字段的字典：
-            - country: 国家名称
-            - city: 城市名称
-    """
+    """Generates a realistic country and city using GeoNames."""
     gc = GeonamesCache()
 
-    # 获取所有国家
     countries = gc.get_countries()
     country_code = random.choice(list(countries.keys()))
     country = countries[country_code]
 
-    # 获取选国家的所有城市
     cities = gc.get_cities()
     country_cities = [city for city in cities.values() if city['countrycode'] == country_code]
 
@@ -142,7 +91,6 @@ def generate_location() -> Dict[str, str]:
             "city": "Unknown City"
         }
 
-    # 随机选择一个城市
     city_data = random.choice(country_cities)
 
     return {
@@ -150,29 +98,13 @@ def generate_location() -> Dict[str, str]:
         "city": city_data['name']
     }
 
-
-
 def generate_gender() -> str:
-    """随机生成性别（男/女）"""
+    """Randomly generates gender (male/female)."""
     return random.choice(['male', 'female'])
 
 
 def generate_personal_values(age: int, gender: str, occupation: str, location: Dict[str, str]) -> Dict[str, str]:
-    """使用GPT根据人口统计信息生成个人价值观。
-
-    首先从 positive, negative, neutral 三种类型中随机选择一种价值观类型，
-    然后将这个类型放入prompt中，让GPT生成具体的价值观细节。
-
-    Args:
-        age: 人物年龄
-        gender: 人物性别
-        occupation: 人物职业
-        location: 包含'city'和'country'键的字典
-
-    Returns:
-        包含'values_orientation'键的字典，其中包含价值观描述
-    """
-    # 随机选择价值观类型
+    """Generates core values via GPT based on demographic data."""
     value_type = random.choice(['positive', 'negative', 'neutral'])
     
     prompt = f"""
@@ -199,7 +131,6 @@ def generate_personal_values(age: int, gender: str, occupation: str, location: D
     try:
         response = get_completion(messages, temperature=0.8)
         
-        # 使用config.py中的解析函数
         result = parse_gpt_response(
             response, 
             expected_fields=["values_orientation"], 
@@ -213,31 +144,10 @@ def generate_personal_values(age: int, gender: str, occupation: str, location: D
         print(f"\nError in generate_personal_values: {e}")
         raise
 
-
-
-
 def generate_life_attitude(age: int = None, gender: str = None, occupation: str = None, 
                         location: Dict[str, str] = None, values_orientation: str = None) -> Dict[str, Union[str, Dict, bool]]:
-    """使用GPT根据人口统计信息和个人价值观生成生活态度。
-
-    此函数使用GPT根据年龄、性别、职业、地区和个人价值观生成一个人的生活态度。
-    生成的态度可能是积极的、中性的或消极的。
-
-    Args:
-        age: 人物年龄
-        gender: 人物性别
-        occupation: 人物职业
-        location: 包含'city'和'country'键的字典
-        values_orientation: 个人价值观描述
-
-    Returns:
-        Dict: 包含以下字段的字典：
-            - attitude: 表示用户生活态度的字符串
-            - attitude_details: 关于这种态度如何表现的详细信息
-            - coping_mechanism: 人物如何应对生活挑战
-    """
+    """Generates life attitude via GPT based on demographics and core values."""
     
-    # 创建提示词
     prompt = f"""
     Generate specific attributes about a person's life attitude based on the following information:
     
@@ -269,7 +179,6 @@ def generate_life_attitude(age: int = None, gender: str = None, occupation: str 
     try:
         response = get_completion(messages, temperature=0.8)
         
-        # 使用config.py中的解析函数
         result = parse_gpt_response(
             response,
             expected_fields=["attitude", "attitude_details", "coping_mechanism"],
@@ -280,7 +189,6 @@ def generate_life_attitude(age: int = None, gender: str = None, occupation: str 
             }
         )
         
-        # 检查是否有空值
         for field in ["attitude", "attitude_details", "coping_mechanism"]:
             if not result[field]:
                 raise ValueError(f"Missing required field: {field}")
@@ -292,7 +200,6 @@ def generate_life_attitude(age: int = None, gender: str = None, occupation: str 
         print(f"\nError in generate_life_attitude: {e}")
         raise
     
-    # 返回结果
     return {
         "attitude": attitude,
         "attitude_details": attitude_details,
@@ -301,29 +208,10 @@ def generate_life_attitude(age: int = None, gender: str = None, occupation: str 
 
 def generate_personal_story(age: int, gender: str, occupation: str, location: Dict[str, str], 
                                     values_orientation: str, life_attitude: Dict[str, str]) -> Dict[str, str]:
-    """根据人物的基本信息生成个人故事。
-
-    使用GPT根据年龄、性别、职业、地区、价值观和生活态度生成一个人物的详细故事。
-    故事可以包含各种正面或负面的经历，包括极端情况。
-
-    Args:
-        age: 人物年龄
-        gender: 人物性别
-        occupation: 人物职业
-        location: 包含'city'和'country'键的字典
-        values_orientation: 个人价值观描述
-        life_attitude: 生活态度信息字典
-
-    Returns:
-        Dict: 包含以下字段的字典：
-            - personal_story: 个人故事描述
-    """
-    # 提取生活态度信息
+    """Generates a personal story via GPT based on demographic data and life attitude."""
     attitude = life_attitude.get("attitude", "")
     attitude_category = life_attitude.get("attitude_category", "neutral")
     
-    # 创建提示词
-    # 随机决定生成几个故事
     num_stories = random.randint(1, 3)
     
     prompt = f"""
@@ -353,7 +241,6 @@ def generate_personal_story(age: int, gender: str, occupation: str, location: Di
     try:
         response = get_completion(messages, temperature=0.8)
         
-        # 解析JSON响应，只获取个人故事
         result = parse_gpt_response(
             response,
             expected_fields=["personal_stories"],
@@ -362,15 +249,11 @@ def generate_personal_story(age: int, gender: str, occupation: str, location: Di
             }
         )
         
-        # 处理多故事格式
         stories = result["personal_stories"]
         
-        # 确保有数据
         if not stories:
             raise ValueError("Failed to generate personal stories")
         
-        # 将多故事格式转换为统一的格式
-        # 将所有故事连接起来，用分隔符隔开
         combined_story = "\n\n".join([f"Story {i+1}: {story}" for i, story in enumerate(stories)])
         
         return {
@@ -381,28 +264,12 @@ def generate_personal_story(age: int, gender: str, occupation: str, location: Di
         raise
 
 def generate_interests_and_hobbies(personal_story: Dict[str, Any]) -> Dict[str, Any]:
-    """根据人物的故事生成兴趣爱好列表。
-
-    基于人物的个人故事和关键生活事件，生成兴趣爱好列表，可以包含好的或坏的习惯。
-    严格基于故事内容生成，生成3-4个兴趣爱好。
-
-    Args:
-        personal_story: 人物的个人故事字典，包含"personal_story"和"key_life_events"字段
-
-    Returns:
-        Dict: 包含以下字段的字典：
-            - interests: 兴趣爱好列表(3-4个)
-    """
-    # 确保我们有个人故事数据
+    """Infers hobbies or interests based on the generated personal story."""
     if not personal_story or not isinstance(personal_story, dict):
-        raise ValueError("必须提供个人故事数据才能生成兴趣爱好")
+        raise ValueError("Personal story data must be provided to generate hobbies")
     
-    personal_story_data = personal_story
+    story_text = personal_story.get("personal_story", "")
     
-    # 提取故事和关键事件
-    story_text = personal_story_data.get("personal_story", "")
-    
-    # 创建提示词
     prompt = f"""
    Based on the following personal story and key life events, infer two to three hobbies or interests this person might use to relax. These activities can be positive or negative and may include non-traditional, controversial, or unexpected ones, such as various sports, traveling, or even smoking, drinking, or using marijuana. Please make inferences about the person’s possible interests based on the story, rather than simply extracting them directly from the story. 
    
@@ -427,7 +294,6 @@ def generate_interests_and_hobbies(personal_story: Dict[str, Any]) -> Dict[str, 
     try:
         response = get_completion(messages, temperature=0.2)
         
-        # 使用config.py中的解析函数
         from config import parse_gpt_response
         result = parse_gpt_response(
             response, 
@@ -435,17 +301,13 @@ def generate_interests_and_hobbies(personal_story: Dict[str, Any]) -> Dict[str, 
             field_defaults={"interests": []}
         )
         
-        # 获取兴趣爱好列表
         interests = result.get("interests", [])
     except Exception as e:
-        # 记录错误并重新抛出
         print(f"\nError in generate_interests_and_hobbies: {e}")
         raise
     
-    # 输出生成的兴趣爱好数量信息
-    print(f"\nInfo: 生成的兴趣爱好数量: {len(interests)}")
+    print(f"\nInterests generated: {len(interests)}")
     
-    # 返回结果
     return {
         "interests": interests
     }

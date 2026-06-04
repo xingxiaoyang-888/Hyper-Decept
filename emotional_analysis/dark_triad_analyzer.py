@@ -25,10 +25,9 @@ class DarkTriadAnalyzer:
         
     @classmethod
     def reload(cls, **kwargs):
-        """支持配置热重载，彻底释放旧模型与 LRU 缓存"""
-        logger.info("正在卸载暗黑三角引擎并清空缓存与显存...")
+        """Reloads the engine, clearing old models and cache."""
+        logger.info("Unloading Dark Triad engine and clearing VRAM...")
         if cls._instance is not None:
-            # 显式清空 LRU 缓存，释放绑定在旧实例上的内存引用
             if hasattr(cls._instance.analyze_agent_text, 'cache_clear'):
                 cls._instance.analyze_agent_text.cache_clear()
                 
@@ -58,12 +57,12 @@ class DarkTriadAnalyzer:
         else:
             self.device = device
             
-        print(f"[Dark Triad Engine] 启动，使用设备: {self.device}")
+        print(f"Engine initialized on: {self.device}")
         
         self.model = None
         self.tokenizer = None
         
-        print(f"   -> 尝试加载主 NLI 模型 ({nli_model_name})...")
+        print(f"Loading primary NLI model: {nli_model_name}...")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(nli_model_name)
             self.model = AutoModelForSequenceClassification.from_pretrained(nli_model_name).to(self.device)
@@ -71,14 +70,14 @@ class DarkTriadAnalyzer:
             self.nli_model_name = nli_model_name
         except Exception as e:
             fallback_model = "microsoft/deberta-v3-base-mnli"
-            logger.warning(f"主模型加载失败: {e}。尝试加载备用模型 {fallback_model}...")
+            logger.warning(f"Primary model load failed: {e}. Trying fallback model {fallback_model}...")
             try:
                 self.tokenizer = AutoTokenizer.from_pretrained(fallback_model)
                 self.model = AutoModelForSequenceClassification.from_pretrained(fallback_model).to(self.device)
                 self.model.eval()
                 self.nli_model_name = fallback_model
             except Exception as e2:
-                logger.error(f"所有 NLI 模型加载失败！系统进入 Dummy 安全模式: {e2}")
+                logger.error(f"All NLI models failed. Entering dummy mode: {e2}")
 
         self.traits = ["Machiavellianism", "Narcissism", "Psychopathy"]
         self.hypotheses = [
@@ -97,16 +96,16 @@ class DarkTriadAnalyzer:
                     elif str(label).lower() == 'contradiction':
                         self.contradiction_idx = int(idx)
             except Exception as e:
-                logger.warning(f"动态获取 NLI 索引失败，使用默认值 E:2, C:0: {e}")
+                logger.warning(f"Failed to fetch NLI indices dynamically. Using default E:2, C:0: {e}")
 
-        # 用于自恋特征补偿的第一人称代词集合
+        # First-person pronouns for Narcissism lexical boost
         self.first_person_pronouns = {'i', 'me', 'my', 'mine', 'myself'}
 
         self._initialized = True
         if self.model is not None:
-            print(f" [Dark Triad Engine] 成功搭载 {self.nli_model_name}！\n")
+            print(f"Loaded {self.nli_model_name} successfully.\n")
         else:
-            print(f"[Dark Triad Engine] 以安全降级模式运行 (全 0 输出)！\n")
+            print(f"Running in dummy mode (zero outputs).\n")
 
     def _get_default_scores(self) -> dict:
         return {
@@ -127,9 +126,7 @@ class DarkTriadAnalyzer:
 
     def _narcissism_lexical_boost(self, text: str, base_score: float) -> float:
         """
-        效度补偿机制
-        短推文中，自恋往往表现为频繁的自我中心表达。
-        计算第一人称代词密度，提供适当的权重补偿。
+        Calculates first-person pronoun density to boost the score for short texts.
         """
         words = text.split()
         if not words:
@@ -138,7 +135,6 @@ class DarkTriadAnalyzer:
         count = sum(1 for w in words if w in self.first_person_pronouns)
         density = count / len(words)
         
-        # 密度越高，补偿越多（上限+0.2）
         boost = min(density * 0.5, 0.2)
         return min(base_score + boost, 1.0)
 
@@ -159,14 +155,13 @@ class DarkTriadAnalyzer:
             return float(calibrated_score)
             
         except Exception as e:
-            logger.warning(f"单条 NLI 推理失败: {e}")
+            logger.warning(f"NLI inference failed: {e}")
             return 0.0
 
     @functools.lru_cache(maxsize=10000)
     def analyze_agent_text(self, text: str, verbose: bool = False) -> dict:
         text = self._clean_text(text)
         
-        # 显式的 tokenizer 检查
         if not text or len(text) < 10 or self.model is None or self.tokenizer is None:
             return self._get_default_scores()
 
@@ -174,7 +169,6 @@ class DarkTriadAnalyzer:
         for trait, hypothesis in zip(self.traits, self.hypotheses):
             scores[trait] = self._compute_nli_entailment(text, hypothesis)
             
-        # 对自恋分数应用文本启发式补偿
         scores["Narcissism"] = self._narcissism_lexical_boost(text, scores["Narcissism"])
             
         dark_triad_index = (scores["Machiavellianism"] * self.w_mach) + \
@@ -197,7 +191,6 @@ class DarkTriadAnalyzer:
         if not texts:
             return []
 
-        # 显式的 tokenizer 检查
         if self.model is None or self.tokenizer is None:
             return [self._get_default_scores() for _ in texts]
 
@@ -236,7 +229,7 @@ class DarkTriadAnalyzer:
                 entailment_matrix = calibrated_probs.reshape(len(batch_texts), len(self.hypotheses))
                 
             except Exception as e:
-                logger.warning(f"Batch NLI 计算崩溃: {e}")
+                logger.warning(f"Batch NLI calculation failed: {e}")
                 entailment_matrix = np.zeros((len(batch_texts), len(self.hypotheses)))
 
             for ptr, text in enumerate(batch_texts):
@@ -244,7 +237,6 @@ class DarkTriadAnalyzer:
                 narc_score = float(entailment_matrix[ptr, 1])
                 psych_score = float(entailment_matrix[ptr, 2])
 
-                # 批量处理中同样应用自恋特征补偿
                 narc_score = self._narcissism_lexical_boost(text, narc_score)
 
                 dt_index = (mach_score * self.w_mach) + (narc_score * self.w_narc) + (psych_score * self.w_psych)

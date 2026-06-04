@@ -28,6 +28,7 @@ Everything else in the repository (profile generation, vector store, simulation 
    - [Script 1: Binary Classifier](#script-1-binary-classifier-new_main_classifierpy)
    - [Script 2: Bot Gang Detection](#script-2-bot-gang-detection-new_gang_detectionpy)
    - [Script 3: Hyperbolic Role Discovery](#script-3-hyperbolic-role-discovery-new_role_assignerpy)
+   - [Script 4: Ablation Study & Independence Verification](#script-4-ablation-study--independence-verification-ablation)
 3. [Supplementary Modules](#supplementary-modules)
    - [Step A: Deep Persona Generation (Deeppersona)](#step-a-deep-persona-generation-deeppersona)
    - [Step B: Semantic Vector Store (deeppersona_ai)](#step-b-semantic-vector-store-deeppersona_ai)
@@ -206,6 +207,63 @@ poincare_disk.png          # Agents projected on Poincaré disk
 radius_distribution.png    # Distribution of Poincaré radii
 dpmm_weights.png           # DPMM cluster weights
 ```
+
+---
+### Script 4: Ablation Study & Independence Verification (`ablation`)
+
+> **NEW**: Systematically validates the independent contribution of the four emotional/psychological modules (Empathy Gap, Dark Triad, Emotional Contagion, Emotion Volatility) to the final classification performance. Includes a statistical independence analysis to ensure ablation conclusions are credible.
+
+The ablation module performs two independent analyses:
+
+| Analysis | What It Tests | Output |
+|----------|---------------|--------|
+| **Independence Verification** | Whether the 4 psychological modules are statistically independent (Pearson correlation, VIF, PCA) | `independence_report.txt`, correlation heatmap, VIF bar chart, PCA scree plot |
+| **Ablation Experiment** | The performance drop when each module is removed ("turn one engine off"), measured via repeated stratified cross-validation | `ablation_summary.csv`, `ablation_boxplot.png`, `ablation_heatmap.png` |
+
+**Why ablation matters**: The classification pipeline fuses 4 psychological dimensions into a 26-dim feature vector. If these dimensions are highly collinear, removing one may not cause a performance drop — making ablation results misleading. The independence verification step ensures we *can* trust the ablation conclusions.
+
+#### Quick Start
+
+```bash
+# Full pipeline: independence check + ablation experiment
+python -m ablation.run_ablation --dataset agent72
+
+# Independence check only (fast, skip XGBoost training)
+python -m ablation.run_ablation --dataset agent72 --skip-ablation
+
+# Ablation only (skip independence verification)
+python -m ablation.run_ablation --dataset agent72 --skip-independence
+
+# Fast test with reduced CV rounds
+python -m ablation.run_ablation --dataset agent72 --repeats 2 --folds 3
+
+# Custom data paths (bypass dataset presets)
+python -m ablation.run_ablation --db "path/to/data.db" --csv "path/to/labels.csv"
+```
+
+#### Output (`ablation_results/`)
+
+```
+ablation_results/
+├── independence_report.txt    # Full statistical independence report
+├── correlation_heatmap.png    # Pearson correlation matrix (8-dim psycho features)
+├── vif_chart.png              # Per-feature Variance Inflation Factor
+├── pca_scree.png              # PCA explained variance (should show ~4 significant PCs)
+├── ablation_summary.csv       # Per-module ablation performance metrics
+├── ablation_boxplot.png       # Box plot of accuracy drop across CV rounds
+└── ablation_heatmap.png       # Heatmap of metric changes when each module is removed
+```
+
+#### Interpretation Guide
+
+**Independence Verification**:
+- VIF < 5 per feature → modules are well-separated ✅
+- Module R² < 0.5 (other 3 modules → this module) → module contributes unique signal ✅
+- First 4 PCs explain ≥ 80% variance → 4 modules jointly capture most information ✅
+
+**Ablation Results**:
+- Larger accuracy drop when a module is removed → that module provides more **unique** information
+- If removing a module causes no drop (or an increase), it may be redundant or noisy in isolation
 
 ---
 

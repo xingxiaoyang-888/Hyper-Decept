@@ -1,21 +1,23 @@
 """
-ablation - 情感模块消融实验与独立性验证工具包
-====================================================
-本模块独立于主检测管线，提供以下功能：
-  1. 独立性验证   — 验证四个情感模块之间的统计独立性
-  2. 消融实验     — 逐一移除情感模块，评估分类性能变化
-  3. 可视化       — 相关性热力图、VIF 柱状图、消融结果对比图
+ablation — Emotion Module Ablation Study & Independence Verification Toolkit
+=============================================================================
 
-四个情感模块：
-  - EmpathyGap      : 认知共情错位差 (EmpathyGapAnalyzer)
-  - DarkTriad       : 暗黑三角人格    (DarkTriadAnalyzer)
-  - Contagion       : 无阻尼情感传染  (ContagionAnalyzer)
-  - Volatility      : 功能性情感瞬切  (EmotionVolatilityAnalyzer)
+This module operates independently of the main detection pipeline and provides:
 
-使用方式：
-  python -m ablation.run_ablation --skip-independence  # 仅消融
-  python -m ablation.run_ablation --skip-ablation       # 仅独立性验证
-  python -m ablation.run_ablation                       # 全流程
+  1. Independence Verification — Validates statistical independence among the four emotion modules
+  2. Ablation Experiment — Removes each emotion module in turn, measuring classification performance impact
+  3. Visualization — Correlation heatmaps, VIF bar charts, ablation result comparison plots
+
+Four emotion modules:
+  - EmpathyGap      : Cognitive empathy gap          (EmpathyGapAnalyzer)
+  - DarkTriad       : Dark Triad personality traits   (DarkTriadAnalyzer)
+  - Contagion       : Emotional contagion             (ContagionAnalyzer)
+  - Volatility      : Emotion volatility              (EmotionVolatilityAnalyzer)
+
+Usage:
+  python -m ablation.run_ablation --skip-independence   # ablation only
+  python -m ablation.run_ablation --skip-ablation        # independence verification only
+  python -m ablation.run_ablation                        # full pipeline
 """
 
 from .independence_verify import verify_independence

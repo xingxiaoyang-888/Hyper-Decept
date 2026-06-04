@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 
 class ContagionAnalyzer:
     """
-    无阻尼靶向情感传染率 (Frictionless Emotional Contagion)
+    Frictionless Emotional Contagion Analyzer.
     
-    使用高维稠密向量 (Dense Embeddings) 计算推文与“水军既定靶标”的语义逼近度。
-    单例防 OOM、SentenceTransformer C++ 底层 C-API 批处理加速、LRU 缓存、异常降级。
+    Calculates semantic alignment between tweets and predefined target payloads 
+    using dense embeddings. Features singleton pattern, batch processing, 
+    LRU caching, and graceful degradation.
     """
     
     _instance = None
@@ -31,7 +32,7 @@ class ContagionAnalyzer:
         
     @classmethod
     def reload(cls, **kwargs):
-        logger.info("正在卸载传染率引擎并清空缓存与显存...")
+        logger.info("Unloading contagion engine and clearing cache/VRAM...")
         if cls._instance is not None:
             if hasattr(cls._instance.analyze_agent_text, 'cache_clear'):
                 cls._instance.analyze_agent_text.cache_clear()
@@ -55,13 +56,9 @@ class ContagionAnalyzer:
         else:
             self.device = device
             
-        print(f"[Contagion Engine ] 启动，使用设备: {self.device}")
+        print(f"Engine initialized on: {self.device}")
         
-        # ---------------------------------------------------------
-        # 定义靶向操纵锚点 
-        # 这里预设了“贩卖焦虑/煽动对立”的典型水军 Leader 话术。
-        # 在实际部署时，可根据具体的虚假博弈场景传入不同的 Anchors。
-        # ---------------------------------------------------------
+        # Define target manipulation anchors
         if payload_anchors is None:
             self.payload_anchors = [
                 "I lost my job and feel completely hopeless about the future.",
@@ -71,9 +68,8 @@ class ContagionAnalyzer:
         else:
             self.payload_anchors = payload_anchors
 
-        # 模型降级机制
         self.embedder = None
-        print(f"   -> 尝试加载主语义计算模型 ({model_name})...")
+        print(f"Loading embedding model: {model_name}...")
 
         def load_sentence_embedder(candidate_name):
             from sentence_transformers import SentenceTransformer, util
@@ -84,7 +80,7 @@ class ContagionAnalyzer:
                     local_files_only=True,
                 ), util
             except Exception as local_exc:
-                logger.warning(f"{candidate_name} 本地缓存加载失败，尝试默认加载: {local_exc}")
+                logger.warning(f"Local cache load failed for {candidate_name}, falling back to default: {local_exc}")
                 return SentenceTransformer(candidate_name, device=str(self.device)), util
 
         try:
@@ -92,14 +88,14 @@ class ContagionAnalyzer:
             self.model_name = model_name
         except Exception as e:
             fallback_model = "all-MiniLM-L6-v2"
-            logger.warning(f"主模型加载失败: {e}。尝试加载轻量极速模型 {fallback_model}...")
+            logger.warning(f"Primary model load failed: {e}. Trying fallback model {fallback_model}...")
             try:
                 self.embedder, self.util = load_sentence_embedder(fallback_model)
                 self.model_name = fallback_model
             except Exception as e2:
-                logger.error(f"所有 Embedding 模型加载失败！系统进入 Dummy 安全模式: {e2}")
+                logger.error(f"All embedding models failed. Entering dummy mode: {e2}")
 
-        # 预先计算并冻结 Anchors 的张量 
+        # Pre-compute anchor embeddings
         if self.embedder is not None:
             self.anchor_embeddings = self.embedder.encode(self.payload_anchors, convert_to_tensor=True, show_progress_bar=False)
         else:
@@ -107,9 +103,9 @@ class ContagionAnalyzer:
 
         self._initialized = True
         if self.embedder is not None:
-            print(f" [Contagion Engine ] 成功搭载 {self.model_name}！\n")
+            print(f"Loaded {self.model_name} successfully.\n")
         else:
-            print(f" [Contagion Engine ] 以安全降级模式运行 (全 0 输出)！\n")
+            print(f"Running in dummy mode (zero outputs).\n")
 
     def _get_default_scores(self) -> dict:
         return {
@@ -129,32 +125,26 @@ class ContagionAnalyzer:
 
     @functools.lru_cache(maxsize=10000)
     def analyze_agent_text(self, text: str, verbose: bool = False) -> dict:
-        """
-        单条推文靶向对齐分析 (支持 LRU 缓存)
-        """
+        """Analyze target alignment for a single tweet."""
         text = self._clean_text(text)
         
         if not text or len(text) < 5 or self.embedder is None:
             return self._get_default_scores()
 
         try:
-            # 编码单条文本
             query_emb = self.embedder.encode(text, convert_to_tensor=True, show_progress_bar=False)
-            
-            # 计算与所有预设 Anchors 的余弦相似度
             cos_scores = self.util.cos_sim(query_emb, self.anchor_embeddings)[0].cpu().numpy()
             
-            # 过滤负相关（负数相似度对传染率无意义，归零）
+            # Filter negative correlations
             cos_scores = np.maximum(cos_scores, 0.0)
             
             max_align = float(np.max(cos_scores))
             mean_align = float(np.mean(cos_scores))
             
         except Exception as e:
-            logger.warning(f"单条余弦相似度计算失败: {e}")
+            logger.warning(f"Cosine similarity calculation failed: {e}")
             return self._get_default_scores()
 
-        # 对于单条静态文本，无阻尼得分默认等于最大对齐度
         result = {
             "Max_Payload_Alignment": round(max_align, 4),
             "Mean_Payload_Alignment": round(mean_align, 4),
@@ -167,10 +157,7 @@ class ContagionAnalyzer:
         return result
 
     def analyze_batch(self, texts: List[str], verbose: bool = False, batch_size: int = 64) -> List[Dict]:
-        """
-        调用 SentenceTransformer 的底层 C++ 批处理引擎，
-        一次性将整个矩阵丢入 GPU，完成数千条推文的余弦张量计算。
-        """
+        """Batch processing for cosine similarity computation."""
         results = []
         if not texts:
             return results
@@ -179,11 +166,7 @@ class ContagionAnalyzer:
             return [self._get_default_scores() for _ in texts]
 
         cleaned_texts = [self._clean_text(t) for t in texts]
-        
-        # 提取有效文本及其原始索引，避免无意义计算
         valid_pairs = [(i, t) for i, t in enumerate(cleaned_texts) if len(t) >= 5]
-        
-        # 构建默认结果集
         final_results = [self._get_default_scores() for _ in texts]
         
         if not valid_pairs:
@@ -192,7 +175,6 @@ class ContagionAnalyzer:
         unique_texts = list(dict.fromkeys(t for _, t in valid_pairs))
 
         try:
-            # 高效批处理编码：内部实现了智能分块和 padding
             query_embs = self.embedder.encode(
                 unique_texts,
                 batch_size=batch_size,
@@ -200,7 +182,6 @@ class ContagionAnalyzer:
                 show_progress_bar=True,
             )
             
-            # 矩阵乘法：计算 (Num_Texts, Embedding_Dim) x (Embedding_Dim, Num_Anchors)
             cos_scores_matrix = self.util.cos_sim(query_embs, self.anchor_embeddings).cpu().numpy()
             cos_scores_matrix = np.maximum(cos_scores_matrix, 0.0)
 
@@ -223,19 +204,17 @@ class ContagionAnalyzer:
                 final_results[orig_idx] = result_by_text[text]
                 
         except Exception as e:
-            logger.warning(f"Batch 张量相似度计算崩溃: {e}")
+            logger.warning(f"Batch similarity calculation failed: {e}")
 
         return final_results
 
     def evaluate_agent(self, texts: List[str], response_delays: List[float] = None) -> Dict:
         """
-        Agent 维度宏观聚合接口：真正的“无阻尼”计算
+        Aggregate alignments at the agent level.
         
-        参数:
-        - texts: 该智能体的推文列表
-        - response_delays: (可选) 该推文回复上一条推文的时间延迟（秒）。
-          人类通常需要 60秒-几分钟来构思回复。如果水军大批量在 2秒内完美回复，
-          那么无阻尼系数将爆表。
+        Args:
+            texts: List of tweets from the agent.
+            response_delays: (Optional) Response delays in seconds for calculating time penalty.
         """
         if not texts:
             return {"Agent_Mean_Alignment": 0.0, "Agent_Contagion_Spike": 0.0, "Agent_Frictionless_Index": 0.0}
@@ -249,23 +228,16 @@ class ContagionAnalyzer:
         mean_align = np.mean(alignments)
         max_align = np.max(alignments)
         
-        # ---------------------------------------------------------
-        # 时间阻尼惩罚公式 
-        # 如果提供了回复延迟时间，计算真实的无阻尼传染指数。
-        # ---------------------------------------------------------
         if response_delays is not None and len(response_delays) == len(alignments):
             frictionless_scores = []
             for align, delay in zip(alignments, response_delays):
                 if delay <= 0:
-                    delay = 1.0 # 避免除零
-                # 公式：对齐度 * e^(-(延迟秒数 - 机器基准延迟5秒) / 60)
-                # 延迟越小 (接近0)，衰减越小，得分越高。延迟超过 60 秒，得分大幅衰减。
+                    delay = 1.0
                 time_penalty = math.exp(-max(0, delay - 5.0) / 60.0)
                 frictionless_scores.append(align * time_penalty)
             
             frictionless_index = np.max(frictionless_scores)
         else:
-            # 缺乏时间维度时，退化为纯语义对齐度
             frictionless_index = max_align
         
         return {

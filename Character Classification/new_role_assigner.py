@@ -1,20 +1,28 @@
 """
 new_role_assigner.py [Script 3]
-HGT 异构图 + Poincaré 双曲投影 + DPMM 角色发现
 
-管线:
-  1. 从 Script 1 输出读取 26 维特征 + 增强图
-  2. 构建 PyG 异构图（user/tweet 节点，follows/posts/retweets/similar/likes/comments 边）
-  3. HGT 端到端学习结构嵌入
-  4. Poincaré 球投影保留层级辐射
-  5. DPMM 非参数聚类自动推断角色数量
-  6. 双曲半径映射角色语义 + 可视化
+HGT Heterogeneous Graph + Poincaré Hyperbolic Projection + DPMM Role Discovery
 
-依赖: Script 1 输出的 node_features.csv
-参考: detection_module/hetero_hyperrole_classifier.py
+Pipeline:
 
-用法:
-  python -m detection_module.hyper_newtest.new_role_assigner --save-dir <script1_output_dir>
+1. Read 26-dimensional features + augmented graph from Script 1 output
+
+2. Construct PyG heterogeneous graph (user/tweet nodes, followers/posts/retweets/similar/likes/comments edges)
+
+3. Learn structured embeddings end-to-end using HGT
+
+4. Preserve hierarchical radiation using Poincaré spherical projection
+
+5. Automatically infer the number of roles using DPMM nonparametric clustering
+
+6. Map role semantics using hyperbolic radius + visualization
+
+Dependency: node_features.csv from Script 1 output
+
+Reference: detection_module/hetero_hyperrole_classifier.py
+
+Usage:
+python -m detection_module.hyper_newtest.new_role_assigner --save-dir <script1_output_dir>
 """
 
 import os
@@ -50,7 +58,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 configure_utf8_streams()
 
-# ==================== 配置 ====================
 DEFAULT_OUTPUT_DIR = str(PROJECT_ROOT / "new_result" / "hyper_newtest")
 DB_PATH, _CSV_PATH = resolve_dataset_paths()
 NODE_FEAT_PATH = os.path.join(DEFAULT_OUTPUT_DIR, "node_features.csv")
@@ -67,10 +74,10 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-NEG_SAMPLES = 5   # 每条正边采样的负边数
-MARGIN = 3.0      # Poincaré 距离 margin，负样本超过此距离不再惩罚
+NEG_SAMPLES = 5   
+MARGIN = 3.0     
 
-# 26 维特征列名（与 Script 1 feat_names_26 一致）
+
 FEAT_26_COLS = [
     'Semantic_0', 'Semantic_1', 'Semantic_2', 'Semantic_3',
     'Semantic_4', 'Semantic_5', 'Semantic_6', 'Semantic_7',
@@ -84,10 +91,9 @@ FEAT_26_COLS = [
 ]
 
 
-# ==================== HGT + Poincaré 模型 ====================
 
 class HyperRoleHGNN(torch.nn.Module):
-    """Heterogeneous Graph Transformer + Poincaré 球双曲投影"""
+
 
     def __init__(self, hidden_dim, num_heads, num_layers, metadata):
         super().__init__()
@@ -115,16 +121,16 @@ class HyperRoleHGNN(torch.nn.Module):
         return hyp_emb
 
 
-# ==================== Poincaré 工具 ====================
+
 
 def poincare_proj(x):
-    """软映射到 Poincaré 球内: x → x / (1 + ||x||)，平滑、无硬截断"""
+  
     norm = torch.norm(x, dim=-1, keepdim=True)
     norm = torch.clamp_min(norm, 1e-6)  # 防止除0
     return x / (1.0 + norm)
 
 def poincare_distance(u, v, eps=1e-5):
-    """Poincaré 球距离: d(u,v) = arcosh(1 + 2||u-v||²/((1-||u||²)(1-||v||²)))"""
+   
     u_norm_sq = torch.sum(u ** 2, dim=-1, keepdim=True)
     v_norm_sq = torch.sum(v ** 2, dim=-1, keepdim=True)
     diff = u - v
@@ -136,13 +142,15 @@ def poincare_distance(u, v, eps=1e-5):
     return torch.acosh(arg)
 
 
-# ==================== 训练 ====================
+
 
 def train_hgt(data, epochs=EPOCHS):
     """
-    Poincaré 距离损失 + 负采样训练 HGT。
-    同时使用 follows + similar 边作为正样本（拉近），
-    负采样不相关的节点对（推开），防止嵌入坍缩。
+    Poincaré distance loss + negative sampling is used to train the HGT.
+
+Simultaneously, follows + similar edges are used as positive samples (to bring them closer),
+
+unrelated node pairs are negatively sampled (to push them apart) to prevent embedding collapse.
     """
     logger.info(f"Training HGT (device={DEVICE})...")
     data = data.to(DEVICE)
@@ -154,7 +162,7 @@ def train_hgt(data, epochs=EPOCHS):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-4)
 
-    # 收集所有 user-user 边作为正样本训练信号
+  
     pos_edges = []
     for etype in [("user", "follows", "user"), ("user", "similar", "user")]:
         if etype in data.edge_types:
@@ -166,13 +174,13 @@ def train_hgt(data, epochs=EPOCHS):
         raise RuntimeError("No user-user edge type available for training")
 
     pos_edges = np.concatenate(pos_edges, axis=1)
-    # 去重
+   
     pos_edges = np.unique(pos_edges, axis=1)
     logger.info(f"  Total unique positive edges: {pos_edges.shape[1]}")
 
     n_users = data["user"].x.shape[0]
 
-    # 负采样分布：度^0.75
+
     deg = np.zeros(n_users, dtype=np.float32)
     for etype in [("user", "follows", "user"), ("user", "similar", "user")]:
         if etype in data.edge_types:
@@ -189,16 +197,16 @@ def train_hgt(data, epochs=EPOCHS):
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
-        # 投影到 Poincaré 球内再算距离（梯度流经未投影的 user_emb）
+        # The distance is then calculated after projecting onto the Poincaré sphere (gradient flow through the unprojected user_emb).
         hyp = model(data.x_dict, data.edge_index_dict)
 
-        # 正样本损失：拉近 Poincaré 距离
+        # Positive Sample Loss: Closing the Poincaré Distance
         u = hyp[pos_t[0]]
         v = hyp[pos_t[1]]
         pos_dist = poincare_distance(u, v)
         pos_loss = torch.nn.functional.softplus(pos_dist).mean()
 
-        # 负采样损失：Hinge loss，距离超过 MARGIN 后不再惩罚
+        #Negative sampling loss: Hinge loss, no longer penalizes distances exceeding MARGIN.
         neg_i = np.random.choice(n_users, size=(n_pos, NEG_SAMPLES), p=neg_dist)
         neg_j = np.random.choice(n_users, size=(n_pos, NEG_SAMPLES), p=neg_dist)
         neg_i_t = torch.tensor(neg_i, dtype=torch.long, device=DEVICE)
@@ -225,12 +233,12 @@ def train_hgt(data, epochs=EPOCHS):
     return model, final_hyp
 
 
-# ==================== DPMM 角色发现 ====================
 
 def dpmm_role_discovery(hyp_emb, rev_user_map):
     """
-    狄利克雷过程混合模型自动推断角色数量。
-    角色语义：双曲半径越小 → 越靠近层级中心 → Leader / Hub
+   The Dirichlet process hybrid model automatically infers the number of roles.
+
+   Role semantics: Smaller hyperbolic radius → Closer to the hierarchy center → Leader / Hub
     """
     logger.info("DPMM role discovery...")
     dpgmm = BayesianGaussianMixture(
@@ -241,7 +249,7 @@ def dpmm_role_discovery(hyp_emb, rev_user_map):
     )
     clusters = dpgmm.fit_predict(hyp_emb)
     n_active = len(np.unique(clusters))
-    logger.info(f"  DPMM 有效角色数: {n_active}")
+    logger.info(f"  DPMM Valid Character Count: {n_active}")
 
     radii = np.linalg.norm(hyp_emb, axis=1)
 
@@ -252,7 +260,7 @@ def dpmm_role_discovery(hyp_emb, rev_user_map):
         "poincare_radius": radii,
     })
 
-    # 按簇平均双曲半径升序排列 → 半径小 = 中心 = Leader
+   
     cluster_radius_mean = df.groupby("cluster")["poincare_radius"].mean().sort_values()
     role_names = [
         "Opinion Leader",
@@ -272,10 +280,8 @@ def dpmm_role_discovery(hyp_emb, rev_user_map):
     return df, hyp_emb, dpgmm
 
 
-# ==================== 可视化 ====================
-
 def plot_poincare_disk(emb, df):
-    """庞加莱圆盘投影（PCA 2D）"""
+   
     logger.info("Plotting Poincaré disk...")
     pca = PCA(n_components=2, random_state=SEED)
     proj = pca.fit_transform(emb)
@@ -302,7 +308,7 @@ def plot_poincare_disk(emb, df):
 
 
 def plot_radius_boxplot(df):
-    """双曲半径箱线图：角色 × 半径分布"""
+  
     logger.info("Plotting radius distribution...")
     order = [
         "Opinion Leader", "Information Bridge", "Amplifier",
@@ -321,7 +327,7 @@ def plot_radius_boxplot(df):
 
 
 def plot_dpmm_weights(dpgmm):
-    """DPMM 组分权重衰减图"""
+   
     logger.info("Plotting DPMM weights...")
     weights = np.sort(dpgmm.weights_)[::-1]
 
@@ -385,8 +391,6 @@ def generate_tactical_role_visualizer(node_feat_path, df_roles, save_dir):
         logger.warning("Tactical-role visualizer failed and was skipped: %s", exc)
 
 
-# ==================== 主流程 ====================
-
 def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epochs=EPOCHS):
     global SAVE_DIR
     SAVE_DIR = save_dir
@@ -396,7 +400,6 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
     print("  Script 3: HGT + Poincaré + DPMM 角色发现")
     print("=" * 60)
 
-    # ---- 1. 加载 26 维特征 ----
     if not os.path.exists(node_feat_path):
         raise FileNotFoundError(f"请先运行 Script 1: {node_feat_path}")
 
@@ -411,7 +414,6 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
     features_26 = df_feat[avail_cols].values.astype(np.float32)
     logger.info(f"  {len(user_ids)} users, {features_26.shape[1]}-dim features")
 
-    # ---- 2. 构建异构图 ----
     logger.info("Building heterogeneous graph...")
     try:
         data, rev_user_map = build_hetero_data(
@@ -422,15 +424,13 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
         raise
     logger.info(f"  Edge types: {data.edge_types}")
 
-    # ---- 3. 训练 HGT + Poincaré ----
+   
     _, hyp_emb = train_hgt(data, epochs=epochs)
     if hyp_emb is None:
         raise RuntimeError("HGT training failed.")
 
-    # ---- 4. DPMM 角色发现 ----
+   
     df_roles, hyp_emb_arr, dpgmm_model = dpmm_role_discovery(hyp_emb, rev_user_map)
-
-    # ---- 5. 合并分类标签（可选） ----
     result_path = os.path.join(save_dir, "classification_results.csv")
     if os.path.exists(result_path):
         df_result = pd.read_csv(result_path)
@@ -441,23 +441,23 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
         )
         logger.info("  Merged classification labels.")
 
-    # ---- 6. 保存 ----
+   
     role_path = os.path.join(save_dir, "role_assignments.csv")
     df_roles.to_csv(role_path, index=False, encoding="utf-8")
     logger.info(f"Role assignments saved: {role_path}")
 
-    # ---- 7. 摘要 ----
+   
     print("\n" + "=" * 60)
     print("  Role Distribution")
     print("=" * 60)
     print(df_roles["role"].value_counts().to_string())
 
-    # 按 user_type 交叉统计
+    
     if "user_type" in df_roles.columns:
         print("\n  Role × user_type cross-tab:")
         print(pd.crosstab(df_roles["role"], df_roles["user_type"]).to_string())
 
-    # ---- 8. 可视化 ----
+    
     plot_poincare_disk(hyp_emb_arr, df_roles)
     plot_radius_boxplot(df_roles)
     plot_dpmm_weights(dpgmm_model)

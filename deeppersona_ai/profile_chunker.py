@@ -1,16 +1,16 @@
 """
 profile_chunker.py
 
-将 deeppersonal_agents.json 中的每个 profile 拆成多个语义块，
-展平为自然语言文本，供后续 embedding 和向量检索使用。
+Splits each profile in deeppersonal_agents.json into multiple semantic chunks,
+flattening them into natural language text for subsequent embedding and vector retrieval.
 
-输出: chunked_profiles.json（可读，用于检视 chunk 质量）
+Output: chunked_profiles.json (readable, used for inspecting chunk quality)
 """
 
 import json
 import os
 
-# 需要作为独立 chunk 的顶层 section
+# Top-level sections to be treated as independent chunks
 SECTION_MAPPING = {
     "demographic": "Demographic Information",
     "career": "Career and Work Identity",
@@ -20,15 +20,11 @@ SECTION_MAPPING = {
     "interests": "Hobbies, Interests, and Lifestyle",
 }
 
-# profile 顶层中不需要纳入 chunk 的字段
+# Top-level fields in the profile that do not need to be chunked
 SKIP_KEYS = {"Generated At", "Profile Index"}
 
 
 def flatten_dict(d: dict, parent_key: str = "") -> list[tuple[str, str]]:
-    """
-    递归展平嵌套字典，返回 [(展平后key, 叶子值), ...]。
-    自动过滤空值和无意义占位值。
-    """
     NOISE_VALUES = {
         "none", "none;", "not applicable", "", "none mentioned",
         "not specified", "no", "not interested", "none; no",
@@ -48,13 +44,6 @@ def flatten_dict(d: dict, parent_key: str = "") -> list[tuple[str, str]]:
 
 
 def build_section_text(section_name: str, section_data: dict) -> str:
-    """
-    将一个 section dict 展平为可读的纯文本。
-    例如:
-      [demographic]
-      Financial Status → UserStatus: Middle-income earner with modest savings
-      Financial Status → FinancialBehavior: Cautious spender
-    """
     pairs = flatten_dict(section_data)
     if not pairs:
         return ""
@@ -67,10 +56,10 @@ def build_section_text(section_name: str, section_data: dict) -> str:
 
 
 def chunk_profile(profile: dict, agent_id: int) -> list[dict]:
-    """将一个 profile 拆成多个 chunk dict。"""
+    """Splits a profile into multiple chunk dicts."""
     chunks: list[dict] = []
 
-    # 1. Summary 块（原样保留，这是最宝贵的自然语言人格描述）
+    # 1. Summary block (kept as is, this is the most valuable natural language personality description)
     summary = profile.get("Summary", "")
     if summary and summary.strip():
         chunks.append({
@@ -79,7 +68,7 @@ def chunk_profile(profile: dict, agent_id: int) -> list[dict]:
             "text": summary.strip(),
         })
 
-    # 2. 其余语义块
+    # 2. Remaining semantic blocks
     for section_key, json_key in SECTION_MAPPING.items():
         section_data = profile.get(json_key)
         if isinstance(section_data, dict):
@@ -99,37 +88,37 @@ def main():
     input_path = os.path.join(script_dir, "deeppersonal_agents.json")
     output_path = os.path.join(script_dir, "chunked_profiles.json")
 
-    # 读入
+    # Read input
     with open(input_path, "r", encoding="utf-8") as f:
         profiles = json.load(f)
 
-    print(f"读取 {len(profiles)} 个 profiles")
+    print(f"Read {len(profiles)} profiles")
 
-    # 逐个 chunk
+    # Chunk one by one
     all_chunks: list[dict] = []
     for profile in profiles:
-        idx = profile.get("Profile Index", 1) - 1  # 转为 0-based agent_id
+        idx = profile.get("Profile Index", 1) - 1  # Convert to 0-based agent_id
         chunks = chunk_profile(profile, idx)
         all_chunks.extend(chunks)
 
-    # 写出
+    # Write output
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, ensure_ascii=False, indent=2)
 
-    # 打印统计
-    print(f"\n[OK] 拆块完成: {len(profiles)} profiles -> {len(all_chunks)} chunks")
-    print(f"  输出文件: {output_path}")
+    # Print statistics
+    print(f"\n[OK] Chunking completed: {len(profiles)} profiles -> {len(all_chunks)} chunks")
+    print(f"  Output file: {output_path}")
 
     sections = sorted(set(c["section"] for c in all_chunks))
-    print(f"  chunk 类型: {', '.join(sections)}")
+    print(f"  Chunk types: {', '.join(sections)}")
 
-    print("\n各 chunk 详情:")
+    print("\nChunk details:")
     for c in all_chunks:
         char_count = len(c["text"])
         line_count = c["text"].count("\n") + 1
         print(f"  [agent_{c['agent_id']}] {c['section']:15s}  {char_count:5d} chars, {line_count:2d} lines")
         if char_count == 0:
-            print("    ⚠️ 空 chunk，请检查源数据")
+            print("    [WARN] Empty chunk, please check source data")
 
 
 if __name__ == "__main__":

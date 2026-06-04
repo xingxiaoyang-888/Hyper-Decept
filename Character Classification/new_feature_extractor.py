@@ -20,16 +20,13 @@ try:
 except ImportError:
     from config import first_existing, get_table_columns, split_tweet_pool
 
-# ==========================================
-# 核心架构层：导入四大重型社会心理学引擎
-# ==========================================
 try:
     from emotional_analysis.empathy_gap_analyzer import EmpathyGapAnalyzer
     from emotional_analysis.dark_triad_analyzer import DarkTriadAnalyzer
     from emotional_analysis.contagion_analyzer import ContagionAnalyzer
     from emotional_analysis.volatility_analyzer import EmotionVolatilityAnalyzer
 except ImportError as e:
-    warnings.warn(f"无法完整导入重型情感引擎，请检查 emotional_analysis 目录: {e}")
+    warnings.warn(f"Please check the emotional_analysis directory: {e}")
     EmpathyGapAnalyzer, DarkTriadAnalyzer, ContagionAnalyzer, EmotionVolatilityAnalyzer = None, None, None, None
 
 warnings.filterwarnings('ignore')
@@ -51,9 +48,7 @@ class MultimodalExtractor:
         use_cache=True,
         verbose_progress=None,
     ):
-        """
-        初始化异构多模态特征融合枢纽 (中央总线 终极大一统版)
-        """
+       
         self.psychology_mode = (psychology_mode or os.getenv("AFG_PSYCHOLOGY_MODE", "full")).lower()
         if self.psychology_mode not in {"full", "fast", "off"}:
             raise ValueError("psychology_mode must be one of: full, fast, off.")
@@ -69,12 +64,11 @@ class MultimodalExtractor:
         if self.cache_dir:
             os.makedirs(self.cache_dir, exist_ok=True)
 
-        print(f"[Feature Bus] 启动，加载双流文本基础语义模型: {model_path} ...")
-        print(f"[Feature Bus] psychology mode: {self.psychology_mode}")
+        print(f" psychology mode: {self.psychology_mode}")
         if self.max_tweets_per_user is not None:
-            print(f"[Feature Bus] max tweets per user: {self.max_tweets_per_user}")
+            print(f" max tweets per user: {self.max_tweets_per_user}")
         if not self.verbose_progress:
-            print("[Feature Bus] internal progress bars: quiet (set AFG_VERBOSE_PROGRESS=1 to show)")
+            print(" internal progress bars: quiet (set AFG_VERBOSE_PROGRESS=1 to show)")
         
         try:
             from sentence_transformers import SentenceTransformer
@@ -84,16 +78,13 @@ class MultimodalExtractor:
                 warnings.warn(f"Local sentence_transformers load failed, trying default loader: {local_exc}")
                 self.text_model = SentenceTransformer(model_path)
         except Exception:
-            warnings.warn("无法加载 sentence_transformers。将使用零向量占位。")
+            warnings.warn("Unable to load sentence_transformers. Zero vector placeholder will be used.。")
             self.text_model = None
             
         self.scaler = StandardScaler()
         self.pca = PCA(n_components=aligned_text_dim, random_state=42) 
         self.aligned_text_dim = aligned_text_dim
         
-        # ==========================================
-        # 挂载四大 LLM 原生社会心理学重型引擎
-        # ==========================================
         if self.psychology_mode == "off":
             self.empathy_engine = None
             self.dark_triad_engine = None
@@ -119,8 +110,7 @@ class MultimodalExtractor:
                 return func(*args, **kwargs)
 
     def extract_behavior_features(self, db_path: str, user_ids_master: list = None):
-        """提取数据库中的统计行为特征 (兼容多表结构)"""
-        print(f"[Behavioral Stream] 正在连接数据库: {os.path.basename(db_path)}")
+        print(f"connnect: {os.path.basename(db_path)}")
         with sqlite3.connect(db_path) as conn:
             schema = get_table_columns(conn)
 
@@ -147,8 +137,6 @@ class MultimodalExtractor:
 
             if n == 0:
                 return user_ids, np.zeros((0, 10), dtype=float)
-
-            # ---------- 提取 user 表特征 ----------
             if 'user' in schema and 'user_id' in schema['user']:
                 df_users = pd.read_sql_query("SELECT * FROM user", conn)
                 df_users['user_id'] = df_users['user_id'].astype(str)
@@ -172,7 +160,7 @@ class MultimodalExtractor:
 
             follower_ratio = followers / (following + 1.0)
 
-            # ---------- 从 post 表聚合每用户发文特征 ----------
+         
             if 'post' in schema and 'user_id' in schema['post']:
                 df_post = pd.read_sql_query("SELECT * FROM post", conn)
                 if not df_post.empty:
@@ -214,7 +202,7 @@ class MultimodalExtractor:
                     if np.all(tweet_cnt == 0):
                         tweet_cnt = df_post_agg['post_count'].to_numpy(float)
 
-            # ---------- 无 post 表时，从 agent_actions 取同维度代理统计 ----------
+         
             elif 'agent_actions' in schema and {'agent_name', 'action_type'}.issubset(set(schema['agent_actions'])):
                 df_actions = pd.read_sql_query("SELECT agent_name, action_type FROM agent_actions", conn)
                 if not df_actions.empty:
@@ -251,8 +239,6 @@ class MultimodalExtractor:
         return user_ids, np.nan_to_num(behavior_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
     def _encode_text_dual_stream(self, bios: list, tweets_list: list):
-        """双流文本池化编码 (PCA 降维)"""
-        print(f"📝 [Semantic Stream] 启动双流文本编码 (1.静态 Bio | 2.动态推文池化)...")
         if self.text_model is None:
             return np.zeros((len(bios), self.aligned_text_dim))
 
@@ -281,10 +267,7 @@ class MultimodalExtractor:
         return aligned_matrix
 
     def _extract_llm_native_psychology(self, tweets_list: list):
-        """
-        【系统核心】全火力展开：并发调用四大重型引擎，抽取 8 维宏观心理特征
-        """
-        print(f" [Psychological Stream] 启动深度心理扫描，处理 {len(tweets_list)} 个智能体...")
+        
         agent_tweets = [split_tweet_pool(tweets_str, min_len=5) for tweets_str in tweets_list]
         if self.max_tweets_per_user is not None:
             agent_tweets = [texts[:self.max_tweets_per_user] for texts in agent_tweets]
@@ -306,7 +289,7 @@ class MultimodalExtractor:
             unit="agent",
             disable=not self.verbose_progress,
         ):
-            # 1. 认知错位差 (Empathy Gap)
+            # 1. (Empathy Gap)
             if self.empathy_engine and agent_tweets_array:
                 emp_res = self._run_engine(self.empathy_engine.evaluate_agent, agent_tweets_array)
                 emp_mean = emp_res.get("Agent_Mean_Empathy_Gap", 0.0)
@@ -314,7 +297,7 @@ class MultimodalExtractor:
             else:
                 emp_mean, emp_max = 0.0, 0.0
                 
-            # 2. 暗黑三角激活度 (Dark Triad)
+            # 2. (Dark Triad)
             if self.dark_triad_engine and agent_tweets_array:
                 dt_res = self._run_engine(self.dark_triad_engine.evaluate_agent, agent_tweets_array)
                 dt_mean = dt_res.get("Agent_Mean_Dark_Triad", 0.0)
@@ -322,21 +305,21 @@ class MultimodalExtractor:
             else:
                 dt_mean, dt_max = 0.0, 0.0
                 
-            # 3. 无阻尼情感传染率 (Frictionless Contagion)
-            # 默认降级为锚点模式计算基础均值与极值
+            # 3.  (Frictionless Contagion)
+            
             if self.contagion_engine and agent_tweets_array:
                 cont_res = self._run_engine(self.contagion_engine.evaluate_agent, agent_tweets_array)
                 cont_mean = cont_res.get("Agent_Mean_Alignment", 0.0)
                 cont_max = cont_res.get("Agent_Contagion_Spike", 0.0)
                 if len(psycho_features) == 0 and cont_mean > 0:
-                    print(f"[DEBUG] Contagion 首个非零值: mean={cont_mean:.4f}, max={cont_max:.4f}")
+                    print(f"Contagion First non-zero value: mean={cont_mean:.4f}, max={cont_max:.4f}")
             else:
                 cont_mean, cont_max = 0.0, 0.0
                 
-            # 4. 功能性情感瞬切率 (Emotion Volatility)
+            # 4.  (Emotion Volatility)
             if self.volatility_engine and agent_tweets_array:
                 vol_res = self._run_engine(self.volatility_engine.evaluate_agent, agent_tweets_array)
-                # 检查数据是否充分 (大于等于两条文本才构成“瞬切”)
+                
                 if not vol_res.get("Insufficient_Data", True):
                     vol_mean = vol_res.get("Agent_Mean_Volatility", 0.0)
                     vol_max = vol_res.get("Agent_Max_Volatility", 0.0)
@@ -345,18 +328,18 @@ class MultimodalExtractor:
             else:
                 vol_mean, vol_max = 0.0, 0.0
             
-            # 组装 8 维心理特征超级向量
+           
             psycho_features.append([
-                emp_mean, emp_max,   # 维度 1, 2: 错位差 (均值/极值)
-                dt_mean, dt_max,     # 维度 3, 4: 暗黑三角 (均值/极值)
-                cont_mean, cont_max, # 维度 5, 6: 传染率 (均值/极值)
-                vol_mean, vol_max    # 维度 7, 8: 瞬切率 (均值/极值)
+                emp_mean, emp_max,   
+                dt_mean, dt_max,    
+                cont_mean, cont_max, 
+                vol_mean, vol_max    
             ])
             
         psycho_matrix = np.array(psycho_features)
         if cache_path:
             np.save(cache_path, psycho_matrix)
-            print(f" [Psychological Stream] feature cache saved: {cache_path}")
+            print(f"  feature cache saved: {cache_path}")
         return psycho_matrix
 
     def _psychology_cache_path(self, agent_tweets):
@@ -374,15 +357,14 @@ class MultimodalExtractor:
         return os.path.join(self.cache_dir, f"psychology_{digest.hexdigest()[:24]}.npy")
 
     def fuse_multimodal_features(self, db_path: str, bios: list, tweets_list: list = None, user_ids_master: list = None):
-        """异构多模态融合枢纽"""
+       
         print("\n" + "="*50)
-        print("🔗 启动多模态特征融合总线 (Feature Bus V8.0)")
         print("="*50)
         
-        # 1. 获取行为学特征矩阵
+        
         user_ids, behavior_matrix = self.extract_behavior_features(db_path, user_ids_master)
         
-        # 2. 文本字段预处理兼容
+        
         if tweets_list is None:
             parsed_bios, parsed_tweets = [], []
             for s in bios:
@@ -397,10 +379,10 @@ class MultimodalExtractor:
         else:
             bios_input, tweets_input = bios, tweets_list
 
-        # 3. 获取双流语义 PCA 矩阵
+       
         aligned_text_matrix = self._encode_text_dual_stream(bios_input, tweets_input)
         
-        # 4. 获取 8 维深度心理学矩阵
+        
         psycho_matrix = self._extract_llm_native_psychology(tweets_input)
 
         min_len = min(len(user_ids), len(aligned_text_matrix), len(behavior_matrix), len(psycho_matrix))
@@ -411,13 +393,12 @@ class MultimodalExtractor:
             behavior_matrix = behavior_matrix[:min_len]
             psycho_matrix = psycho_matrix[:min_len]
         
-        # 5. 标准化融合 (仅对行为和心理指标进行标准化消除量纲)
+       
         enhanced_behavior = np.hstack((behavior_matrix, psycho_matrix))
         behavior_matrix_scaled = self.scaler.fit_transform(enhanced_behavior)
         
-        # 6. 终极超级矩阵构建
-        print(" 正在拼接对齐后的语义向量、行为统计与【8维深度认知心理】特征...")
+       
         fused_matrix = np.hstack((aligned_text_matrix, behavior_matrix_scaled))
         
-        print(f"✅ 多模态超级矩阵构建完毕: {fused_matrix.shape} (降维文本 + 行为 + 8维心理侧写)")
+        print(f" complete: {fused_matrix.shape} ")
         return user_ids, fused_matrix

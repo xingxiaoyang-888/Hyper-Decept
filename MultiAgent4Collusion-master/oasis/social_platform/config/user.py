@@ -18,6 +18,7 @@ import sys
 import logging
 from datetime import datetime
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 if "sphinx" not in sys.modules:
@@ -39,7 +40,10 @@ class UserInfo:
     recsys_type: str = "twitter"
     is_controllable: bool = False
     user_type: str = "good"
-    prompt_dir: str = "MultiAgent4Collusion-master/scripts/twitter_simulation/align_with_real_world"
+    prompt_dir: str = str(
+        Path(__file__).resolve().parents[3]
+        / "scripts/twitter_simulation/align_with_real_world"
+    )
 
     def to_system_message(self, action_space_prompt: str = None) -> str:
         if self.recsys_type != "reddit":

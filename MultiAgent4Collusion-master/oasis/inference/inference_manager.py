@@ -14,6 +14,7 @@
 
 import asyncio
 import logging
+import os
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional
 import time
@@ -25,6 +26,7 @@ import sys
 from oasis.inference.inference_thread import InferenceThread
 
 # Setup logging
+os.makedirs("log", exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -121,44 +123,28 @@ class InferencerManager:
         # ThreadPoolExecutor for running blocking operations
         self.executor = ThreadPoolExecutor(max_workers=len(self.threads))
 
-    # def _initialize_threads(self, server_url, model_type, model_path, stop_tokens):
-    #     """Initialize inference threads"""
-    #     for url_config in server_url:
-    #         host = url_config["host"]
-    #         for port in url_config["ports"]:
-    #             try:
-    #                 _url = f"http://{host}:{port}/v1"
-    #                 shared_memory = SharedMemory()
-    #                 thread = InferenceThread(
-    #                     model_path=model_path,
-    #                     server_url=_url,
-    #                     stop_tokens=stop_tokens,
-    #                     model_type=model_type,
-    #                     temperature=0.0,
-    #                     shared_memory=shared_memory,
-    #                 )
-    #                 self.threads[port] = thread
-    #             except Exception as e:
-    #                 logger.error(f"Failed to initialize thread for port {port}: {e}")
     def _initialize_threads(self, server_url, model_type, model_path, stop_tokens):
-        """Initialize inference threads（已修改为智谱API）"""
-        # 强制使用智谱API，忽略原来的端口配置
-        try:
-            # 智谱固定地址
-            zhipu_url = "https://open.bigmodel.cn/api/paas/v4/"
-            shared_memory = SharedMemory()
+        """Initialize one inference worker for every configured endpoint."""
+        for url_config in server_url:
+            host = url_config["host"]
+            scheme = url_config.get("scheme", "http")
+            api_path = url_config.get("api_path", "/v1")
+            for port in url_config["ports"]:
+                endpoint = f"{scheme}://{host}:{port}{api_path}"
+                try:
+                    self.threads[port] = InferenceThread(
+                        model_path=model_path,
+                        server_url=endpoint,
+                        stop_tokens=stop_tokens,
+                        model_type=model_type,
+                        temperature=0.0,
+                        shared_memory=SharedMemory(),
+                    )
+                except Exception as exc:
+                    logger.error("Failed to initialize %s: %s", endpoint, exc)
 
-            thread = InferenceThread(
-                model_path=model_path,
-                server_url=zhipu_url,  # 强制智谱地址
-                stop_tokens=stop_tokens,
-                model_type=model_type,
-                temperature=0.0,
-                shared_memory=shared_memory,
-            )
-            self.threads[443] = thread  # 用443标记
-        except Exception as e:
-            logger.error(f"Failed to initialize zhipu thread: {e}")
+        if not self.threads:
+            raise RuntimeError("No inference endpoint could be initialized")
 
     async def _find_available_thread(
         self, agent_id: int

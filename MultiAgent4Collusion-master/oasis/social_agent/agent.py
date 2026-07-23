@@ -23,6 +23,7 @@ import logging
 import sys
 import aiofiles
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from camel.configs import ChatGPTConfig
@@ -124,7 +125,10 @@ class SocialAgent:
         task_blackboard: "TaskBlackboard" = None,
         num_agents = None,
         num_bad = None,
-        prompt_dir: str = "MultiAgent4Collusion-master/scripts/twitter_simulation/align_with_real_world",
+        prompt_dir: str = str(
+            Path(__file__).resolve().parents[2]
+            / "scripts/twitter_simulation/align_with_real_world"
+        ),
     ):
         self.agent_id = agent_id
         self.user_info = user_info
@@ -1047,12 +1051,27 @@ class SocialAgent:
                     if match:
                         json_content = match.group("json_block")
                     else:
-                        agent_log.error(
+                        raise ValueError(
                             f"{self.agent_id}: No JSON block found in the response."
                         )
 
                     content_json = json.loads(json_content)
+                    if not isinstance(content_json, dict):
+                        raise TypeError("Action response must be a JSON object")
+                    if "functions" not in content_json:
+                        # A response containing only a reason expresses no
+                        # executable action. Treat it as do-nothing instead of
+                        # spending another local inference on an identical
+                        # retry.
+                        agent_log.warning(
+                            "Agent %s response omitted 'functions'; "
+                            "defaulting to an empty action list.",
+                            self.agent_id,
+                        )
+                        content_json["functions"] = []
                     functions = content_json["functions"]
+                    if not isinstance(functions, list):
+                        raise TypeError("'functions' must be a JSON array")
                     # reason = content_json["reason"]
 
                     for function in functions:

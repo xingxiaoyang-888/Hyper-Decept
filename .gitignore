@@ -25,6 +25,7 @@ outputs/
 venv/
 env/
 .venv/
+.tools/
 
 # 5. IDE 配置文件
 .vscode/
@@ -144,3 +145,7 @@ slurm-*.out
 tmp
 mac/
 .env
+
+
+.runtime/
+**/model.safetensors

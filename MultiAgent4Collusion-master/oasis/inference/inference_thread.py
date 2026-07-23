@@ -17,6 +17,7 @@ from time import sleep
 
 from camel.models import BaseModelBackend, ModelFactory
 from camel.types import ModelPlatformType
+from openai import OpenAI
 
 thread_log = logging.getLogger(name="inference.thread")
 thread_log.setLevel("DEBUG")
@@ -70,39 +71,45 @@ class InferenceThread:
                 api_key=deepinfra_api_key,
             )
         elif model_path == "openai":
-
-            # ====================== 【全局调试打印】 ======================
-            # 在这里写入 TXT，告诉你真正的 model_path 是什么
-            import datetime
-            debug_path = r"E:\api_debug2.txt"
-            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            debug_info = (
-                f"[{now}] ========== 进入 InferenceThread ==========\n"
-                f"model_path 实际值 = {repr(model_path)}\n"
-                f"model_path 类型   = {type(model_path)}\n"
-                f"server_url        = {server_url}\n"
-                f"=====================================================\n\n"
-            )
-
-            with open(debug_path, "a", encoding="utf-8") as f:
-                f.write(debug_info)
-            # ==============================================================
-
             model_platform_type = ModelPlatformType.OPENAI_COMPATIBILITY_MODEL
-            # openai_api_key = get_env_variable('GPT_DIRECT_API_KEY')
-            openai_api_key ="72cfd63013cf4b3392de97145e3248aa.g6KRh4BYBBrElUlv"
-            # openai_base_url = get_env_variable('OPENAI_API_BASE_URL')
+            is_local = "localhost" in server_url or "127.0.0.1" in server_url
+            api_key = (
+                get_env_variable("OPENAI_API_KEY")
+                or get_env_variable("ZHIPUAI_API_KEY")
+                or ("ollama" if is_local else None)
+            )
+            if not api_key:
+                raise ValueError(
+                    "Set OPENAI_API_KEY or ZHIPUAI_API_KEY for a remote "
+                    "OpenAI-compatible endpoint"
+                )
+            model_config = {
+                "temperature": temperature,
+            }
+            if is_local:
+                # Ollama thinking models otherwise spend most of the local
+                # smoke-test runtime producing reasoning tokens.
+                model_config.update({
+                    "reasoning_effort": "none",
+                    "max_tokens": 768,
+                    "response_format": {"type": "json_object"},
+                })
             self.model_backend: BaseModelBackend = ModelFactory.create(
                 model_platform=model_platform_type,
                 model_type=self.model_type,
-                model_config_dict={
-                    "temperature": temperature,
-                },
-                # url='https://api.openai.com/v1',
-                url='https://open.bigmodel.cn/api/paas/v4/',
-                api_key=openai_api_key,
+                model_config_dict=model_config,
+                url=server_url,
+                api_key=api_key,
             )
+            if is_local:
+                # One local Ollama worker serves all agents serially. Avoid
+                # multiplying a slow request with automatic retries.
+                self.model_backend._client = OpenAI(
+                    timeout=180,
+                    max_retries=0,
+                    base_url=server_url,
+                    api_key=api_key,
+                )
         else:
             self.model_backend: BaseModelBackend = ModelFactory.create(
                 model_platform=model_platform_type,

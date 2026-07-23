@@ -55,6 +55,7 @@ from datetime import datetime
 import pickle
 
 # ====================== 独立评价指标日志 ======================
+os.makedirs("log", exist_ok=True)
 # 日志会保存在项目根目录：evaluation_metrics.log
 metrics_logger = logging.getLogger("evaluation_metrics")
 metrics_logger.setLevel(logging.INFO)
@@ -292,11 +293,13 @@ async def running(
     reflection: bool = False,
     shared_reflection: bool = False,
     detection: bool = False,
+    activation_scale: float = 1.0,
+    force_all_agents_active: bool = False,
     model_configs: dict[str, Any] | None = None,
     inference_configs: dict[str, Any] | None = None,
     defense_configs: dict[str, Any] | None = None,
     action_space_file_path: str = None,
-    prompt_dir: str = "scripts/twitter_simulation/align_with_real_world",
+    prompt_dir: str = str(Path(__file__).resolve().parent),
 ) -> None:
     db_path = DEFAULT_DB_PATH if db_path is None else db_path
     csv_path = DEFAULT_CSV_PATH if csv_path is None else csv_path
@@ -481,7 +484,9 @@ async def running(
                 threshold = agent.user_info.profile["other_info"]["active_threshold"][
                     int(simulation_time_hour % 24)
                 ]
-                if agent_ac_prob < threshold:
+                if force_all_agents_active or agent_ac_prob < min(
+                    1.0, threshold * activation_scale
+                ):
                     tasks.append(agent.perform_action_by_llm())
             else:
                 await agent.perform_action_by_hci()

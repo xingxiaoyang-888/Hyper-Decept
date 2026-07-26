@@ -1,20 +1,28 @@
 """
 new_role_assigner.py [Script 3]
-HGT 异构图 + Poincaré 双曲投影 + DPMM 角色发现
 
-管线:
-  1. 从 Script 1 输出读取 26 维特征 + 增强图
-  2. 构建 PyG 异构图（user/tweet 节点，follows/posts/retweets/similar/likes/comments 边）
-  3. HGT 端到端学习结构嵌入
-  4. Poincaré 球投影保留层级辐射
-  5. DPMM 非参数聚类自动推断角色数量
-  6. 双曲半径映射角色语义 + 可视化
+HGT Heterogeneous Graph + Poincaré Hyperbolic Projection + DPMM Role Discovery
 
-依赖: Script 1 输出的 node_features.csv
-参考: detection_module/hetero_hyperrole_classifier.py
+Pipeline:
 
-用法:
-  python -m detection_module.hyper_newtest.new_role_assigner --save-dir <script1_output_dir>
+1. Read 26-dimensional features + augmented graph from Script 1 output
+
+2. Construct PyG heterogeneous graph (user/tweet nodes, followers/posts/retweets/similar/likes/comments edges)
+
+3. Learn structured embeddings end-to-end using HGT
+
+4. Preserve hierarchical radiation using Poincaré spherical projection
+
+5. Automatically infer the number of roles using DPMM nonparametric clustering
+
+6. Map role semantics using hyperbolic radius + visualization
+
+Dependency: node_features.csv from Script 1 output
+
+Reference: detection_module/hetero_hyperrole_classifier.py
+
+Usage:
+python -m detection_module.hyper_newtest.new_role_assigner --save-dir <script1_output_dir>
 """
 
 import os
@@ -31,26 +39,26 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
+import json
 
 from sklearn.decomposition import PCA
 from sklearn.mixture import BayesianGaussianMixture
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from detection_module.hyper_newtest.config import (
+from config import (
     DATASET_CHOICES,
     PROJECT_ROOT,
     configure_utf8_streams,
     resolve_dataset_paths,
 )
-from detection_module.hyper_newtest.graph_builder import build_hetero_data
-from detection_module.visualizer import CognitiveVisualizer
+from graph_builder import build_hetero_data
+from visualizer import CognitiveVisualizer
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 configure_utf8_streams()
 
-# ==================== 配置 ====================
 DEFAULT_OUTPUT_DIR = str(PROJECT_ROOT / "new_result" / "hyper_newtest")
 DB_PATH, _CSV_PATH = resolve_dataset_paths()
 NODE_FEAT_PATH = os.path.join(DEFAULT_OUTPUT_DIR, "node_features.csv")
@@ -67,10 +75,10 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-NEG_SAMPLES = 5   # 每条正边采样的负边数
-MARGIN = 3.0      # Poincaré 距离 margin，负样本超过此距离不再惩罚
+NEG_SAMPLES = 5   
+MARGIN = 3.0     
 
-# 26 维特征列名（与 Script 1 feat_names_26 一致）
+
 FEAT_26_COLS = [
     'Semantic_0', 'Semantic_1', 'Semantic_2', 'Semantic_3',
     'Semantic_4', 'Semantic_5', 'Semantic_6', 'Semantic_7',
@@ -84,10 +92,9 @@ FEAT_26_COLS = [
 ]
 
 
-# ==================== HGT + Poincaré 模型 ====================
 
 class HyperRoleHGNN(torch.nn.Module):
-    """Heterogeneous Graph Transformer + Poincaré 球双曲投影"""
+
 
     def __init__(self, hidden_dim, num_heads, num_layers, metadata):
         super().__init__()
@@ -104,27 +111,99 @@ class HyperRoleHGNN(torch.nn.Module):
 
         self.out_lin = Linear(hidden_dim, hidden_dim)
 
-    def forward(self, x_dict, edge_index_dict):
+    @staticmethod
+    def _masked_hgt_forward(conv, x_dict, edge_index_dict, edge_mask_dict):
+        """HGTConv forward with differentiable per-edge relation masks."""
+        import math
+
+        from torch_geometric.utils import softmax
+        from torch_geometric.utils.hetero import construct_bipartite_edge_index
+
+        k_dict, q_dict, v_dict, out_dict = {}, {}, {}, {}
+        kqv_dict = conv.kqv_lin(x_dict)
+        for key, value in kqv_dict.items():
+            key_value, query, value_vector = torch.tensor_split(value, 3, dim=1)
+            head_dim = conv.out_channels // conv.heads
+            k_dict[key] = key_value.view(-1, conv.heads, head_dim)
+            q_dict[key] = query.view(-1, conv.heads, head_dim)
+            v_dict[key] = value_vector.view(-1, conv.heads, head_dim)
+
+        query, dst_offset = conv._cat(q_dict)
+        key, value, src_offset = conv._construct_src_node_feat(
+            k_dict, v_dict, edge_index_dict
+        )
+        relation_attrs = {}
+        message_masks = []
+        for edge_type, edge_index in edge_index_dict.items():
+            relation = conv.p_rel["__".join(edge_type)]
+            relation_attrs[edge_type] = relation
+            mask = edge_mask_dict.get(edge_type)
+            if mask is None:
+                mask = relation.new_ones(edge_index.shape[1])
+            message_masks.append(mask.reshape(-1))
+        edge_index, edge_attr = construct_bipartite_edge_index(
+            edge_index_dict,
+            src_offset,
+            dst_offset,
+            edge_attr_dict=relation_attrs,
+            num_nodes=key.size(0),
+        )
+        edge_mask = torch.cat(message_masks, dim=0)
+        source, target = edge_index[0], edge_index[1]
+        attention = (query[target] * key[source]).sum(dim=-1) * edge_attr
+        attention = attention / math.sqrt(query.size(-1))
+        attention = softmax(attention, target, num_nodes=query.size(0))
+        messages = value[source] * attention.unsqueeze(-1)
+        messages = messages * edge_mask.reshape(-1, 1, 1)
+        output = value.new_zeros((query.size(0), conv.heads, query.size(-1)))
+        output.index_add_(0, target, messages)
+        output = output.reshape(-1, conv.out_channels)
+        for node_type, start_offset in dst_offset.items():
+            end_offset = start_offset + q_dict[node_type].size(0)
+            if node_type in conv.dst_node_types:
+                out_dict[node_type] = output[start_offset:end_offset]
+        transformed = conv.out_lin({
+            key: F.gelu(value) if value is not None else value
+            for key, value in out_dict.items()
+        })
+        for node_type, value in out_dict.items():
+            value = transformed[node_type]
+            if value.size(-1) == x_dict[node_type].size(-1):
+                alpha = conv.skip[node_type].sigmoid()
+                value = alpha * value + (1.0 - alpha) * x_dict[node_type]
+            out_dict[node_type] = value
+        return out_dict
+
+    def encode_nodes(self, x_dict, edge_index_dict, edge_mask_dict=None):
         x_aligned = {
             nt: self.lin_dict[nt](x).relu_() for nt, x in x_dict.items()
         }
         for conv in self.convs:
-            x_aligned = conv(x_aligned, edge_index_dict)
+            if edge_mask_dict is None:
+                x_aligned = conv(x_aligned, edge_index_dict)
+            else:
+                x_aligned = self._masked_hgt_forward(
+                    conv, x_aligned, edge_index_dict, edge_mask_dict
+                )
+        return x_aligned
+
+    def forward(self, x_dict, edge_index_dict, edge_mask_dict=None):
+        x_aligned = self.encode_nodes(x_dict, edge_index_dict, edge_mask_dict)
         user_emb = self.out_lin(x_aligned["user"])
         hyp_emb = poincare_proj(user_emb)
         return hyp_emb
 
 
-# ==================== Poincaré 工具 ====================
+
 
 def poincare_proj(x):
-    """软映射到 Poincaré 球内: x → x / (1 + ||x||)，平滑、无硬截断"""
+  
     norm = torch.norm(x, dim=-1, keepdim=True)
     norm = torch.clamp_min(norm, 1e-6)  # 防止除0
     return x / (1.0 + norm)
 
 def poincare_distance(u, v, eps=1e-5):
-    """Poincaré 球距离: d(u,v) = arcosh(1 + 2||u-v||²/((1-||u||²)(1-||v||²)))"""
+   
     u_norm_sq = torch.sum(u ** 2, dim=-1, keepdim=True)
     v_norm_sq = torch.sum(v ** 2, dim=-1, keepdim=True)
     diff = u - v
@@ -136,13 +215,15 @@ def poincare_distance(u, v, eps=1e-5):
     return torch.acosh(arg)
 
 
-# ==================== 训练 ====================
+
 
 def train_hgt(data, epochs=EPOCHS):
     """
-    Poincaré 距离损失 + 负采样训练 HGT。
-    同时使用 follows + similar 边作为正样本（拉近），
-    负采样不相关的节点对（推开），防止嵌入坍缩。
+    Poincaré distance loss + negative sampling is used to train the HGT.
+
+Simultaneously, follows + similar edges are used as positive samples (to bring them closer),
+
+unrelated node pairs are negatively sampled (to push them apart) to prevent embedding collapse.
     """
     logger.info(f"Training HGT (device={DEVICE})...")
     data = data.to(DEVICE)
@@ -154,7 +235,7 @@ def train_hgt(data, epochs=EPOCHS):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-4)
 
-    # 收集所有 user-user 边作为正样本训练信号
+  
     pos_edges = []
     for etype in [("user", "follows", "user"), ("user", "similar", "user")]:
         if etype in data.edge_types:
@@ -166,13 +247,13 @@ def train_hgt(data, epochs=EPOCHS):
         raise RuntimeError("No user-user edge type available for training")
 
     pos_edges = np.concatenate(pos_edges, axis=1)
-    # 去重
+   
     pos_edges = np.unique(pos_edges, axis=1)
     logger.info(f"  Total unique positive edges: {pos_edges.shape[1]}")
 
     n_users = data["user"].x.shape[0]
 
-    # 负采样分布：度^0.75
+
     deg = np.zeros(n_users, dtype=np.float32)
     for etype in [("user", "follows", "user"), ("user", "similar", "user")]:
         if etype in data.edge_types:
@@ -189,16 +270,16 @@ def train_hgt(data, epochs=EPOCHS):
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
-        # 投影到 Poincaré 球内再算距离（梯度流经未投影的 user_emb）
+        # The distance is then calculated after projecting onto the Poincaré sphere (gradient flow through the unprojected user_emb).
         hyp = model(data.x_dict, data.edge_index_dict)
 
-        # 正样本损失：拉近 Poincaré 距离
+        # Positive Sample Loss: Closing the Poincaré Distance
         u = hyp[pos_t[0]]
         v = hyp[pos_t[1]]
         pos_dist = poincare_distance(u, v)
         pos_loss = torch.nn.functional.softplus(pos_dist).mean()
 
-        # 负采样损失：Hinge loss，距离超过 MARGIN 后不再惩罚
+        #Negative sampling loss: Hinge loss, no longer penalizes distances exceeding MARGIN.
         neg_i = np.random.choice(n_users, size=(n_pos, NEG_SAMPLES), p=neg_dist)
         neg_j = np.random.choice(n_users, size=(n_pos, NEG_SAMPLES), p=neg_dist)
         neg_i_t = torch.tensor(neg_i, dtype=torch.long, device=DEVICE)
@@ -225,12 +306,234 @@ def train_hgt(data, epochs=EPOCHS):
     return model, final_hyp
 
 
-# ==================== DPMM 角色发现 ====================
+def _user_link_score(hyp_emb, edge_index_dict):
+    """Return differentiable user-user link logits used for explainer fidelity."""
+    edge_types = [
+        edge_type for edge_type in edge_index_dict
+        if edge_type[0] == "user" and edge_type[2] == "user"
+    ]
+    if not edge_types:
+        raise RuntimeError("No user-user relation is available for explanation")
+    scores = []
+    for edge_type in edge_types:
+        edge_index = edge_index_dict[edge_type]
+        distance = poincare_distance(
+            hyp_emb[edge_index[0]], hyp_emb[edge_index[1]]
+        ).reshape(-1)
+        scores.append(-distance)
+    return torch.cat(scores)
+
+
+def run_geometry_explainers(
+    model,
+    data,
+    save_dir,
+    dpgmm_model=None,
+    epochs=100,
+    geo_geodesic_weight=1.0,
+    geo_radial_weight=1.0,
+    seeds=(SEED,),
+):
+    """Run the controlled PGExplainer versus Geo-PGExplainer comparison.
+
+    The current encoder remains the existing Euclidean HGT plus Poincare
+    projection head. Artifacts therefore declare ``projection_head`` as their
+    geometry backend instead of claiming intrinsic manifold message passing.
+    """
+    from explainability.geo_pgexplainer import (
+        GeoPGExplainer,
+        GeoPGExplainerConfig,
+    )
+    from explainability.geometry_benchmark import (
+        benchmark_row,
+        GeometryBudgetRow,
+        hard_masks_at_budget,
+        save_benchmark_csv,
+        save_budget_csv,
+        save_edge_masks,
+        summarize_paired_benchmark,
+    )
+    logger.info("Running PGExplainer geometry falsification benchmark...")
+    model.eval()
+    edge_index_dict = data.edge_index_dict
+
+    with torch.no_grad():
+        aligned = model.encode_nodes(data.x_dict, edge_index_dict)
+
+    def model_forward(mask_dict):
+        hyp_emb = model(data.x_dict, edge_index_dict, edge_mask_dict=mask_dict)
+        link_score = _user_link_score(hyp_emb, edge_index_dict)
+        return link_score, hyp_emb
+
+    role_reference = None
+    with torch.no_grad():
+        reference_score, reference_hyp_tensor = model_forward({
+            edge_type: torch.ones(
+                edge_index.shape[1], device=edge_index.device
+            )
+            for edge_type, edge_index in edge_index_dict.items()
+        })
+    reference_hyp_tensor = reference_hyp_tensor.detach()
+    if dpgmm_model is not None:
+        role_reference = dpgmm_model.predict_proba(
+            reference_hyp_tensor.cpu().numpy()
+        )
+
+    def add_role_fidelity(result):
+        if role_reference is None:
+            result.metrics["role_fidelity"] = float("nan")
+            return
+        masked = {key: value.to(DEVICE) for key, value in result.edge_masks.items()}
+        with torch.no_grad():
+            _, explained_hyp = model_forward(masked)
+        role_explained = dpgmm_model.predict_proba(explained_hyp.cpu().numpy())
+        result.metrics["role_fidelity"] = float(
+            1.0 - np.mean(np.abs(role_reference - role_explained))
+        )
+
+    explanation_dir = os.path.join(save_dir, "explanations", "geometry")
+    os.makedirs(explanation_dir, exist_ok=True)
+    rows = []
+    budget_rows = []
+    budgets = (0.1, 0.2, 0.3, 0.5)
+    for seed in seeds:
+        common = dict(
+            epochs=epochs,
+            learning_rate=0.01,
+            hidden_dim=64,
+            size_coefficient=0.01,
+            entropy_coefficient=0.005,
+            seed=int(seed),
+        )
+        baseline = GeoPGExplainer(GeoPGExplainerConfig(**common)).to(DEVICE)
+        geo = GeoPGExplainer(GeoPGExplainerConfig(
+            **common,
+            geodesic_coefficient=geo_geodesic_weight,
+            radial_coefficient=geo_radial_weight,
+        )).to(DEVICE)
+        baseline_result = baseline.fit(aligned, edge_index_dict, model_forward)
+        geo_result = geo.fit(aligned, edge_index_dict, model_forward)
+        add_role_fidelity(baseline_result)
+        add_role_fidelity(geo_result)
+        save_edge_masks(
+            baseline_result,
+            os.path.join(explanation_dir, f"pgexplainer_masks_seed_{seed}.json"),
+        )
+        save_edge_masks(
+            geo_result,
+            os.path.join(explanation_dir, f"geo_pgexplainer_masks_seed_{seed}.json"),
+        )
+        rows.extend([
+            benchmark_row(baseline_result, os.path.basename(save_dir), int(seed)),
+            benchmark_row(geo_result, os.path.basename(save_dir), int(seed)),
+        ])
+        for result in (baseline_result, geo_result):
+            for budget in budgets:
+                hard_masks = {
+                    edge_type: mask.to(DEVICE)
+                    for edge_type, mask in hard_masks_at_budget(
+                        result.edge_masks, budget
+                    ).items()
+                }
+                with torch.no_grad():
+                    budget_score, budget_hyp = model_forward(hard_masks)
+                pairs = torch.triu_indices(
+                    reference_hyp_tensor.shape[0],
+                    reference_hyp_tensor.shape[0],
+                    offset=1,
+                    device=DEVICE,
+                )
+                reference_distance = poincare_distance(
+                    reference_hyp_tensor[pairs[0]],
+                    reference_hyp_tensor[pairs[1]],
+                ).reshape(-1)
+                budget_distance = poincare_distance(
+                    budget_hyp[pairs[0]], budget_hyp[pairs[1]]
+                ).reshape(-1)
+                relative_distortion = torch.mean(
+                    torch.abs(budget_distance - reference_distance)
+                    / reference_distance.abs().clamp_min(1e-8)
+                )
+                reference_radius = torch.linalg.vector_norm(
+                    reference_hyp_tensor, dim=-1
+                )
+                budget_radius = torch.linalg.vector_norm(budget_hyp, dim=-1)
+                ref_delta = reference_radius[:, None] - reference_radius[None, :]
+                budget_delta = budget_radius[:, None] - budget_radius[None, :]
+                valid = torch.triu(ref_delta.abs() > 1e-8, diagonal=1)
+                radial_agreement = (
+                    (torch.sign(ref_delta[valid]) == torch.sign(budget_delta[valid]))
+                    .float().mean()
+                )
+                role_fidelity = float("nan")
+                if role_reference is not None:
+                    budget_roles = dpgmm_model.predict_proba(
+                        budget_hyp.cpu().numpy()
+                    )
+                    role_fidelity = float(
+                        1.0 - np.mean(np.abs(role_reference - budget_roles))
+                    )
+                budget_rows.append(GeometryBudgetRow(
+                    run_id=os.path.basename(save_dir),
+                    seed=int(seed),
+                    method=result.mode,
+                    edge_budget=float(budget),
+                    selected_edge_count=sum(
+                        int(mask.sum().item()) for mask in hard_masks.values()
+                    ),
+                    total_edge_count=sum(
+                        int(mask.numel()) for mask in hard_masks.values()
+                    ),
+                    prediction_fidelity_loss=float(F.mse_loss(
+                        budget_score, reference_score
+                    )),
+                    geodesic_distortion=float(relative_distortion),
+                    radial_order_agreement=float(radial_agreement),
+                    role_fidelity=role_fidelity,
+                ))
+
+    benchmark_path = save_benchmark_csv(
+        rows, os.path.join(explanation_dir, "geometry_benchmark.csv")
+    )
+    budget_path = save_budget_csv(
+        budget_rows, os.path.join(explanation_dir, "geometry_budget_curve.csv")
+    )
+    summary = summarize_paired_benchmark(rows)
+    summary_path = os.path.join(explanation_dir, "geometry_summary.json")
+    with open(summary_path, "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, ensure_ascii=False, indent=2)
+    manifest = {
+        "research_question": (
+            "Does an ordinary PGExplainer-style mask preserve prediction "
+            "while distorting Poincare geometry?"
+        ),
+        "geometry_backend": "projection_head",
+        "model_scope": "Euclidean HGTConv followed by Poincare projection",
+        "baseline": "PGExplainer-style relation-specific parameterized masks",
+        "proposed": "Geo-PGExplainer with geodesic and radial-order losses",
+        "geo_geodesic_weight": geo_geodesic_weight,
+        "geo_radial_weight": geo_radial_weight,
+        "seeds": [int(seed) for seed in seeds],
+        "benchmark_csv": benchmark_path,
+        "matched_sparsity_budget_csv": budget_path,
+        "summary_json": summary_path,
+        "claim_status": "experimental; novelty and distortion claims require results",
+    }
+    with open(
+        os.path.join(explanation_dir, "geometry_manifest.json"),
+        "w", encoding="utf-8",
+    ) as handle:
+        json.dump(manifest, handle, ensure_ascii=False, indent=2)
+    logger.info("Geometry benchmark saved: %s", benchmark_path)
+    return rows
+
+
 
 def dpmm_role_discovery(hyp_emb, rev_user_map):
     """
-    狄利克雷过程混合模型自动推断角色数量。
-    角色语义：双曲半径越小 → 越靠近层级中心 → Leader / Hub
+   The Dirichlet process hybrid model automatically infers the number of roles.
+
+   Role semantics: Smaller hyperbolic radius → Closer to the hierarchy center → Leader / Hub
     """
     logger.info("DPMM role discovery...")
     dpgmm = BayesianGaussianMixture(
@@ -241,7 +544,7 @@ def dpmm_role_discovery(hyp_emb, rev_user_map):
     )
     clusters = dpgmm.fit_predict(hyp_emb)
     n_active = len(np.unique(clusters))
-    logger.info(f"  DPMM 有效角色数: {n_active}")
+    logger.info(f"  DPMM Valid Character Count: {n_active}")
 
     radii = np.linalg.norm(hyp_emb, axis=1)
 
@@ -252,7 +555,7 @@ def dpmm_role_discovery(hyp_emb, rev_user_map):
         "poincare_radius": radii,
     })
 
-    # 按簇平均双曲半径升序排列 → 半径小 = 中心 = Leader
+   
     cluster_radius_mean = df.groupby("cluster")["poincare_radius"].mean().sort_values()
     role_names = [
         "Opinion Leader",
@@ -272,10 +575,8 @@ def dpmm_role_discovery(hyp_emb, rev_user_map):
     return df, hyp_emb, dpgmm
 
 
-# ==================== 可视化 ====================
-
 def plot_poincare_disk(emb, df):
-    """庞加莱圆盘投影（PCA 2D）"""
+   
     logger.info("Plotting Poincaré disk...")
     pca = PCA(n_components=2, random_state=SEED)
     proj = pca.fit_transform(emb)
@@ -302,7 +603,7 @@ def plot_poincare_disk(emb, df):
 
 
 def plot_radius_boxplot(df):
-    """双曲半径箱线图：角色 × 半径分布"""
+  
     logger.info("Plotting radius distribution...")
     order = [
         "Opinion Leader", "Information Bridge", "Amplifier",
@@ -321,7 +622,7 @@ def plot_radius_boxplot(df):
 
 
 def plot_dpmm_weights(dpgmm):
-    """DPMM 组分权重衰减图"""
+   
     logger.info("Plotting DPMM weights...")
     weights = np.sort(dpgmm.weights_)[::-1]
 
@@ -385,9 +686,17 @@ def generate_tactical_role_visualizer(node_feat_path, df_roles, save_dir):
         logger.warning("Tactical-role visualizer failed and was skipped: %s", exc)
 
 
-# ==================== 主流程 ====================
-
-def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epochs=EPOCHS):
+def main(
+    db_path=DB_PATH,
+    node_feat_path=NODE_FEAT_PATH,
+    save_dir=SAVE_DIR,
+    epochs=EPOCHS,
+    geometry_explain=False,
+    explainer_epochs=100,
+    geo_geodesic_weight=1.0,
+    geo_radial_weight=1.0,
+    explainer_seeds=(SEED,),
+):
     global SAVE_DIR
     SAVE_DIR = save_dir
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -396,7 +705,6 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
     print("  Script 3: HGT + Poincaré + DPMM 角色发现")
     print("=" * 60)
 
-    # ---- 1. 加载 26 维特征 ----
     if not os.path.exists(node_feat_path):
         raise FileNotFoundError(f"请先运行 Script 1: {node_feat_path}")
 
@@ -411,7 +719,6 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
     features_26 = df_feat[avail_cols].values.astype(np.float32)
     logger.info(f"  {len(user_ids)} users, {features_26.shape[1]}-dim features")
 
-    # ---- 2. 构建异构图 ----
     logger.info("Building heterogeneous graph...")
     try:
         data, rev_user_map = build_hetero_data(
@@ -422,15 +729,13 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
         raise
     logger.info(f"  Edge types: {data.edge_types}")
 
-    # ---- 3. 训练 HGT + Poincaré ----
-    _, hyp_emb = train_hgt(data, epochs=epochs)
+   
+    model, hyp_emb = train_hgt(data, epochs=epochs)
     if hyp_emb is None:
         raise RuntimeError("HGT training failed.")
 
-    # ---- 4. DPMM 角色发现 ----
+   
     df_roles, hyp_emb_arr, dpgmm_model = dpmm_role_discovery(hyp_emb, rev_user_map)
-
-    # ---- 5. 合并分类标签（可选） ----
     result_path = os.path.join(save_dir, "classification_results.csv")
     if os.path.exists(result_path):
         df_result = pd.read_csv(result_path)
@@ -441,27 +746,39 @@ def main(db_path=DB_PATH, node_feat_path=NODE_FEAT_PATH, save_dir=SAVE_DIR, epoc
         )
         logger.info("  Merged classification labels.")
 
-    # ---- 6. 保存 ----
+   
     role_path = os.path.join(save_dir, "role_assignments.csv")
     df_roles.to_csv(role_path, index=False, encoding="utf-8")
     logger.info(f"Role assignments saved: {role_path}")
 
-    # ---- 7. 摘要 ----
+   
     print("\n" + "=" * 60)
     print("  Role Distribution")
     print("=" * 60)
     print(df_roles["role"].value_counts().to_string())
 
-    # 按 user_type 交叉统计
+    
     if "user_type" in df_roles.columns:
         print("\n  Role × user_type cross-tab:")
         print(pd.crosstab(df_roles["role"], df_roles["user_type"]).to_string())
 
-    # ---- 8. 可视化 ----
+    
     plot_poincare_disk(hyp_emb_arr, df_roles)
     plot_radius_boxplot(df_roles)
     plot_dpmm_weights(dpgmm_model)
     generate_tactical_role_visualizer(node_feat_path, df_roles, save_dir)
+
+    if geometry_explain:
+        run_geometry_explainers(
+            model=model,
+            data=data,
+            save_dir=save_dir,
+            dpgmm_model=dpgmm_model,
+            epochs=explainer_epochs,
+            geo_geodesic_weight=geo_geodesic_weight,
+            geo_radial_weight=geo_radial_weight,
+            seeds=explainer_seeds,
+        )
 
     print(f"\n{'=' * 50}")
     print(f"  Script 3 done. Outputs in: {save_dir}")
@@ -475,6 +792,17 @@ def parse_args():
     parser.add_argument("--save-dir", dest="save_dir", default=SAVE_DIR)
     parser.add_argument("--node-features", dest="node_features", default=None)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument(
+        "--geometry-explain", action="store_true",
+        help="Run PGExplainer vs Geo-PGExplainer geometry benchmark.",
+    )
+    parser.add_argument("--explainer-epochs", type=int, default=100)
+    parser.add_argument("--geo-geodesic-weight", type=float, default=1.0)
+    parser.add_argument("--geo-radial-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--explainer-seeds", default=str(SEED),
+        help="Comma-separated paired seeds; use at least five for paper evidence.",
+    )
     return parser.parse_args()
 
 
@@ -482,4 +810,18 @@ if __name__ == "__main__":
     args = parse_args()
     db_file, _csv_file = resolve_dataset_paths(args.db_file, None, args.dataset)
     node_features = args.node_features or os.path.join(args.save_dir, "node_features.csv")
-    main(db_path=db_file, node_feat_path=node_features, save_dir=args.save_dir, epochs=args.epochs)
+    explainer_seeds = tuple(
+        int(value.strip()) for value in args.explainer_seeds.split(",")
+        if value.strip()
+    )
+    main(
+        db_path=db_file,
+        node_feat_path=node_features,
+        save_dir=args.save_dir,
+        epochs=args.epochs,
+        geometry_explain=args.geometry_explain,
+        explainer_epochs=args.explainer_epochs,
+        geo_geodesic_weight=args.geo_geodesic_weight,
+        geo_radial_weight=args.geo_radial_weight,
+        explainer_seeds=explainer_seeds,
+    )

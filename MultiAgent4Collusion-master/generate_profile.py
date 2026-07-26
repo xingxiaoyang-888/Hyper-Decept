@@ -6,14 +6,11 @@ from datetime import datetime
 from openai import OpenAI, AsyncOpenAI
 from tqdm.asyncio import tqdm
 
-
-# 1. 初始化客户端
 # Set your OpenAI API key
 openai_api_key = ""
 # openai_api_base = ""
 client = AsyncOpenAI(api_key=openai_api_key)
 
-# 2. 固定 prompt
 PROMPT = """
 Instruction for Generating User Profiles:  
 
@@ -43,12 +40,12 @@ Example Profile:
 Generate exactly 5 profiles that vary in demographic and psychological traits. Ensure each profile appears authentic and unique. Your profile needs to be formatted strictly according to the example profile. Use a newline character without other characters to separate profiles.
 """
 
-# 并发配置
-TOTAL_REQUESTS = 10     # 总共要生成几次
-MAX_CONCURRENT = 16        # 最大并发请求数，依据个人配额酌情调整
-RETRY_LIMIT = 10           # 重试次数上限
+# Concurrency configuration
+TOTAL_REQUESTS = 10        # Total number of generation requests
+MAX_CONCURRENT = 16        # Maximum concurrent requests, adjust based on quota
+RETRY_LIMIT = 10           # Maximum retry limit
 
-# 正则预编译
+# Pre-compile regular expressions
 name_regex = re.compile(r"Name:\s*(.+)")
 username_regex = re.compile(r"Username:\s*(.+)")
 pattern = re.compile(
@@ -68,7 +65,8 @@ pattern = re.compile(
 
 async def generate_profile(semaphore: asyncio.Semaphore) -> str:
     """
-    异步调用 OpenAI API 生成单次 Profile，带重试和指数退避。
+    Asynchronously calls the OpenAI API to generate a single profile block, 
+    implementing retries with exponential backoff.
     """
     backoff = 1
     for attempt in range(RETRY_LIMIT):
@@ -82,10 +80,10 @@ async def generate_profile(semaphore: asyncio.Semaphore) -> str:
                 return resp.choices[0].message.content
             except Exception as e:
                 wait = backoff
-                print(f"[{attempt+1}/{RETRY_LIMIT}] Error: {e}, 等待 {wait}s 后重试...")
+                print(f"[{attempt+1}/{RETRY_LIMIT}] Error: {e}. Retrying in {wait}s...")
                 await asyncio.sleep(wait)
                 backoff *= 2
-    raise RuntimeError("超过最大重试次数，生成 profile 失败")
+    raise RuntimeError("Maximum retry limit exceeded. Failed to generate profile.")
 
 async def main():
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
@@ -99,7 +97,7 @@ async def main():
             text = await generate_profile(semaphore)
             success_count += 1
             
-            # 解析返回的Profile
+            # Parse the returned profiles
             blocks = text.strip().split("\n\n")
             for blk in blocks:
                 name_m = name_regex.search(blk)
@@ -113,24 +111,23 @@ async def main():
                     })
             return True
         except Exception as e:
-            print("⚠️ 生成或解析失败：", e)
+            print("Generation or parsing failed:", e)
             return False
         finally:
-            pbar.update(1)  # 无论成功失败都更新进度条
+            pbar.update(1)  # Update progress bar regardless of success or failure
     
-    # 创建并执行所有任务
+    # Create and execute all tasks
     tasks = [process_profile() for _ in range(TOTAL_REQUESTS)]
     await asyncio.gather(*tasks)
     pbar.close()
     
-    # 写入JSON
+    # Write to JSON
     profile_path = f"user_profiles_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"
     with open(profile_path, "w", encoding="utf-8") as f:
         json.dump(all_profiles, f, ensure_ascii=False, indent=4)
     
-    print(f"完成: 请求 {TOTAL_REQUESTS} 次，成功 {success_count} 次，" +
-          f"共写入 {len(all_profiles)} 条子 Profile 至 {profile_path}")
-
+    print(f"Completed: {TOTAL_REQUESTS} requests, {success_count} successful. " +
+          f"Wrote {len(all_profiles)} profiles to {profile_path}")
 
 if __name__ == "__main__":
     asyncio.run(main())

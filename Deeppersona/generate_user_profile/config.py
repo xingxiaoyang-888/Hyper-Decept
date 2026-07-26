@@ -21,17 +21,17 @@ GEONAMES_USERNAME = "demo"  # Replace with your GeoNames username
 GEONAMES_API_BASE = "http://api.geonames.org"
 
 # OpenAI API Configuration
-OPENAI_API_KEY = "OPENAI_API_KEY"
+OPENAI_API_KEY = "sk-f3d444bb591441fca18999f790c0ce21"
 
 # GPT model version to use
-GPT_MODEL = "gpt-4.1-mini"
+GPT_MODEL = "deepseek-chat"
 
 # Proxy Configuration
 os.environ['https_proxy'] = ''
 os.environ['http_proxy'] = ''
 
-# Initialize OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Initialize OpenAI client with DeepSeek API base URL
+client = OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.deepseek.com/v1")
 
 def get_completion(messages: List[Dict[str, str]], model: str = GPT_MODEL, temperature: float = 0.2, max_retries: int = 3) -> Optional[str]:
     """Call OpenAI GPT API to get response with retry mechanism

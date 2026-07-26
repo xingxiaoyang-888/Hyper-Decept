@@ -8,7 +8,7 @@ OPENAI_API_KEY = "OPENAI_API_KEY"
 GPT_MODEL = "gpt-4o"
 
 def check_last_segment(client: OpenAI, segment: str) -> bool:
-    """检查属性的最后一段是否符合描述要求"""
+    
     try:
         prompt = f"""Determine if this segment represents a general category or aspect rather than a specific instance.
 

@@ -4,29 +4,26 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# 尝试导入 shap，如果没有安装给出友好提示
 try:
     import shap
 except ImportError:
     shap = None
-    print("警告: 尚未安装 shap 库，SHAP 归因图将无法绘制。请执行 'pip install shap'")
+    print("pip install shap")
 
 class CognitiveVisualizer:
     def __init__(self, X_super, y_true, y_role, feature_names, save_dir=r"E:\fraud-detection2\Multi-agent-fraud-game-detection\new_result"):
-        """
-        深度心理与情感可视化引擎 (战术角色升级版)
-        """
+       
         self.X = X_super
         self.y = y_true
-        self.y_role = y_role  # [新增] 接收精细化的战术角色
+        self.y_role = y_role  
         self.feature_names = feature_names
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
         
-        # 将矩阵转为 DataFrame 方便后续切片
+                # Convert matrix to DataFrame for easier slicing
         self.df = pd.DataFrame(self.X, columns=self.feature_names)
         
-        # [修改] 废弃二元标签，使用战术角色标签
+        # Use tactical role labels instead of binary labels
         self.df['Tactical_Role'] = self.y_role
         
         self.psycho_feats = [
@@ -36,7 +33,7 @@ class CognitiveVisualizer:
             'Volatility_Mean', 'Volatility_Max'
         ]
 
-        # 角色调色板：自动从实际数据中推断
+        
         self.role_palette = {}
         unique_roles = sorted(set(self.y_role)) if self.y_role is not None else []
         colors = sns.color_palette("husl", max(len(unique_roles), 4))
@@ -44,27 +41,24 @@ class CognitiveVisualizer:
             self.role_palette[r] = colors[i]
 
     def plot_radar_chart(self):
-        """方案一：多维数字心理侧写 (角色指纹雷达图)"""
-        print("\n 正在生成多角色心理学雷达图...")
         missing = [f for f in self.psycho_feats if f not in self.df.columns]
         if missing:
             return None
 
         angles = np.linspace(0, 2 * np.pi, len(self.psycho_feats), endpoint=False).tolist()
-        angles += angles[:1] # 闭合雷达图
+        angles += angles[:1] 
         
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
         
-        # 遍历每一种战术角色，绘制其平均画像
         for role, color in self.role_palette.items():
             role_df = self.df[self.df['Tactical_Role'] == role]
             if len(role_df) == 0:
                 continue
                 
             mean_vals = role_df[self.psycho_feats].mean().values
-            mean_vals = np.concatenate((mean_vals, [mean_vals[0]])) # 闭合数据
+            mean_vals = np.concatenate((mean_vals, [mean_vals[0]]))
             
-            # Leader 用实线强调，其他用虚线或不同透明度
+            
             line_style = 'solid' if 'Leader' in role else 'dashed'
             alpha_val = 0.3 if 'Leader' in role else 0.15
             
@@ -85,14 +79,12 @@ class CognitiveVisualizer:
         return fig
 
     def plot_kde_distribution(self, target_feature='Empathy_Gap_Mean'):
-        """方案二：多维战术角色的核密度估计图"""
-        print(f"\n 正在生成 {target_feature} 的角色核密度分布图...")
+        
+        print(f"\n {target_feature} ...")
         if target_feature not in self.df.columns:
             return None
             
         fig, ax = plt.subplots(figsize=(10, 6))
-        
-        # hue 改为 Tactical_Role，使用新配色
         sns.kdeplot(
             data=self.df, x=target_feature, hue='Tactical_Role', 
             fill=True, common_norm=False, palette=self.role_palette, 
@@ -104,7 +96,6 @@ class CognitiveVisualizer:
         plt.ylabel('Density', fontsize=12)
         plt.grid(True, linestyle='--', alpha=0.3)
         
-        # 优化图例位置
         sns.move_legend(ax, "upper right", bbox_to_anchor=(1.35, 1))
         plt.tight_layout()
         
@@ -113,8 +104,7 @@ class CognitiveVisualizer:
         return fig
 
     def plot_3d_scatter(self):
-        """方案三：三维认知降维空间隔离图"""
-        print("\n 正在生成 3D 认知空间散点图...")
+       
         missing = [f for f in self.psycho_feats if f not in self.df.columns]
         if missing:
             return None
@@ -125,11 +115,8 @@ class CognitiveVisualizer:
         self.df['_label'] = ['Bot' if v == 1 else 'Human' for v in self.y]
         good_df = self.df[self.df['_label'] == 'Human']
         bad_df = self.df[self.df['_label'] == 'Bot']
-
-        # 绘制人类点
         ax.scatter(good_df[self.psycho_feats[0]], good_df[self.psycho_feats[1]], good_df[self.psycho_feats[2]],
                    c='#3498db', label='Human', marker='o', s=50, alpha=0.6)
-        # 绘制水军点
         ax.scatter(bad_df[self.psycho_feats[0]], bad_df[self.psycho_feats[1]], bad_df[self.psycho_feats[2]],
                    c='#e74c3c', label='Bot', marker='X', s=80, alpha=0.9)
 
@@ -145,20 +132,18 @@ class CognitiveVisualizer:
         return fig
 
     def plot_shap_summary(self, trained_xgb_model):
-        """方案四：SHAP 情感特征归因可解释性图"""
-        print("\n 正在进行 SHAP 可解释性归因分析...")
         if shap is None:
             return None
             
-        # 剥离非特征列，还原为纯特征 DataFrame
+       
         X_df = self.df.drop(columns=['Tactical_Role', '_label'], errors='ignore')
         
-        # 使用 TreeExplainer 解析 XGBoost 模型
+        
         explainer = shap.TreeExplainer(trained_xgb_model)
         shap_values = explainer.shap_values(X_df)
         
         fig = plt.figure(figsize=(12, 8))
-        # max_display=15 只展示前15个最重要的特征，你的三大心理特征极有可能霸榜
+       
         shap.summary_plot(shap_values, X_df, plot_type="dot", max_display=15, show=False)
         
         plt.title('SHAP Feature Attribution (Impact on Detection)', fontsize=16)
@@ -169,9 +154,9 @@ class CognitiveVisualizer:
         return fig
 
     def generate_all_reports(self, trained_xgb_model=None):
-        """一键生成所有可视化报告"""
+        
         print("\n" + "="*50)
-        print(" 启动深度心理学可视化渲染引擎")
+        print(" visualizer")
         print("="*50)
         
         self.plot_radar_chart()
@@ -183,4 +168,4 @@ class CognitiveVisualizer:
         if trained_xgb_model is not None:
             self.plot_shap_summary(trained_xgb_model)
             
-        print(f"\n 所有高清可视化图表已保存至: {self.save_dir}")
+        print(f"\n save_path: {self.save_dir}")

@@ -1,21 +1,23 @@
 ---
 data:
-  db_path: data/simu_db/yaml_gpt/False_Business_0.db
-  csv_path: data/twitter_dataset/anonymous_topic_200_1h/False_Business_0.csv
+  db_path: MultiAgent4Collusion-master/our_twitter_sim/False_Business_0.db
+  csv_path: MultiAgent4Collusion-master/our_twitter_sim/False_Business_0.csv
 simulation:
-  num_timesteps: 3
+  num_timesteps: 10
   clock_factor: 60
   recsys_type: twhin-bert
 model:
-  num_agents: 111
+  num_agents: 5
   model_random_seed: 42
   cfgs:
-    - model_type: gpt-4o-mini
-      num: 111
+    - model_type: deepseek-chat
+      num: 5
       server_url: null
       model_path: null
       stop_tokens: null
       temperature: null
 inference:
-  model_type: gpt-4o-mini  # Name of the OpenAI model
-  is_openai_model: true  # Whether it is an OpenAI model
+  model_type: deepseek-chat
+  is_openai_model: true
+  api_key: sk-f3d444bb591441fca18999f790c0ce21
+  api_base_url: https://api.deepseek.com/v1

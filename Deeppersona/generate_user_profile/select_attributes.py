@@ -55,10 +55,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 属性数据集路径
-ATTRIBUTES_PATH = "/home/zhou/deeppersona/generate_user_profile_test/data/large_attributes.json"  # 属性数据集路径
+_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+ATTRIBUTES_PATH = os.path.join(_BASE_DIR, 'data', 'large_attributes.json')  # 属性数据集路径
 
 # 向量数据库路径
-EMBEDDINGS_PATH = "/home/zhou/deeppersona/generate_user_profile_test/data/attribute_embeddings.pkl"  # 属性嵌入向量路径
+EMBEDDINGS_PATH = os.path.join(_BASE_DIR, 'data', 'attribute_embeddings.pkl')  # 属性嵌入向量路径
 
 # 默认模型来自配置
 DEFAULT_MODEL = GPT_MODEL
@@ -866,7 +867,9 @@ def build_nested_dict(paths: List[str]) -> Dict:
             current = current[part]
     return result
 
-def save_results(user_profile: Dict, selected_paths: List[str], output_dir: str = '/home/zhou/persona/generate_user_profile/output') -> None:
+def save_results(user_profile: Dict, selected_paths: List[str], output_dir: str = None) -> None:
+    if output_dir is None:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output')
     """
     保存用户配置文件和选定的属性路径到文件
     参数：
@@ -898,9 +901,8 @@ def save_results(user_profile: Dict, selected_paths: List[str], output_dir: str 
         logger.error(f"保存结果时出错: {e}")
         raise
 
-# 示例：在生成用户基本信息和属性列表的函数中自动调用保存（请根据实际情况将此调用添加到合适位置）
-user_profile = generate_user_profile()
-selected_paths = get_selected_attributes(user_profile)
-save_results(user_profile, selected_paths)
-
-# 此文件只供其他文件导入使用
+if __name__ == "__main__":
+    # 示例：在生成用户基本信息和属性列表的函数中自动调用保存
+    user_profile = generate_user_profile()
+    selected_paths = get_selected_attributes(user_profile)
+    save_results(user_profile, selected_paths)

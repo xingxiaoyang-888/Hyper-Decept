@@ -1,13 +1,13 @@
 """
 build_vector_store.py
 
-读取 chunked_profiles.json，用本地 embedding 模型将每块文本转为向量，
-存入 ChromaDB 文件数据库。
+Reads chunked_profiles.json, converts each text chunk into a vector using a local embedding model,
+and stores it into a ChromaDB file database.
 
-依赖安装:
+Dependencies installation:
   pip install sentence-transformers chromadb
 
-输出: E:\fraud-detection2\vector_store\chroma.sqlite3
+Output: E:\fraud-detection2\vector_store\chroma.sqlite3
 """
 
 import json
@@ -18,13 +18,13 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 
 
-# ---------- 配置 ----------
+# ---------- Configuration ----------
 CHUNKED_DATA_PATH = "chunked_profiles.json"
 VECTOR_STORE_DIR = "vector_store"
 COLLECTION_NAME = "agent_profiles"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"    # 384 维，~80MB，CPU 推理，免费
-# EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"  # 备选（中文更优，同样384维）
-# ---------- 配置结束 ----------
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"    # 384 dimensions, ~80MB, CPU inference, free
+# EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"  # Alternative (better for Chinese, also 384 dimensions)
+# ---------- End of Configuration ----------
 
 
 def main():
@@ -32,52 +32,52 @@ def main():
     chunked_path = os.path.join(script_dir, CHUNKED_DATA_PATH)
     store_path = os.path.join(script_dir, VECTOR_STORE_DIR)
 
-    # 1. 加载 chunked 数据
+    # 1. Load chunked data
     if not os.path.exists(chunked_path):
-        print(f"[ERROR] 未找到 {chunked_path}，请先运行 profile_chunker.py")
+        print(f"[ERROR] {chunked_path} not found, please run profile_chunker.py first")
         sys.exit(1)
 
     with open(chunked_path, "r", encoding="utf-8") as f:
         chunks = json.load(f)
 
-    print(f"读取 {len(chunks)} 个 chunks")
+    print(f"Read {len(chunks)} chunks")
 
-    # 2. 加载本地 embedding 模型
-    print(f"\n加载 embedding 模型: {EMBEDDING_MODEL} ...")
+    # 2. Load local embedding model
+    print(f"\nLoading embedding model: {EMBEDDING_MODEL} ...")
     encoder = SentenceTransformer(EMBEDDING_MODEL)
     dim = encoder.get_sentence_embedding_dimension()
-    print(f"  模型维度: {dim}")
+    print(f"  Model dimension: {dim}")
 
-    # 3. 计算 embedding（CPU 推理，40 条文本秒级完成）
+    # 3. Compute embeddings (CPU inference, finishes 40 texts in seconds)
     texts = [c["text"] for c in chunks]
 
-    # 确保文本存在
+    # Ensure text exists
     empty_idx = [i for i, t in enumerate(texts) if not t.strip()]
     if empty_idx:
-        print(f"  [WARN] 发现 {len(empty_idx)} 个空文本 chunk: {empty_idx}")
-        print(f"     这些 chunk 将被跳过")
-        # 过滤空 chunk
+        print(f"  [WARN] Found {len(empty_idx)} empty text chunks: {empty_idx}")
+        print(f"    These chunks will be skipped")
+        # Filter empty chunks
         texts = [t for i, t in enumerate(texts) if i not in empty_idx]
         chunks = [c for i, c in enumerate(chunks) if i not in empty_idx]
 
-    print(f"\n计算 {len(texts)} 个 embedding ...")
+    print(f"\nComputing embeddings for {len(texts)} texts ...")
     embeddings = encoder.encode(texts, show_progress_bar=True)
-    print(f"  embedding 形状: {embeddings.shape}")
+    print(f"  Embedding shape: {embeddings.shape}")
 
-    # 4. 写入 ChromaDB
+    # 4. Write to ChromaDB
     os.makedirs(store_path, exist_ok=True)
     db = chromadb.PersistentClient(path=store_path)
 
-    # 删除已存在的同名 collection（保证幂等）
+    # Delete existing collection with the same name (ensure idempotence)
     try:
         db.delete_collection(COLLECTION_NAME)
-        print(f"  删除已有 collection: {COLLECTION_NAME}")
+        print(f"  Deleted existing collection: {COLLECTION_NAME}")
     except (ValueError, chromadb.errors.NotFoundError):
         pass
 
     collection = db.create_collection(COLLECTION_NAME)
 
-    # 准备数据
+    # Prepare data
     ids = [f"agent_{c['agent_id']}_{c['section']}" for c in chunks]
     metadatas = [
         {"agent_id": c["agent_id"], "section": c["section"]}
@@ -91,14 +91,14 @@ def main():
         metadatas=metadatas,
     )
 
-    print(f"\n[OK] 向量数据库创建完成")
-    print(f"  存储路径: {store_path}")
+    print(f"\n Vector database creation completed")
+    print(f"  Storage path: {store_path}")
     print(f"  Collection: {COLLECTION_NAME}")
-    print(f"  总向量数: {collection.count()}")
+    print(f"  Total vector count: {collection.count()}")
 
-    # 5. 快速检索测试
+    # 5. Quick retrieval test
     print("\n" + "=" * 60)
-    print("检索测试")
+    print("Retrieval Test")
     print("=" * 60)
 
     test_queries = [
@@ -116,16 +116,16 @@ def main():
             n_results=2,
         )
 
-        print(f"\n查询: \"{query}\"")
-        print(f"  Top-2 匹配:")
+        print(f"\nQuery: \"{query}\"")
+        print(f"  Top-2 matches:")
         for doc_id, dist, meta in zip(
             results["ids"][0],
             results["distances"][0],
             results["metadatas"][0],
         ):
-            print(f"    [{doc_id}] 距离={dist:.4f}  agent={meta['agent_id']} section={meta['section']}")
+            print(f"    [{doc_id}] Distance={dist:.4f}  agent={meta['agent_id']} section={meta['section']}")
 
-    print(f"\n[OK] 构建完成")
+    print(f"\n[OK] Build completed")
 
 
 if __name__ == "__main__":

@@ -46,3 +46,23 @@ def test_real_hgt_mask_path_supports_gradient():
     loss.backward()
     assert mask.grad is not None
     assert torch.isfinite(mask.grad).all()
+
+
+def test_training_entrypoint_uses_intrinsic_lorentz_backend(monkeypatch):
+    module = _load_role_assigner()
+    data = HeteroData()
+    data["user"].x = torch.randn(5, 4)
+    edge_type = ("user", "follows", "user")
+    data[edge_type].edge_index = torch.tensor(
+        [[0, 0, 1, 2, 3], [1, 2, 2, 3, 4]], dtype=torch.long
+    )
+    monkeypatch.setattr(module, "HIDDEN_DIM", 8)
+    monkeypatch.setattr(module, "NUM_HEADS", 2)
+    monkeypatch.setattr(module, "NUM_LAYERS", 1)
+    monkeypatch.setattr(module, "NEG_SAMPLES", 2)
+    model, embedding = module.train_hgt(
+        data, epochs=2, geometry_backend="intrinsic_lorentz"
+    )
+    assert model.geometry_backend == "intrinsic_lorentz"
+    assert embedding.shape == (5, 8)
+    assert torch.isfinite(torch.from_numpy(embedding)).all()

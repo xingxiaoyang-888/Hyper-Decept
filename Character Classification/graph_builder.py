@@ -13,6 +13,7 @@ import os
 import ast
 import logging
 import sqlite3
+import re
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -180,7 +181,290 @@ def _normalize_db_id(value):
     return text
 
 
-def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
+POST_OBSERVED_FEATURES = [
+    "log_char_count",
+    "log_token_count",
+    "uppercase_ratio",
+    "punctuation_ratio",
+    "log_url_count",
+    "log_mention_count",
+    "log_hashtag_count",
+    "has_quote",
+    "is_reshare",
+    "log_like_count",
+    "log_dislike_count",
+    "log_share_count",
+    "hour_sin",
+    "hour_cos",
+]
+
+
+def build_observed_post_features(df_posts):
+    """Build deterministic, evidence-derived post features.
+
+    These features are a traceable fallback when no external semantic encoder
+    output is supplied.  They deliberately replace the former random Tweet
+    node initialization; they are not presented as a semantic representation.
+    """
+    rows = []
+    for _, row in df_posts.iterrows():
+        content = str(row.get("content", "") or "")
+        quote = str(row.get("quote_content", "") or "")
+        characters = max(len(content), 0)
+        tokens = re.findall(r"\S+", content)
+        letters = [char for char in content if char.isalpha()]
+        uppercase_ratio = (
+            sum(char.isupper() for char in letters) / len(letters)
+            if letters else 0.0
+        )
+        punctuation_ratio = (
+            sum(not char.isalnum() and not char.isspace() for char in content)
+            / max(characters, 1)
+        )
+        timestamp = pd.to_datetime(row.get("created_at"), errors="coerce", utc=True)
+        hour = float(timestamp.hour) if not pd.isna(timestamp) else 0.0
+        angle = 2.0 * np.pi * hour / 24.0
+        rows.append([
+            np.log1p(characters),
+            np.log1p(len(tokens)),
+            uppercase_ratio,
+            punctuation_ratio,
+            np.log1p(len(re.findall(r"https?://|www\.", content, re.I))),
+            np.log1p(content.count("@")),
+            np.log1p(content.count("#")),
+            float(bool(quote.strip())),
+            float(_normalize_db_id(row.get("original_post_id")) is not None),
+            np.log1p(max(float(row.get("num_likes", 0) or 0), 0.0)),
+            np.log1p(max(float(row.get("num_dislikes", 0) or 0), 0.0)),
+            np.log1p(max(float(row.get("num_shares", 0) or 0), 0.0)),
+            np.sin(angle),
+            np.cos(angle),
+        ])
+    return np.asarray(rows, dtype=np.float32)
+
+
+def load_post_embeddings(path):
+    """Load a transparent post-id to embedding mapping from NPZ or CSV.
+
+    NPZ files must contain ``post_ids`` and a two-dimensional ``embeddings``
+    array. CSV files must contain ``post_id`` plus numeric embedding columns.
+    """
+    if not path:
+        return None
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Post embedding file does not exist: {path}")
+    extension = os.path.splitext(path)[1].lower()
+    if extension == ".npz":
+        archive = np.load(path, allow_pickle=False)
+        if "post_ids" not in archive or "embeddings" not in archive:
+            raise ValueError("NPZ must contain post_ids and embeddings arrays")
+        post_ids = archive["post_ids"]
+        embeddings = np.asarray(archive["embeddings"], dtype=np.float32)
+    elif extension == ".csv":
+        frame = pd.read_csv(path)
+        if "post_id" not in frame.columns:
+            raise ValueError("Post embedding CSV must contain a post_id column")
+        embedding_columns = [column for column in frame.columns if column != "post_id"]
+        if not embedding_columns:
+            raise ValueError("Post embedding CSV has no embedding columns")
+        embeddings = frame[embedding_columns].apply(
+            pd.to_numeric, errors="raise"
+        ).to_numpy(dtype=np.float32)
+        post_ids = frame["post_id"].to_numpy()
+    else:
+        raise ValueError("Post embeddings must use .npz or .csv format")
+    if embeddings.ndim != 2 or len(post_ids) != embeddings.shape[0]:
+        raise ValueError("Post ids and embedding rows must have matching lengths")
+    return {
+        normalized: embeddings[index]
+        for index, value in enumerate(post_ids)
+        if (normalized := _normalize_db_id(value)) is not None
+    }
+
+
+def _set_relation_store(
+    data,
+    edge_type,
+    sources,
+    targets,
+    evidence_ids,
+    multiplicities=None,
+):
+    """Attach one relation and its auditable evidence alignment."""
+    import torch
+
+    if not sources:
+        return
+    store = data[edge_type]
+    store.edge_index = torch.tensor([sources, targets], dtype=torch.long)
+    store.evidence_ids = list(evidence_ids)
+    if multiplicities is not None:
+        store.multiplicity = torch.tensor(multiplicities, dtype=torch.float)
+
+
+def _build_twibot_boundary_features(bundle):
+    """Combine observed profile counts with sampled open-neighborhood degree."""
+    boundary = bundle.boundary_users.copy()
+    edges = bundle.follow_edges
+    incoming = edges.groupby("followee_id")["multiplicity"].sum()
+    outgoing = edges.groupby("follower_id")["multiplicity"].sum()
+    sampled_in = boundary["user_id"].map(incoming).fillna(0.0).to_numpy(float)
+    sampled_out = boundary["user_id"].map(outgoing).fillna(0.0).to_numpy(float)
+    followers = pd.to_numeric(boundary["followers"], errors="coerce").fillna(0.0)
+    following = pd.to_numeric(boundary["following"], errors="coerce").fillna(0.0)
+    observed_profile = ((followers > 0) | (following > 0)).astype(float)
+    degree_total = sampled_in + sampled_out
+    return np.column_stack([
+        np.log1p(followers.to_numpy(float)),
+        np.log1p(following.to_numpy(float)),
+        observed_profile.to_numpy(float),
+        np.log1p(sampled_in),
+        np.log1p(sampled_out),
+        sampled_out / np.maximum(degree_total, 1.0),
+    ]).astype(np.float32)
+
+
+def _add_twibot_static_bundle(data, bundle, user_map, post_embeddings=None):
+    """Add TwiBot boundary nodes, real follow edges and static text actions."""
+    import torch
+
+    boundary_ids = bundle.boundary_users["user_id"].astype(str).tolist()
+    boundary_map = {user_id: index for index, user_id in enumerate(boundary_ids)}
+    data["boundary_user"].x = torch.tensor(
+        _build_twibot_boundary_features(bundle), dtype=torch.float
+    )
+    data["boundary_user"].node_ids = boundary_ids
+    data["boundary_user"].feature_source = (
+        "public_profile_counts+sampled_follow_degree"
+    )
+
+    relation_buckets = {}
+
+    def add_follow_relation(source_id, target_id, row, inverse=False):
+        source_core = source_id in user_map
+        target_core = target_id in user_map
+        source_boundary = source_id in boundary_map
+        target_boundary = target_id in boundary_map
+        if not (source_core or source_boundary) or not (target_core or target_boundary):
+            return
+        source_type = "user" if source_core else "boundary_user"
+        target_type = "user" if target_core else "boundary_user"
+        source_index = user_map[source_id] if source_core else boundary_map[source_id]
+        target_index = user_map[target_id] if target_core else boundary_map[target_id]
+        relation = "followed_by" if inverse else "follows"
+        edge_type = (source_type, relation, target_type)
+        bucket = relation_buckets.setdefault(
+            edge_type, {"src": [], "dst": [], "evidence": [], "multiplicity": []}
+        )
+        bucket["src"].append(source_index)
+        bucket["dst"].append(target_index)
+        bucket["evidence"].append(list(row.evidence_ids))
+        bucket["multiplicity"].append(float(row.multiplicity))
+
+    for row in bundle.follow_edges.itertuples(index=False):
+        source_id = str(row.follower_id)
+        target_id = str(row.followee_id)
+        add_follow_relation(source_id, target_id, row, inverse=False)
+        add_follow_relation(target_id, source_id, row, inverse=True)
+    for edge_type, bucket in relation_buckets.items():
+        _set_relation_store(
+            data,
+            edge_type,
+            bucket["src"],
+            bucket["dst"],
+            bucket["evidence"],
+            bucket["multiplicity"],
+        )
+
+    data.dataset_kind = bundle.dataset_kind
+    data.dataset_capabilities = bundle.capabilities.to_dict()
+    data.dataset_warnings = list(bundle.warnings)
+    actions = bundle.actions.copy()
+    if actions.empty:
+        return
+    content_nodes = actions.drop_duplicates("content_node_id", keep="first").copy()
+    content_ids = content_nodes["content_node_id"].astype(str).tolist()
+    content_map = {content_id: index for index, content_id in enumerate(content_ids)}
+    observed_frame = pd.DataFrame({
+        "content": content_nodes["content"].fillna("").astype(str),
+        "quote_content": "",
+        "original_post_id": None,
+        "created_at": None,
+        "num_likes": 0,
+        "num_dislikes": 0,
+        "num_shares": 0,
+    })
+    feature_parts = [build_observed_post_features(observed_frame)]
+    feature_source = "observed_static_text_features"
+    if post_embeddings is not None:
+        dimensions = {
+            np.asarray(value).reshape(-1).shape[0]
+            for value in post_embeddings.values()
+        }
+        if len(dimensions) != 1:
+            raise ValueError("All post embeddings must have the same dimension")
+        embedding_dim = next(iter(dimensions)) if dimensions else 0
+        semantic = np.zeros((len(content_ids), embedding_dim), dtype=np.float32)
+        for content_id, index in content_map.items():
+            if content_id in post_embeddings:
+                semantic[index] = np.asarray(
+                    post_embeddings[content_id], dtype=np.float32
+                ).reshape(-1)
+        feature_parts.append(semantic)
+        feature_source += "+external_semantic_embeddings"
+    data["tweet"].x = torch.tensor(
+        np.concatenate(feature_parts, axis=1), dtype=torch.float
+    )
+    data["tweet"].node_ids = content_ids
+    data["tweet"].feature_source = feature_source
+    data["tweet"].temporal = False
+    data["tweet"].original_post_ids_available = False
+
+    action_relations = {
+        "post": ("posts", "authored_by"),
+        "retweet": ("retweets", "retweeted_by"),
+        "reply": ("replies", "replied_by"),
+        "like": ("likes", "liked_by"),
+    }
+    action_buckets = {}
+    for row in actions.itertuples(index=False):
+        actor_id = str(row.actor_id)
+        if actor_id in user_map:
+            actor_type, actor_index = "user", user_map[actor_id]
+        elif actor_id in boundary_map:
+            actor_type, actor_index = "boundary_user", boundary_map[actor_id]
+        else:
+            continue
+        relation_pair = action_relations.get(str(row.action_type).lower())
+        if relation_pair is None:
+            continue
+        tweet_index = content_map[str(row.content_node_id)]
+        forward_type = (actor_type, relation_pair[0], "tweet")
+        reverse_type = ("tweet", relation_pair[1], actor_type)
+        for edge_type, source_index, target_index in (
+            (forward_type, actor_index, tweet_index),
+            (reverse_type, tweet_index, actor_index),
+        ):
+            bucket = action_buckets.setdefault(
+                edge_type, {"src": [], "dst": [], "evidence": []}
+            )
+            bucket["src"].append(source_index)
+            bucket["dst"].append(target_index)
+            bucket["evidence"].append(str(row.evidence_id))
+    for edge_type, bucket in action_buckets.items():
+        _set_relation_store(
+            data, edge_type, bucket["src"], bucket["dst"], bucket["evidence"]
+        )
+
+
+
+def build_hetero_data(
+    user_ids,
+    features_26,
+    db_path,
+    threshold=0.7,
+    post_embeddings=None,
+):
     try:
         import torch
         from torch_geometric.data import HeteroData
@@ -210,6 +494,27 @@ def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = {t[0] for t in cursor.fetchall()}
 
+    if {"user", "follow", "agent_actions"}.issubset(tables) and "post" not in tables:
+        conn.close()
+        from data_processing.dataset_adapter import TwiBotStaticAdapter
+
+        bundle = TwiBotStaticAdapter(
+            db_path=db_path,
+            core_user_ids=user_ids,
+        ).load()
+        _add_twibot_static_bundle(
+            data, bundle, user_map, post_embeddings=post_embeddings
+        )
+        rev_user_map = {value: key for key, value in user_map.items()}
+        logger.info(
+            "  TwiBot static graph: core=%d, boundary=%d, text=%d, edge_types=%d",
+            len(user_ids),
+            data["boundary_user"].num_nodes,
+            data["tweet"].num_nodes if "tweet" in data.node_types else 0,
+            len(data.edge_types),
+        )
+        return data, rev_user_map
+
     if 'follow' in tables:
         try:
             df_f = pd.read_sql_query(
@@ -233,9 +538,26 @@ def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
     tweet_map = {}
     if 'post' in tables:
         try:
+            cursor.execute("PRAGMA table_info(post)")
+            post_columns = {row[1] for row in cursor.fetchall()}
+            desired_columns = [
+                "post_id", "user_id", "original_post_id", "content",
+                "quote_content", "created_at", "num_likes", "num_dislikes",
+                "num_shares",
+            ]
+            selected_columns = [
+                column for column in desired_columns if column in post_columns
+            ]
+            if "post_id" not in selected_columns or "user_id" not in selected_columns:
+                raise ValueError("post table must contain post_id and user_id")
             df_posts = pd.read_sql_query(
-                "SELECT post_id, user_id, original_post_id FROM post", conn
+                f"SELECT {', '.join(selected_columns)} FROM post", conn
             )
+            for column in desired_columns:
+                if column not in df_posts.columns:
+                    df_posts[column] = None if column in {
+                        "original_post_id", "quote_content", "created_at"
+                    } else ("" if column == "content" else 0)
             tweet_ids = [
                 pid for pid in (_normalize_db_id(v) for v in df_posts['post_id'])
                 if pid is not None
@@ -243,9 +565,33 @@ def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
             tweet_ids = list(dict.fromkeys(tweet_ids))
             tweet_map = {tid: i for i, tid in enumerate(tweet_ids)}
             n_tweets = len(tweet_map)
-            data['tweet'].x = torch.randn(
-                n_tweets, features_26.shape[1], dtype=torch.float
-            )
+            first_rows = df_posts.assign(
+                _normalized_post_id=df_posts["post_id"].map(_normalize_db_id)
+            ).drop_duplicates("_normalized_post_id").set_index("_normalized_post_id")
+            ordered_posts = first_rows.loc[tweet_ids].reset_index(drop=True)
+            observed_features = build_observed_post_features(ordered_posts)
+            feature_parts = [observed_features]
+            feature_source = "observed_post_features"
+            if post_embeddings is not None:
+                dimensions = {
+                    np.asarray(value).reshape(-1).shape[0]
+                    for value in post_embeddings.values()
+                }
+                if len(dimensions) != 1:
+                    raise ValueError("All post embeddings must have the same dimension")
+                embedding_dim = next(iter(dimensions)) if dimensions else 0
+                semantic = np.zeros((n_tweets, embedding_dim), dtype=np.float32)
+                for post_id, index in tweet_map.items():
+                    if post_id in post_embeddings:
+                        semantic[index] = np.asarray(
+                            post_embeddings[post_id], dtype=np.float32
+                        ).reshape(-1)
+                feature_parts.append(semantic)
+                feature_source = "observed_post_features+external_semantic_embeddings"
+            tweet_features = np.concatenate(feature_parts, axis=1)
+            data['tweet'].x = torch.tensor(tweet_features, dtype=torch.float)
+            data['tweet'].feature_source = feature_source
+            data['tweet'].observed_feature_names = list(POST_OBSERVED_FEATURES)
             logger.info(f"  tweet nodes: {n_tweets}")
 
             src, dst = [], []
@@ -258,6 +604,9 @@ def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
             if src:
                 data['user', 'posts', 'tweet'].edge_index = torch.tensor(
                     [src, dst], dtype=torch.long
+                )
+                data['tweet', 'authored_by', 'user'].edge_index = torch.tensor(
+                    [dst, src], dtype=torch.long
                 )
                 logger.info(f"  [posts] {len(src)} directed edges")
 
@@ -273,6 +622,9 @@ def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
                 if rt_src:
                     data['user', 'retweets', 'tweet'].edge_index = torch.tensor(
                         [rt_src, rt_dst], dtype=torch.long
+                    )
+                    data['tweet', 'retweeted_by', 'user'].edge_index = torch.tensor(
+                        [rt_dst, rt_src], dtype=torch.long
                     )
                     logger.info(f"  [retweets] {len(rt_src)} directed edges")
         except Exception as e:
@@ -294,6 +646,9 @@ def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
                 data['user', 'likes', 'tweet'].edge_index = torch.tensor(
                     [src, dst], dtype=torch.long
                 )
+                data['tweet', 'liked_by', 'user'].edge_index = torch.tensor(
+                    [dst, src], dtype=torch.long
+                )
                 logger.info(f"  [likes] {len(src)} directed edges")
         except Exception as e:
             logger.warning(f"  [likes] Failed to load: {e}")
@@ -313,6 +668,9 @@ def build_hetero_data(user_ids, features_26, db_path, threshold=0.7):
             if src:
                 data['user', 'comments', 'tweet'].edge_index = torch.tensor(
                     [src, dst], dtype=torch.long
+                )
+                data['tweet', 'commented_by', 'user'].edge_index = torch.tensor(
+                    [dst, src], dtype=torch.long
                 )
                 logger.info(f"  [comments] {len(src)} directed edges")
         except Exception as e:

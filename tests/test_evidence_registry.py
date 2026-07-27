@@ -402,6 +402,22 @@ class TestCSVUserCharExclusion:
         assert n >= 1
         assert any("public bio text" in (rec.content or "") for rec in reg._records.values())
 
+    def test_explicit_public_bio_alias_is_allowed_without_labels(self):
+        csv_path = os.path.join(tempfile.mkdtemp(), "twibot.csv")
+        with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["user_id", "user_char", "user_type"])
+            writer.writerow(["u1", "observable profile description", "bad"])
+
+        reg = EvidenceRegistry()
+        added = reg.register_csv(
+            csv_path, observable_aliases={"user_char": "bio"}
+        )
+        assert added == 2  # user_id + aliased public bio
+        records = reg.get_for_user("u1")
+        assert any(record.metadata.get("column") == "bio" for record in records)
+        assert all("bad" not in (record.content or "") for record in records)
+
 
 class TestDuplicateActions:
     """Identical actions (e.g. same user liking same post twice) must each

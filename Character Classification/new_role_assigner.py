@@ -1,7 +1,7 @@
 """
 new_role_assigner.py [Script 3]
 
-HGT Heterogeneous Graph + Poincaré Hyperbolic Projection + DPMM Role Discovery
+Relation-aware HGT + intrinsic Lorentz geometry + DPMM Role Discovery
 
 Pipeline:
 
@@ -9,9 +9,9 @@ Pipeline:
 
 2. Construct PyG heterogeneous graph (user/tweet nodes, followers/posts/retweets/similar/likes/comments edges)
 
-3. Learn structured embeddings end-to-end using HGT
+3. Learn structured embeddings using intrinsic relation-specific Lorentz HGT
 
-4. Preserve hierarchical radiation using Poincaré spherical projection
+4. Convert Lorentz states to Poincaré coordinates for explanation/visualization
 
 5. Automatically infer the number of roles using DPMM nonparametric clustering
 
@@ -21,8 +21,8 @@ Dependency: node_features.csv from Script 1 output
 
 Reference: detection_module/hetero_hyperrole_classifier.py
 
-Usage:
-python -m detection_module.hyper_newtest.new_role_assigner --save-dir <script1_output_dir>
+The legacy Euclidean HGT + Poincaré projection path remains available through
+``--geometry-backend projection_head`` as an explicit ablation baseline.
 """
 
 import os
@@ -51,7 +51,8 @@ from config import (
     configure_utf8_streams,
     resolve_dataset_paths,
 )
-from graph_builder import build_hetero_data
+from graph_builder import build_hetero_data, load_post_embeddings
+from lorentz_hgt import IntrinsicLorentzHGT
 from visualizer import CognitiveVisualizer
 
 warnings.filterwarnings("ignore")
@@ -94,6 +95,8 @@ FEAT_26_COLS = [
 
 
 class HyperRoleHGNN(torch.nn.Module):
+
+    geometry_backend = "projection_head"
 
 
     def __init__(self, hidden_dim, num_heads, num_layers, metadata):
@@ -217,7 +220,7 @@ def poincare_distance(u, v, eps=1e-5):
 
 
 
-def train_hgt(data, epochs=EPOCHS):
+def train_hgt(data, epochs=EPOCHS, geometry_backend="intrinsic_lorentz"):
     """
     Poincaré distance loss + negative sampling is used to train the HGT.
 
@@ -225,15 +228,31 @@ Simultaneously, follows + similar edges are used as positive samples (to bring t
 
 unrelated node pairs are negatively sampled (to push them apart) to prevent embedding collapse.
     """
-    logger.info(f"Training HGT (device={DEVICE})...")
+    logger.info(
+        "Training HGT (device=%s, geometry_backend=%s)...",
+        DEVICE,
+        geometry_backend,
+    )
     data = data.to(DEVICE)
 
-    model = HyperRoleHGNN(
+    if geometry_backend == "intrinsic_lorentz":
+        model_class = IntrinsicLorentzHGT
+    elif geometry_backend == "projection_head":
+        model_class = HyperRoleHGNN
+    else:
+        raise ValueError(
+            "geometry_backend must be 'intrinsic_lorentz' or 'projection_head'"
+        )
+
+    model = model_class(
         hidden_dim=HIDDEN_DIM, num_heads=NUM_HEADS,
         num_layers=NUM_LAYERS, metadata=data.metadata()
     ).to(DEVICE)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-4)
+    learning_rate = 1e-3 if geometry_backend == "intrinsic_lorentz" else 0.005
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=learning_rate, weight_decay=1e-4
+    )
 
   
     pos_edges = []
@@ -336,9 +355,8 @@ def run_geometry_explainers(
 ):
     """Run the controlled PGExplainer versus Geo-PGExplainer comparison.
 
-    The current encoder remains the existing Euclidean HGT plus Poincare
-    projection head. Artifacts therefore declare ``projection_head`` as their
-    geometry backend instead of claiming intrinsic manifold message passing.
+    Artifacts declare whether the underlying encoder is the Euclidean
+    projection baseline or the intrinsic Lorentz implementation.
     """
     from explainability.geo_pgexplainer import (
         GeoPGExplainer,
@@ -502,13 +520,24 @@ def run_geometry_explainers(
     summary_path = os.path.join(explanation_dir, "geometry_summary.json")
     with open(summary_path, "w", encoding="utf-8") as handle:
         json.dump(summary, handle, ensure_ascii=False, indent=2)
+    geometry_backend = getattr(model, "geometry_backend", "projection_head")
+    geometry_metadata = (
+        model.geometry_metadata() if hasattr(model, "geometry_metadata") else {
+            "geometry_backend": geometry_backend,
+        }
+    )
     manifest = {
         "research_question": (
             "Does an ordinary PGExplainer-style mask preserve prediction "
             "while distorting Poincare geometry?"
         ),
-        "geometry_backend": "projection_head",
-        "model_scope": "Euclidean HGTConv followed by Poincare projection",
+        "geometry_backend": geometry_backend,
+        "geometry_metadata": geometry_metadata,
+        "model_scope": (
+            "Relation-specific intrinsic Lorentz message passing"
+            if geometry_backend == "intrinsic_lorentz"
+            else "Euclidean HGTConv followed by Poincare projection"
+        ),
         "baseline": "PGExplainer-style relation-specific parameterized masks",
         "proposed": "Geo-PGExplainer with geodesic and radial-order losses",
         "geo_geodesic_weight": geo_geodesic_weight,
@@ -696,6 +725,8 @@ def main(
     geo_geodesic_weight=1.0,
     geo_radial_weight=1.0,
     explainer_seeds=(SEED,),
+    geometry_backend="intrinsic_lorentz",
+    post_embeddings_path=None,
 ):
     global SAVE_DIR
     SAVE_DIR = save_dir
@@ -721,8 +752,13 @@ def main(
 
     logger.info("Building heterogeneous graph...")
     try:
+        post_embeddings = load_post_embeddings(post_embeddings_path)
         data, rev_user_map = build_hetero_data(
-            user_ids, features_26, db_path, threshold=SIM_THRESHOLD
+            user_ids,
+            features_26,
+            db_path,
+            threshold=SIM_THRESHOLD,
+            post_embeddings=post_embeddings,
         )
     except ImportError as e:
         logger.error(f"Missing dependency: {e}")
@@ -730,9 +766,21 @@ def main(
     logger.info(f"  Edge types: {data.edge_types}")
 
    
-    model, hyp_emb = train_hgt(data, epochs=epochs)
+    model, hyp_emb = train_hgt(
+        data, epochs=epochs, geometry_backend=geometry_backend
+    )
     if hyp_emb is None:
         raise RuntimeError("HGT training failed.")
+
+    geometry_path = os.path.join(save_dir, "geometry_metadata.json")
+    geometry_metadata = (
+        model.geometry_metadata() if hasattr(model, "geometry_metadata") else {
+            "geometry_backend": getattr(model, "geometry_backend", "projection_head")
+        }
+    )
+    with open(geometry_path, "w", encoding="utf-8") as handle:
+        json.dump(geometry_metadata, handle, ensure_ascii=False, indent=2)
+    logger.info("Geometry metadata saved: %s", geometry_path)
 
    
     df_roles, hyp_emb_arr, dpgmm_model = dpmm_role_discovery(hyp_emb, rev_user_map)
@@ -800,6 +848,23 @@ def parse_args():
     parser.add_argument("--geo-geodesic-weight", type=float, default=1.0)
     parser.add_argument("--geo-radial-weight", type=float, default=1.0)
     parser.add_argument(
+        "--geometry-backend",
+        choices=("intrinsic_lorentz", "projection_head"),
+        default="intrinsic_lorentz",
+        help=(
+            "Use intrinsic relation-specific Lorentz message passing, or the "
+            "legacy Euclidean-HGT projection baseline."
+        ),
+    )
+    parser.add_argument(
+        "--post-embeddings",
+        default=None,
+        help=(
+            "Optional .npz/.csv post-level semantic embeddings. Deterministic "
+            "observed post features are used when omitted."
+        ),
+    )
+    parser.add_argument(
         "--explainer-seeds", default=str(SEED),
         help="Comma-separated paired seeds; use at least five for paper evidence.",
     )
@@ -824,4 +889,6 @@ if __name__ == "__main__":
         geo_geodesic_weight=args.geo_geodesic_weight,
         geo_radial_weight=args.geo_radial_weight,
         explainer_seeds=explainer_seeds,
+        geometry_backend=args.geometry_backend,
+        post_embeddings_path=args.post_embeddings,
     )

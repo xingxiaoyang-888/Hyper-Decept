@@ -1,0 +1,406 @@
+"""Intrinsic Lorentz heterogeneous message passing for HyperDecept.
+
+The previous role encoder performs Euclidean HGT message passing and only
+projects the final representation into a Poincare ball.  This module keeps
+node states on a Lorentz manifold during relation-specific propagation.  Its
+design follows the curvature-aware HT/HR operators and relation-specific
+spaces used by HypHGT (Park et al., arXiv:2601.08251), while exposing edge
+masks and relation gates required by HyperDecept's evidence explanations.
+
+This is intentionally a small, dependency-light backbone.  It uses PyTorch
+and ``torch_geometric.utils.softmax`` only, so the research code does not
+depend on an unmaintained hyperbolic-learning package.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, Mapping, Optional, Sequence, Tuple
+
+import torch
+import torch.nn.functional as F
+
+
+EdgeType = Tuple[str, str, str]
+
+
+def edge_type_name(edge_type: EdgeType) -> str:
+    return "__".join(edge_type)
+
+
+def minkowski_dot(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Lorentzian inner product using the time-first convention."""
+    return -x[..., :1] * y[..., :1] + (x[..., 1:] * y[..., 1:]).sum(
+        dim=-1, keepdim=True
+    )
+
+
+def lorentz_from_spatial(
+    spatial: torch.Tensor,
+    curvature: torch.Tensor,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Reconstruct a valid point on the upper Lorentz hyperboloid.
+
+    ``curvature`` is the positive magnitude ``k`` of negative curvature
+    ``-k``.  Returned points satisfy ``<x, x>_L = -1/k``.
+    """
+    k = curvature.to(dtype=spatial.dtype, device=spatial.device).clamp_min(eps)
+    time = torch.sqrt((1.0 / k) + spatial.square().sum(dim=-1, keepdim=True))
+    return torch.cat([time, spatial], dim=-1)
+
+
+def expmap0(
+    tangent_spatial: torch.Tensor,
+    curvature: torch.Tensor,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Map an origin-tangent vector to the Lorentz manifold."""
+    k = curvature.to(
+        dtype=tangent_spatial.dtype, device=tangent_spatial.device
+    ).clamp_min(eps)
+    sqrt_k = torch.sqrt(k)
+    norm = torch.linalg.vector_norm(tangent_spatial, dim=-1, keepdim=True)
+    scaled = (sqrt_k * norm).clamp(max=15.0)
+    direction_scale = torch.sinh(scaled) / (sqrt_k * norm).clamp_min(eps)
+    direction_scale = torch.where(
+        norm > eps, direction_scale, torch.ones_like(direction_scale)
+    )
+    time = torch.cosh(scaled) / sqrt_k
+    return torch.cat([time, direction_scale * tangent_spatial], dim=-1)
+
+
+def logmap0(
+    point: torch.Tensor,
+    curvature: torch.Tensor,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Return the spatial coordinates of the origin logarithmic map."""
+    k = curvature.to(dtype=point.dtype, device=point.device).clamp_min(eps)
+    alpha = (torch.sqrt(k) * point[..., :1]).clamp_min(1.0 + eps)
+    denominator = torch.sqrt((alpha.square() - 1.0).clamp_min(eps))
+    scale = torch.acosh(alpha) / denominator
+    return scale * point[..., 1:]
+
+
+def lorentz_distance(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    curvature: torch.Tensor,
+    eps: float = 1e-7,
+) -> torch.Tensor:
+    """Geodesic distance between Lorentz points at the same curvature."""
+    k = curvature.to(dtype=x.dtype, device=x.device).clamp_min(eps)
+    argument = (-k * minkowski_dot(x, y)).clamp_min(1.0 + eps)
+    return torch.acosh(argument) / torch.sqrt(k)
+
+
+def lorentz_to_poincare(
+    point: torch.Tensor,
+    curvature: torch.Tensor,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Convert to a dimensionless unit Poincare ball representation."""
+    k = curvature.to(dtype=point.dtype, device=point.device).clamp_min(eps)
+    sqrt_k = torch.sqrt(k)
+    return sqrt_k * point[..., 1:] / (sqrt_k * point[..., :1] + 1.0).clamp_min(eps)
+
+
+class BoundedCurvature(torch.nn.Module):
+    """Stable learnable magnitude for a negative curvature."""
+
+    def __init__(
+        self,
+        initial: float = 1.0,
+        minimum: float = 1e-3,
+        maximum: float = 10.0,
+    ) -> None:
+        super().__init__()
+        if not minimum < initial < maximum:
+            raise ValueError("curvature must satisfy minimum < initial < maximum")
+        self.minimum = float(minimum)
+        self.maximum = float(maximum)
+        ratio = (initial - minimum) / (maximum - minimum)
+        self.raw = torch.nn.Parameter(torch.tensor(float(torch.logit(torch.tensor(ratio)))))
+
+    def forward(self) -> torch.Tensor:
+        span = self.maximum - self.minimum
+        return self.minimum + span * torch.sigmoid(self.raw)
+
+
+class LorentzLinear(torch.nn.Module):
+    """Curvature-aware hyperbolic transformation (HT)."""
+
+    def __init__(self, input_dim: int, output_dim: int) -> None:
+        super().__init__()
+        self.linear = torch.nn.Linear(input_dim + 1, output_dim)
+
+    def forward(
+        self,
+        point: torch.Tensor,
+        input_curvature: torch.Tensor,
+        output_curvature: torch.Tensor,
+    ) -> torch.Tensor:
+        ratio = torch.sqrt(
+            input_curvature.to(point) / output_curvature.to(point)
+        )
+        spatial = ratio * self.linear(point)
+        return lorentz_from_spatial(spatial, output_curvature)
+
+
+@dataclass
+class RelationAudit:
+    curvature: torch.Tensor
+    attention: torch.Tensor
+
+
+class LorentzRelationMessage(torch.nn.Module):
+    """Relation-specific intrinsic distance attention and aggregation."""
+
+    def __init__(self, hidden_dim: int, num_heads: int) -> None:
+        super().__init__()
+        if hidden_dim % num_heads != 0:
+            raise ValueError("hidden_dim must be divisible by num_heads")
+        self.num_heads = int(num_heads)
+        self.head_dim = hidden_dim // num_heads
+        self.curvature = BoundedCurvature()
+        self.source_transform = LorentzLinear(hidden_dim, hidden_dim)
+        self.target_transform = LorentzLinear(hidden_dim, hidden_dim)
+        self.output_transform = LorentzLinear(hidden_dim, hidden_dim)
+        self.distance_scale_raw = torch.nn.Parameter(torch.zeros(num_heads))
+        self.attention_bias = torch.nn.Parameter(torch.zeros(num_heads))
+
+    def forward(
+        self,
+        source_points: torch.Tensor,
+        target_points: torch.Tensor,
+        edge_index: torch.Tensor,
+        common_curvature: torch.Tensor,
+        edge_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, RelationAudit]:
+        from torch_geometric.utils import softmax
+
+        relation_curvature = self.curvature()
+        source_relation = self.source_transform(
+            source_points, common_curvature, relation_curvature
+        )
+        target_relation = self.target_transform(
+            target_points, common_curvature, relation_curvature
+        )
+        source_index, target_index = edge_index
+        distance = lorentz_distance(
+            source_relation[source_index],
+            target_relation[target_index],
+            relation_curvature,
+        )
+        distance_scale = F.softplus(self.distance_scale_raw) + 1e-4
+        logits = self.attention_bias.unsqueeze(0) - distance_scale.unsqueeze(0) * distance
+        attention = softmax(
+            logits, target_index, num_nodes=target_points.shape[0], dim=0
+        )
+
+        if edge_mask is not None:
+            mask = edge_mask.to(attention).clamp(0.0, 1.0).unsqueeze(-1)
+            attention = attention * mask
+
+        source_spatial = source_relation[source_index, 1:].reshape(
+            -1, self.num_heads, self.head_dim
+        )
+        messages = source_spatial * attention.unsqueeze(-1)
+        aggregate = messages.new_zeros(
+            (target_points.shape[0], self.num_heads, self.head_dim)
+        )
+        aggregate.index_add_(0, target_index, messages)
+        aggregate = aggregate.reshape(target_points.shape[0], -1)
+        relation_point = lorentz_from_spatial(aggregate, relation_curvature)
+        common_point = self.output_transform(
+            relation_point, relation_curvature, common_curvature
+        )
+        return common_point, RelationAudit(
+            curvature=relation_curvature,
+            attention=attention,
+        )
+
+
+class IntrinsicLorentzHGTLayer(torch.nn.Module):
+    """One auditable heterogeneous Lorentz message-passing layer."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        metadata: Tuple[Sequence[str], Sequence[EdgeType]],
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        node_types, edge_types = metadata
+        self.edge_types = [tuple(edge_type) for edge_type in edge_types]
+        self.relations = torch.nn.ModuleDict({
+            edge_type_name(edge_type): LorentzRelationMessage(
+                hidden_dim, num_heads
+            )
+            for edge_type in self.edge_types
+        })
+        self.relation_gates = torch.nn.ParameterDict({
+            edge_type_name(edge_type): torch.nn.Parameter(torch.tensor(0.0))
+            for edge_type in self.edge_types
+        })
+        self.residual_gates = torch.nn.ParameterDict({
+            node_type: torch.nn.Parameter(torch.tensor(0.0))
+            for node_type in node_types
+        })
+        self.norms = torch.nn.ModuleDict({
+            node_type: torch.nn.LayerNorm(hidden_dim) for node_type in node_types
+        })
+        self.dropout = float(dropout)
+
+    def forward(
+        self,
+        point_dict: Mapping[str, torch.Tensor],
+        edge_index_dict: Mapping[EdgeType, torch.Tensor],
+        common_curvature: torch.Tensor,
+        edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, RelationAudit]]:
+        candidates: Dict[str, list] = {node_type: [] for node_type in point_dict}
+        audits: Dict[str, RelationAudit] = {}
+        for edge_type in self.edge_types:
+            if edge_type not in edge_index_dict:
+                continue
+            source_type, _, target_type = edge_type
+            key = edge_type_name(edge_type)
+            candidate, audit = self.relations[key](
+                point_dict[source_type],
+                point_dict[target_type],
+                edge_index_dict[edge_type],
+                common_curvature,
+                None if edge_mask_dict is None else edge_mask_dict.get(edge_type),
+            )
+            candidates[target_type].append((key, candidate))
+            audits[key] = audit
+
+        output: Dict[str, torch.Tensor] = {}
+        for node_type, current in point_dict.items():
+            residual_spatial = current[..., 1:]
+            typed_candidates = candidates[node_type]
+            if typed_candidates:
+                gate_logits = torch.stack([
+                    self.relation_gates[key] for key, _ in typed_candidates
+                ])
+                gate_values = torch.softmax(gate_logits, dim=0)
+                relation_spatial = sum(
+                    gate_values[index] * candidate[..., 1:]
+                    for index, (_, candidate) in enumerate(typed_candidates)
+                )
+                residual_weight = torch.sigmoid(self.residual_gates[node_type])
+                mixed = residual_weight * residual_spatial
+                mixed = mixed + (1.0 - residual_weight) * relation_spatial
+            else:
+                mixed = residual_spatial
+            refined = self.norms[node_type](mixed)
+            refined = F.gelu(refined)
+            refined = F.dropout(refined, p=self.dropout, training=self.training)
+            output[node_type] = lorentz_from_spatial(refined, common_curvature)
+        return output, audits
+
+
+class IntrinsicLorentzHGT(torch.nn.Module):
+    """Relation-aware HGT whose hidden states stay on a Lorentz manifold."""
+
+    geometry_backend = "intrinsic_lorentz"
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        num_layers: int,
+        metadata: Tuple[Sequence[str], Sequence[EdgeType]],
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        from torch_geometric.nn import Linear
+
+        if hidden_dim <= 0 or num_layers <= 0:
+            raise ValueError("hidden_dim and num_layers must be positive")
+        if hidden_dim % num_heads != 0:
+            raise ValueError("hidden_dim must be divisible by num_heads")
+        self.num_heads = int(num_heads)
+        self.hidden_dim = int(hidden_dim)
+        self.metadata = metadata
+        self.common_curvature = BoundedCurvature()
+        self.input_scale_raw = torch.nn.Parameter(torch.tensor(-2.0))
+        self.input_projectors = torch.nn.ModuleDict({
+            node_type: Linear(-1, hidden_dim) for node_type in metadata[0]
+        })
+        self.layers = torch.nn.ModuleList([
+            IntrinsicLorentzHGTLayer(
+                hidden_dim, num_heads, metadata, dropout=dropout
+            )
+            for _ in range(num_layers)
+        ])
+        self._last_audits: Dict[str, RelationAudit] = {}
+
+    def encode_lorentz_nodes(
+        self,
+        x_dict: Mapping[str, torch.Tensor],
+        edge_index_dict: Mapping[EdgeType, torch.Tensor],
+        edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+    ) -> Dict[str, torch.Tensor]:
+        curvature = self.common_curvature()
+        scale = torch.sigmoid(self.input_scale_raw)
+        points = {
+            node_type: expmap0(
+                scale * self.input_projectors[node_type](features), curvature
+            )
+            for node_type, features in x_dict.items()
+        }
+        all_audits: Dict[str, RelationAudit] = {}
+        for layer_index, layer in enumerate(self.layers):
+            points, audits = layer(
+                points, edge_index_dict, curvature, edge_mask_dict=edge_mask_dict
+            )
+            all_audits.update({
+                f"layer_{layer_index}:{key}": value for key, value in audits.items()
+            })
+        self._last_audits = all_audits
+        return points
+
+    def encode_nodes(
+        self,
+        x_dict: Mapping[str, torch.Tensor],
+        edge_index_dict: Mapping[EdgeType, torch.Tensor],
+        edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+    ) -> Dict[str, torch.Tensor]:
+        curvature = self.common_curvature()
+        points = self.encode_lorentz_nodes(
+            x_dict, edge_index_dict, edge_mask_dict=edge_mask_dict
+        )
+        return {
+            node_type: lorentz_to_poincare(point, curvature)
+            for node_type, point in points.items()
+        }
+
+    def forward(
+        self,
+        x_dict: Mapping[str, torch.Tensor],
+        edge_index_dict: Mapping[EdgeType, torch.Tensor],
+        edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+    ) -> torch.Tensor:
+        return self.encode_nodes(
+            x_dict, edge_index_dict, edge_mask_dict=edge_mask_dict
+        )["user"]
+
+    def geometry_metadata(self) -> Dict[str, object]:
+        relation_curvatures: Dict[str, float] = {}
+        for layer_index, layer in enumerate(self.layers):
+            for key, relation in layer.relations.items():
+                relation_curvatures[f"layer_{layer_index}:{key}"] = -float(
+                    relation.curvature().detach().cpu()
+                )
+        return {
+            "geometry_backend": self.geometry_backend,
+            "common_curvature": -float(
+                self.common_curvature().detach().cpu()
+            ),
+            "relation_curvatures": relation_curvatures,
+            "edge_masks_supported": True,
+        }

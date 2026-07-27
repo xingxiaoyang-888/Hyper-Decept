@@ -157,11 +157,19 @@ class EvidenceRegistry:
             conn.close()
         return added
 
-    def register_csv(self, csv_path: str, user_id_column: str = "user_id") -> int:
+    def register_csv(
+        self,
+        csv_path: str,
+        user_id_column: str = "user_id",
+        observable_aliases: Optional[Dict[str, str]] = None,
+    ) -> int:
         """Register allowed observable columns from a CSV file.
 
         Uses an explicit whitelist; label and hidden columns are skipped
-        even if they exist in the file.
+        even if they exist in the file. ``observable_aliases`` is an explicit
+        dataset-contract mapping for ambiguous legacy names. For example,
+        TwiBot's public description is stored as ``user_char`` and may be
+        mapped to ``bio``; the default remains blocked.
         """
         csv_path = str(Path(csv_path).resolve())
         if not os.path.isfile(csv_path):
@@ -174,7 +182,18 @@ class EvidenceRegistry:
             if reader.fieldnames is None:
                 return 0
 
-            allowed_fields = [f for f in reader.fieldnames if _is_csv_column_allowed(f)]
+            aliases = {
+                str(source): str(target)
+                for source, target in (observable_aliases or {}).items()
+            }
+            allowed_fields = []
+            for field in reader.fieldnames:
+                source_name = field.lower().strip()
+                target_name = aliases.get(field, field).lower().strip()
+                if source_name in _BLOCKED_COLUMNS:
+                    continue
+                if _is_csv_column_allowed(target_name):
+                    allowed_fields.append(field)
 
             for row_idx, row in enumerate(reader):
                 user_id = str(row.get(user_id_column, "")).strip()
@@ -184,7 +203,8 @@ class EvidenceRegistry:
                     value = row.get(field)
                     if value is None or str(value).strip() == "":
                         continue
-                    evidence_id = f"csv:{user_id}:{field}:{row_idx}"
+                    normalized_field = aliases.get(field, field)
+                    evidence_id = f"csv:{user_id}:{normalized_field}:{row_idx}"
                     record = EvidenceRecord(
                         evidence_id=evidence_id,
                         evidence_type="csv_field",
@@ -197,7 +217,8 @@ class EvidenceRegistry:
                         observed=True,
                         metadata={
                             "csv_path": csv_path,
-                            "column": field,
+                            "column": normalized_field,
+                            "source_column": field,
                         },
                     )
                     self._records[evidence_id] = record

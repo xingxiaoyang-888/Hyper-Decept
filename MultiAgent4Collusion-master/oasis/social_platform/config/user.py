@@ -16,15 +16,26 @@ import json
 import random
 import sys
 import logging
+from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Any
 
+DEFAULT_PROMPT_DIR = str(
+    Path(__file__).resolve().parents[3]
+    / "scripts" / "twitter_simulation" / "align_with_real_world"
+)
+
 if "sphinx" not in sys.modules:
+    log_dir = Path(__file__).resolve().parents[3] / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger(name="prompt.static")
     logger.setLevel("DEBUG")
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_handler = logging.FileHandler(f"./log/prompt.static-{str(now)}.log")
+    file_handler = logging.FileHandler(
+        log_dir / f"prompt.static-{str(now)}.log",
+        encoding="utf-8",
+    )
     file_handler.setLevel("DEBUG")
     file_handler.setFormatter(
         logging.Formatter(
@@ -39,7 +50,7 @@ class UserInfo:
     recsys_type: str = "twitter"
     is_controllable: bool = False
     user_type: str = "good"
-    prompt_dir: str = "MultiAgent4Collusion-master/scripts/twitter_simulation/align_with_real_world"
+    prompt_dir: str = DEFAULT_PROMPT_DIR
 
     def to_system_message(self, action_space_prompt: str = None) -> str:
         if self.recsys_type != "reddit":
@@ -66,7 +77,11 @@ class UserInfo:
 
         # Load the prompt template
         try:
-            with open(f"{self.prompt_dir}/system_prompt(static).json", "r") as f:
+            with open(
+                f"{self.prompt_dir}/system_prompt(static).json",
+                "r",
+                encoding="utf-8",
+            ) as f:
                 prompt_template = json.load(f)["twitter"]
         except FileNotFoundError as e:
             raise FileNotFoundError(
@@ -138,7 +153,11 @@ class UserInfo:
         # persuation_prompt
         # Load the persuasion taxonomy
         ss_techniques = []
-        with open(f'{self.prompt_dir}/persuasion_taxonomy.jsonl', 'r') as file:
+        with open(
+            f'{self.prompt_dir}/persuasion_taxonomy.jsonl',
+            'r',
+            encoding='utf-8',
+        ) as file:
             for line in file:
                 data = json.loads(line)
                 ss_techniques.append(data)

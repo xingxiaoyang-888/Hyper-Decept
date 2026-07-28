@@ -1,11 +1,13 @@
 ---
 data:
-  db_path: MultiAgent4Collusion-master/our_twitter_sim/False_Business_0.db
-  csv_path: MultiAgent4Collusion-master/our_twitter_sim/False_Business_0.csv
+  db_path: our_twitter_sim/False_Business_0.db
+  csv_path: our_twitter_sim/False_Business_0.csv
 simulation:
   num_timesteps: 10
   clock_factor: 60
-  recsys_type: twhin-bert
+  # The lightweight TF-IDF path works without downloading an embedding model.
+  # Use twhin-bert only in an environment with compatible torch/transformers.
+  recsys_type: twitter
 model:
   num_agents: 5
   model_random_seed: 42
@@ -19,5 +21,6 @@ model:
 inference:
   model_type: deepseek-chat
   is_openai_model: true
-  api_key: sk-f3d444bb591441fca18999f790c0ce21
+  # Set DEEPSEEK_API_KEY in the environment; never commit a live key here.
+  api_key: null
   api_base_url: https://api.deepseek.com/v1

@@ -20,15 +20,21 @@ import time
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 import sys
+from pathlib import Path
 
 # Assuming InferenceThread and SharedMemory are defined elsewhere
 from oasis.inference.inference_thread import InferenceThread
 
 # Setup logging
+LOG_DIR = Path(__file__).resolve().parents[2] / "log"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("log/inference.log"), logging.StreamHandler()],
+    handlers=[
+        logging.FileHandler(LOG_DIR / "inference.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger(__name__)
 

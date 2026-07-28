@@ -20,6 +20,7 @@ import random
 import sqlite3
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from oasis.clock.clock import Clock
@@ -40,10 +41,15 @@ from oasis.social_platform.task_blackboard import TaskBlackboard
 from oasis.social_platform.post_stats import TweetStats
 
 if "sphinx" not in sys.modules:
+    log_dir = Path(__file__).resolve().parents[2] / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
     twitter_log = logging.getLogger(name="social.twitter")
     twitter_log.setLevel("DEBUG")
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_handler = logging.FileHandler(f"./log/social.twitter-{now}.log")
+    file_handler = logging.FileHandler(
+        log_dir / f"social.twitter-{now}.log",
+        encoding="utf-8",
+    )
     file_handler.setLevel("DEBUG")
     file_handler.setFormatter(
         logging.Formatter("%(levelname)s - %(asctime)s - %(name)s - %(message)s")

@@ -92,7 +92,7 @@ class EvidenceRecord(_JSONMixin):
 
 @dataclass
 class ConceptRecord(_JSONMixin):
-    """Concept-bottleneck slot (reserved for M3, empty in M1)."""
+    """Human-readable concept activation with optional source evidence."""
 
     concept_name: str = ""
     concept_value: float = 0.0
@@ -153,7 +153,7 @@ class SubgraphRecord(_JSONMixin):
 
 @dataclass
 class CounterfactualRecord(_JSONMixin):
-    """Counterfactual explanation (reserved for M4, empty in M1)."""
+    """Constraint-aware counterfactual output (implemented in project M7)."""
 
     original_prediction: Optional[float] = None
     counterfactual_prediction: Optional[float] = None
@@ -188,7 +188,7 @@ class PredictionRecord(_JSONMixin):
 
 @dataclass
 class ExplanationPacket:
-    """M1 white-box explanation for a single user / case."""
+    """Framework-neutral white-box explanation for a single case."""
 
     schema_version: str = "1.0"
     case_id: str = ""

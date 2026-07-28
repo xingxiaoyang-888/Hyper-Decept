@@ -11,17 +11,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
-from typing import List
+from __future__ import annotations
+
+from typing import Any, List
 
 import torch
 from camel.embeddings import OpenAIEmbedding
 from camel.types import EmbeddingModelType
-from transformers import AutoModel, AutoTokenizer
 
 
 # Function: Process each batch
 @torch.no_grad()
-def process_batch(model: AutoModel, tokenizer: AutoTokenizer,
+def process_batch(model: Any, tokenizer: Any,
                   batch_texts: List[str]):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     inputs = tokenizer(batch_texts,
@@ -33,7 +34,7 @@ def process_batch(model: AutoModel, tokenizer: AutoTokenizer,
     return outputs.pooler_output
 
 
-def generate_post_vector(model: AutoModel, tokenizer: AutoTokenizer, texts,
+def generate_post_vector(model: Any, tokenizer: Any, texts,
                          batch_size):
     # Loop through all messages
     # If the list of messages is too large, process them in batches.

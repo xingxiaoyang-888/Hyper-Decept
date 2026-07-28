@@ -351,7 +351,11 @@ def _add_twibot_static_bundle(data, bundle, user_map, post_embeddings=None):
         target_type = "user" if target_core else "boundary_user"
         source_index = user_map[source_id] if source_core else boundary_map[source_id]
         target_index = user_map[target_id] if target_core else boundary_map[target_id]
-        relation = "followed_by" if inverse else "follows"
+        if bundle.dataset_kind == "twibot22_raw":
+            raw_relation = str(getattr(row, "relation", "following"))
+            relation = f"rev_{raw_relation}" if inverse else raw_relation
+        else:
+            relation = "followed_by" if inverse else "follows"
         edge_type = (source_type, relation, target_type)
         bucket = relation_buckets.setdefault(
             edge_type, {"src": [], "dst": [], "evidence": [], "multiplicity": []}
@@ -457,6 +461,79 @@ def _add_twibot_static_bundle(data, bundle, user_map, post_embeddings=None):
         )
 
 
+def _add_twibot_raw_bundle(data, bundle, user_map, post_embeddings=None):
+    """Materialize a raw TwiBot-22 bundle while preserving temporal metadata."""
+    _add_twibot_static_bundle(
+        data, bundle, user_map, post_embeddings=post_embeddings
+    )
+    posts = getattr(bundle, "posts", None)
+    if posts is None or posts.empty or "tweet" not in data.node_types:
+        data.dataset_capabilities = bundle.capabilities.to_dict()
+        data.dataset_warnings = list(bundle.warnings)
+        return
+    import torch
+
+    content_ids = data["tweet"].node_ids
+    post_map = {
+        f"tweet:{str(row.post_id)}": row
+        for row in posts.itertuples(index=False)
+    }
+    observed_rows = []
+    for content_id in content_ids:
+        row = post_map.get(str(content_id))
+        if row is None:
+            observed_rows.append({
+                "content": "", "quote_content": "", "original_post_id": None,
+                "created_at": None, "num_likes": 0, "num_dislikes": 0,
+                "num_shares": 0,
+            })
+        else:
+            observed_rows.append({
+                "content": row.content,
+                "quote_content": "",
+                "original_post_id": row.original_post_id,
+                "created_at": row.created_at,
+                "num_likes": row.num_likes,
+                "num_dislikes": 0,
+                "num_shares": row.num_retweets,
+            })
+    feature_parts = [build_observed_post_features(pd.DataFrame(observed_rows))]
+    feature_source = "observed_raw_tweet_features"
+    if post_embeddings is not None:
+        dimensions = {
+            np.asarray(value).reshape(-1).shape[0]
+            for value in post_embeddings.values()
+        }
+        if len(dimensions) != 1:
+            raise ValueError("All post embeddings must have the same dimension")
+        embedding_dim = next(iter(dimensions)) if dimensions else 0
+        semantic = np.zeros((len(content_ids), embedding_dim), dtype=np.float32)
+        for index, content_id in enumerate(content_ids):
+            post_id = str(content_id).removeprefix("tweet:")
+            if post_id in post_embeddings:
+                semantic[index] = np.asarray(
+                    post_embeddings[post_id], dtype=np.float32
+                ).reshape(-1)
+        feature_parts.append(semantic)
+        feature_source += "+external_semantic_embeddings"
+    data["tweet"].x = torch.tensor(
+        np.concatenate(feature_parts, axis=1), dtype=torch.float
+    )
+    data["tweet"].feature_source = feature_source
+    data["tweet"].temporal = True
+    data["tweet"].original_post_ids_available = True
+    data["tweet"].created_at = [
+        getattr(post_map.get(str(content_id)), "created_at", None)
+        if post_map.get(str(content_id)) is not None else None
+        for content_id in content_ids
+    ]
+    data["tweet"].post_ids = [
+        str(content_id).removeprefix("tweet:") for content_id in content_ids
+    ]
+    data.dataset_capabilities = bundle.capabilities.to_dict()
+    data.dataset_warnings = list(bundle.warnings)
+
+
 
 def build_hetero_data(
     user_ids,
@@ -476,6 +553,10 @@ def build_hetero_data(
     n_users = len(user_ids)
 
     data['user'].x = torch.tensor(features_26.astype(np.float32))
+    # Preserve the exact feature-row identity order.  Joint training aligns
+    # labels and evidence through this explicit list rather than assuming a
+    # DataFrame, SQLite table, and PyG graph happen to share row order.
+    data['user'].node_ids = [str(uid) for uid in user_ids]
     cos_edges = build_cosine_edges(features_26, threshold)
     if cos_edges:
         src = [e[0] for e in cos_edges]
@@ -484,6 +565,29 @@ def build_hetero_data(
             [src + dst, dst + src], dtype=torch.long
         )
         logger.info(f"  [similar] {len(cos_edges)} undirected edges → {len(src)*2} directed edges")
+
+    if os.path.isdir(db_path):
+        from data_processing.twibot22_raw_adapter import TwiBot22RawAdapter
+
+        bundle = TwiBot22RawAdapter(
+            twibot_dir=db_path,
+            core_user_ids=user_ids,
+        ).load()
+        _add_twibot_raw_bundle(
+            data, bundle, user_map, post_embeddings=post_embeddings
+        )
+        # The complete raw relation table remains attached to the adapter
+        # bundle for later entity-store expansion. The current graph path
+        # materializes user-user and action-to-tweet stores with provenance.
+        rev_user_map = {value: key for key, value in user_map.items()}
+        logger.info(
+            "  TwiBot-22 raw graph: core=%d, boundary=%d, text=%d, edge_types=%d",
+            len(user_ids),
+            data["boundary_user"].num_nodes if "boundary_user" in data.node_types else 0,
+            data["tweet"].num_nodes if "tweet" in data.node_types else 0,
+            len(data.edge_types),
+        )
+        return data, rev_user_map
 
     if not os.path.exists(db_path):
         logger.warning(f"  DB does not exist: {db_path}, only containing cosine similarity edges")

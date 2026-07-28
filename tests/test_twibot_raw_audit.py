@@ -62,6 +62,8 @@ def test_audit_reports_schema_counts_and_core_coverage_without_raw_text(tmp_path
     assert edge["core_coverage"]["core_as_source_rows"] == 2
     assert edge["core_coverage"]["core_as_target_rows"] == 1
     assert edge["core_coverage"]["incident_noncore_ids"] == 3
+    assert edge["core_coverage"]["core_source_ids"] == 1
+    assert edge["core_coverage"]["core_target_ids"] == 1
     tweet = next(
         item for item in report["json_files"] if item["path"].endswith("tweet_0.json")
     )

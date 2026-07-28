@@ -43,7 +43,7 @@ class UnifiedDatasetBundle:
     warnings: List[str] = field(default_factory=list)
 
     def manifest(self) -> dict:
-        return {
+        manifest = {
             "dataset_kind": self.dataset_kind,
             "capabilities": self.capabilities.to_dict(),
             "counts": {
@@ -54,6 +54,10 @@ class UnifiedDatasetBundle:
             },
             "warnings": list(self.warnings),
         }
+        extra = getattr(self, "manifest_extra", None)
+        if isinstance(extra, dict):
+            manifest["extra"] = extra
+        return manifest
 
 
 def normalize_id(value) -> Optional[str]:

@@ -168,6 +168,8 @@ def inspect_csv(path: Path, core_ids: set[str], with_sha256: bool) -> dict:
     incident_relations = Counter()
     incident_noncore_ids: set[str] = set()
     observed_ids: set[str] = set()
+    core_source_ids: set[str] = set()
+    core_target_ids: set[str] = set()
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         columns = reader.fieldnames or []
@@ -189,11 +191,13 @@ def inspect_csv(path: Path, core_ids: set[str], with_sha256: bool) -> dict:
                 target = normalize_id(row.get("target_id"))
                 relation = str(row.get("relation") or "<missing>")
                 if source in core_ids:
+                    core_source_ids.add(source)
                     core_source_rows += 1
                     incident_relations[relation] += 1
                     if target is not None and target not in core_ids:
                         incident_noncore_ids.add(target)
                 if target in core_ids:
+                    core_target_ids.add(target)
                     core_target_rows += 1
                     incident_relations[relation] += 1
                     if source is not None and source not in core_ids:
@@ -210,13 +214,20 @@ def inspect_csv(path: Path, core_ids: set[str], with_sha256: bool) -> dict:
         },
     }
     if core_ids:
-        result["core_coverage"] = {
-            "matched_id_rows": len(core_ids.intersection(observed_ids)),
+        coverage = {
             "core_as_source_rows": core_source_rows,
             "core_as_target_rows": core_target_rows,
             "incident_noncore_ids": len(incident_noncore_ids),
             "incident_relation_counts": dict(sorted(incident_relations.items())),
         }
+        if {"source_id", "target_id"}.issubset(columns):
+            coverage.update({
+                "core_source_ids": len(core_source_ids),
+                "core_target_ids": len(core_target_ids),
+            })
+        elif id_column is not None:
+            coverage["matched_id_rows"] = len(core_ids.intersection(observed_ids))
+        result["core_coverage"] = coverage
     if with_sha256:
         result["sha256"] = sha256_file(path)
     return result

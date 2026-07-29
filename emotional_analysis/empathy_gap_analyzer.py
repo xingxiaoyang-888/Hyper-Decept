@@ -339,31 +339,77 @@ class EmpathyGapAnalyzer:
 
         return final_results
 
-    def evaluate_agent(self, texts: List[str], anomaly_threshold: float = 0.6) -> Dict:
+    def evaluate_agent(self, texts: List[str], anomaly_threshold: float = 0.6,
+                       return_evidence: bool = False, top_k_evidence: int = 5) -> Dict:
         """
         Aggregates empathy gap scores at the agent level.
+
+        Parameters
+        ----------
+        texts : List[str]
+            Agent tweet texts.
+        anomaly_threshold : float
+            Threshold for anomaly ratio.
+        return_evidence : bool
+            If True, include an ``evidence`` key with top-scoring text-level
+            results.  Default False preserves original behaviour.
+        top_k_evidence : int
+            Max number of evidence items to return (default 5).
         """
         if not texts:
-            return {
+            result = {
                 "Agent_Mean_Empathy_Gap": 0.0,
                 "Agent_Max_Empathy_Gap": 0.0,
-                "Agent_Anomaly_Ratio": 0.0
+                "Agent_Anomaly_Ratio": 0.0,
             }
-            
+            if return_evidence:
+                result["evidence"] = []
+            return result
+
         batch_results = self.analyze_batch(texts, batch_size=32)
-        
+
         gaps = [res.get("Empathy_Gap", 0.0) for res in batch_results]
-        
+
         if not gaps:
-            return {"Agent_Mean_Empathy_Gap": 0.0, "Agent_Max_Empathy_Gap": 0.0, "Agent_Anomaly_Ratio": 0.0}
-            
+            result = {
+                "Agent_Mean_Empathy_Gap": 0.0,
+                "Agent_Max_Empathy_Gap": 0.0,
+                "Agent_Anomaly_Ratio": 0.0,
+            }
+            if return_evidence:
+                result["evidence"] = []
+            return result
+
         mean_gap = np.mean(gaps)
         max_gap = np.max(gaps)
         anomaly_cnt = sum(1 for g in gaps if g >= anomaly_threshold)
         anomaly_ratio = anomaly_cnt / len(gaps)
-        
-        return {
+
+        result = {
             "Agent_Mean_Empathy_Gap": round(float(mean_gap), 4),
             "Agent_Max_Empathy_Gap": round(float(max_gap), 4),
-            "Agent_Anomaly_Ratio": round(float(anomaly_ratio), 4)
+            "Agent_Anomaly_Ratio": round(float(anomaly_ratio), 4),
         }
+
+        if return_evidence:
+            evidence: list = []
+            indexed = list(enumerate(batch_results))
+            indexed.sort(key=lambda x: x[1].get("Empathy_Gap", 0.0), reverse=True)
+            for text_index, res in indexed[:top_k_evidence]:
+                score = res.get("Empathy_Gap", 0.0)
+                if score <= 0.0:
+                    continue
+                evidence.append({
+                    "text_index": text_index,
+                    "score": score,
+                    "signal": "empathy_gap",
+                    "details": {
+                        "affective_arousal": res.get("Affective_Arousal", 0.0),
+                        "cognitive_rigidity": res.get("Composite_Cognitive_Rigidity", 0.0),
+                        "tree_depth_score": res.get("Cognitive_Tree_Depth_Score", 0.0),
+                        "fluency_score": res.get("Cognitive_Fluency_Score", 0.0),
+                    },
+                })
+            result["evidence"] = evidence
+
+        return result

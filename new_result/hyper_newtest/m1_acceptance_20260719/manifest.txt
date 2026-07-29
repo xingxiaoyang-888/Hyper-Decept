@@ -1,0 +1,8 @@
+script: new_main_classifier.py
+db_path: F:\aidetect\Hyper Decept\data\test_72.db
+csv_path: F:\aidetect\Hyper Decept\data\72agent_deeppersonal.csv
+dataset: agent72
+sim_threshold: 0.7
+psychology_mode: off
+max_tweets_per_user: 2
+visualizer: False

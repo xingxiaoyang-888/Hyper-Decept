@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from copy import deepcopy
 from typing import Any, List, Tuple, Optional, Union, Dict
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,11 +23,16 @@ from camel.types import ModelType, OpenAIBackendRole
 from camel.messages import BaseMessage, OpenAIMessage
 
 if "sphinx" not in sys.modules:
+    log_dir = Path(__file__).resolve().parents[2] / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
     memory_logger = logging.getLogger("social.agent.memory")
     memory_logger.setLevel(logging.DEBUG)
     # file handler
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_handler = logging.FileHandler(f"./log/social.agent.memory-{str(now)}.log")
+    file_handler = logging.FileHandler(
+        log_dir / f"social.agent.memory-{str(now)}.log",
+        encoding="utf-8",
+    )
     file_handler.setLevel("DEBUG")
     file_handler.setFormatter(
         logging.Formatter("%(levelname)s - %(asctime)s - %(name)s - %(message)s")

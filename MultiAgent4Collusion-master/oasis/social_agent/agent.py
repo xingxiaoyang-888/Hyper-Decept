@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import re
 import inspect
 import json
@@ -23,7 +24,6 @@ import logging
 import sys
 import aiofiles
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from camel.configs import ChatGPTConfig
@@ -46,10 +46,15 @@ if TYPE_CHECKING:
     from oasis.social_agent import AgentGraph
 
 if "sphinx" not in sys.modules:
+    log_dir = Path(__file__).resolve().parents[2] / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
     agent_log = logging.getLogger(name="social.agent")
     agent_log.setLevel("DEBUG")
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_handler = logging.FileHandler(f"./log/social.agent-{str(now)}.log")
+    file_handler = logging.FileHandler(
+        log_dir / f"social.agent-{str(now)}.log",
+        encoding="utf-8",
+    )
     file_handler.setLevel("DEBUG")
     file_handler.setFormatter(
         logging.Formatter("%(levelname)s - %(asctime)s - %(name)s - %(message)s")
@@ -57,12 +62,11 @@ if "sphinx" not in sys.modules:
     agent_log.addHandler(file_handler)
 
 # ===== [ADD] RAG personality injection setup =====
-import os as _rag_os
-_TO_ADD_ENGINE = _rag_os.path.abspath(
-    _rag_os.path.join(_rag_os.path.dirname(__file__), "../../to_add_engine")
+_DEEPPERSONA_ENGINE_DIR = (
+    Path(__file__).resolve().parents[3] / "deeppersona_ai"
 )
-if _TO_ADD_ENGINE not in sys.path:
-    sys.path.insert(0, _TO_ADD_ENGINE)
+if str(_DEEPPERSONA_ENGINE_DIR) not in sys.path:
+    sys.path.insert(0, str(_DEEPPERSONA_ENGINE_DIR))
 
 _GLOBAL_RAG_COLLECTION = None
 _RAG_LOAD_ATTEMPTED = False
@@ -79,7 +83,7 @@ def get_global_rag_collection():
             agent_log.warning(f"[RAG] Failed to load vector store: {e}")
     return _GLOBAL_RAG_COLLECTION
 
-_rag_debug_path = _rag_os.path.join(_TO_ADD_ENGINE, "rag_debug.txt")
+_rag_debug_path = str(log_dir / "rag_debug.log")
 try:
     with open(_rag_debug_path, "w", encoding="utf-8") as _f:
         _f.write("RAG Injection Debug Log\n")
@@ -127,7 +131,7 @@ class SocialAgent:
         num_bad = None,
         prompt_dir: str = str(
             Path(__file__).resolve().parents[2]
-            / "scripts/twitter_simulation/align_with_real_world"
+            / "scripts" / "twitter_simulation" / "align_with_real_world"
         ),
     ):
         self.agent_id = agent_id
@@ -1051,27 +1055,12 @@ class SocialAgent:
                     if match:
                         json_content = match.group("json_block")
                     else:
-                        raise ValueError(
+                        agent_log.error(
                             f"{self.agent_id}: No JSON block found in the response."
                         )
 
                     content_json = json.loads(json_content)
-                    if not isinstance(content_json, dict):
-                        raise TypeError("Action response must be a JSON object")
-                    if "functions" not in content_json:
-                        # A response containing only a reason expresses no
-                        # executable action. Treat it as do-nothing instead of
-                        # spending another local inference on an identical
-                        # retry.
-                        agent_log.warning(
-                            "Agent %s response omitted 'functions'; "
-                            "defaulting to an empty action list.",
-                            self.agent_id,
-                        )
-                        content_json["functions"] = []
                     functions = content_json["functions"]
-                    if not isinstance(functions, list):
-                        raise TypeError("'functions' must be a JSON array")
                     # reason = content_json["reason"]
 
                     for function in functions:

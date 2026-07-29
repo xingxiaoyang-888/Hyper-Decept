@@ -11,9 +11,19 @@ The model logic is unchanged from the original script:
 """
 
 import argparse
+import json
 import os
+import sys
 import warnings
 import logging
+
+# Ensure the project root and Character Classification dir are importable
+# regardless of the working directory.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_THIS_DIR)
+for _p in (_THIS_DIR, _PROJECT_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 os.environ["LOKY_MAX_CPU_COUNT"] = str(os.cpu_count() or 1)
 
@@ -46,8 +56,20 @@ from graph_builder import (
     compute_graph_features,
     get_original_graph,
 )
+from data_processing.dataset_adapter import detect_dataset_kind
 from new_feature_extractor import MultimodalExtractor as _Extractor
 from visualizer import CognitiveVisualizer
+
+# -- white-box explainability (optional) -----------------------------------
+try:
+    from explainability.evidence_registry import EvidenceRegistry
+    from explainability.local_explainer import LocalTreeExplainer
+    from explainability.packet_builder import ExplanationPacketBuilder
+except ImportError as _wb_import_err:
+    EvidenceRegistry = None       # type: ignore[assignment]
+    LocalTreeExplainer = None     # type: ignore[assignment]
+    ExplanationPacketBuilder = None  # type: ignore[assignment]
+    _wb_import_err = None
 
 try:
     import shap
@@ -162,6 +184,8 @@ def run_classifier(
     psychology_mode="full",
     max_tweets_per_user=None,
     run_visualizer=True,
+    whitebox=False,
+    whitebox_top_k=15,
 ):
     os.makedirs(save_dir, exist_ok=True)
 
@@ -186,12 +210,18 @@ def run_classifier(
         max_tweets_per_user=max_tweets_per_user,
         cache_dir=os.path.join(save_dir, "feature_cache"),
     )
-    user_ids, fused_matrix = extractor.fuse_multimodal_features(
+    _fuse_result = extractor.fuse_multimodal_features(
         db_file,
         bios,
         tweets_list=tweets_joined,
         user_ids_master=user_ids_master,
+        return_provenance=whitebox,
     )
+    if whitebox:
+        user_ids, fused_matrix, provenance = _fuse_result
+    else:
+        user_ids, fused_matrix = _fuse_result
+        provenance = None
     user_ids = [str(uid) for uid in user_ids]
     logger.info("  Fused matrix: %s", fused_matrix.shape)
 
@@ -282,26 +312,34 @@ def run_classifier(
     plt.close()
 
     if shap is not None:
-        logger.info("SHAP explainer running...")
-        explainer = shap.TreeExplainer(final_model)
-        shap_values = explainer.shap_values(X)
+        try:
+            logger.info("SHAP explainer running...")
+            explainer = shap.TreeExplainer(final_model)
+            shap_values = explainer.shap_values(X)
 
-        plt.figure(figsize=(12, 9))
-        shap.summary_plot(
-            shap_values,
-            pd.DataFrame(X, columns=feature_cols),
-            plot_type="dot",
-            max_display=15,
-            show=False,
-        )
-        plt.title("SHAP Feature Attribution (Enhanced Graph)", fontsize=14, fontweight="bold")
-        plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, "shap_summary_plot.png"), dpi=300, bbox_inches="tight")
-        plt.close()
+            plt.figure(figsize=(12, 9))
+            shap.summary_plot(
+                shap_values,
+                pd.DataFrame(X, columns=feature_cols),
+                plot_type="dot",
+                max_display=15,
+                show=False,
+            )
+            plt.title("SHAP Feature Attribution (Enhanced Graph)", fontsize=14, fontweight="bold")
+            plt.tight_layout()
+            plt.savefig(os.path.join(save_dir, "shap_summary_plot.png"), dpi=300, bbox_inches="tight")
+            plt.close()
+        except Exception as _shap_exc:
+            logger.warning("Global SHAP summary plot failed (non-fatal): %s", _shap_exc)
+
+    # Full-fit model probabilities (for ExplanationPacket)
+    prob_bot_full_fit = final_model.predict_proba(X)[:, 1]
 
     df_result = df_final[[c for c in ["user_id", "user_type", "name", "username", "is_bad"] if c in df_final.columns]].copy()
     df_result["y_pred"] = y_pred
-    df_result["prob_bot"] = y_proba
+    df_result["prob_bot"] = y_proba            # backward-compat (OOF)
+    df_result["prob_bot_oof"] = y_proba        # explicit OOF
+    df_result["prob_bot_full_fit"] = prob_bot_full_fit
     for col in feature_cols:
         df_result[col] = df_final[col].values
     result_path = os.path.join(save_dir, "classification_results.csv")
@@ -314,17 +352,171 @@ def run_classifier(
         visualizer = CognitiveVisualizer(X, y, role_labels, feature_cols, save_dir=save_dir)
         visualizer.generate_all_reports(trained_xgb_model=final_model)
 
+    # ==================================================================
+    # White-box explainability (M1)
+    # ==================================================================
+    whitebox_paths: dict = {}
+    if whitebox:
+        logger.info("=" * 50)
+        logger.info("White-box explainability (M1) enabled")
+        logger.info("=" * 50)
+
+        try:
+            if EvidenceRegistry is None or LocalTreeExplainer is None:
+                raise ImportError(
+                    "explainability module not importable; check your PYTHONPATH"
+                )
+
+            # -- 1. EvidenceRegistry ----------------------------------------
+            logger.info("Building EvidenceRegistry ...")
+            registry = EvidenceRegistry()
+            n_db = registry.register_db(db_file)
+            n_csv = 0
+            if os.path.isfile(csv_file):
+                observable_aliases = (
+                    {"user_char": "bio"}
+                    if detect_dataset_kind(db_file) == "twibot_static_v5"
+                    else None
+                )
+                n_csv = registry.register_csv(
+                    csv_file, observable_aliases=observable_aliases
+                )
+
+            # Register per-user text evidence using the SAME splitter the
+            # feature extractor uses (split_tweet_pool + max_tweets_per_user).
+            from config import split_tweet_pool as _split_tweets
+            n_text = 0
+            final_user_ids = df_final["user_id"].astype(str).tolist()
+            tweets_by_user = dict(zip(user_ids_master, tweets_joined))
+            _max_t = max_tweets_per_user
+            for uid in final_user_ids:
+                tweet_str = tweets_by_user.get(uid, "")
+                texts = _split_tweets(tweet_str, min_len=5)
+                if _max_t is not None:
+                    texts = texts[:_max_t]
+                if texts:
+                    n_text += registry.register_texts(uid, texts)
+            logger.info("  Registered %d DB + %d CSV + %d text evidence rows",
+                        n_db, n_csv, n_text)
+
+            # -- 2. Save model artifacts ------------------------------------
+            model_dir = os.path.join(save_dir, "model")
+            os.makedirs(model_dir, exist_ok=True)
+
+            model_json_path = os.path.join(model_dir, "xgboost_model.json")
+            final_model.save_model(model_json_path)
+            whitebox_paths["model_json"] = model_json_path
+            logger.info("  XGBoost model saved: %s", model_json_path)
+
+            feat_names_path = os.path.join(model_dir, "feature_names.json")
+            with open(feat_names_path, "w", encoding="utf-8") as fh:
+                json.dump(feature_cols, fh, ensure_ascii=False, indent=2)
+            whitebox_paths["feature_names"] = feat_names_path
+
+            meta_path = os.path.join(model_dir, "model_metadata.json")
+            metadata = {
+                "model_type": "XGBoost",
+                "feature_names": feature_cols,
+                "n_features": len(feature_cols),
+                "threshold": 0.5,
+                "dataset": os.path.basename(db_file),
+                "random_seed": 42,
+                "created_at": pd.Timestamp.now().isoformat(),
+                "schema_version": "1.0",
+                "xgb_params": {k: v for k, v in xgb_kwargs.items()
+                               if not callable(v)},
+            }
+            with open(meta_path, "w", encoding="utf-8") as fh:
+                json.dump(metadata, fh, ensure_ascii=False, indent=2)
+            whitebox_paths["model_metadata"] = meta_path
+            logger.info("  Model metadata saved: %s", meta_path)
+
+            # -- 3. Local explanations --------------------------------------
+            expl_dir = os.path.join(save_dir, "explanations")
+            os.makedirs(expl_dir, exist_ok=True)
+
+            # Use df_final["user_id"] (post-merge, aligned row-for-row with X).
+            explainer_user_ids = df_final["user_id"].astype(str).tolist()
+            explainer = LocalTreeExplainer(
+                fitted_model=final_model,
+                X=X,
+                feature_names=feature_cols,
+                user_ids=explainer_user_ids,
+                threshold=0.5,
+            )
+
+            csv_path = os.path.join(expl_dir, "local_contributions.csv")
+            explainer.save_csv(csv_path)
+            whitebox_paths["local_contributions_csv"] = csv_path
+
+            jsonl_path = os.path.join(expl_dir, "local_explanations.jsonl")
+            explainer.save_jsonl(jsonl_path)
+            whitebox_paths["local_explanations_jsonl"] = jsonl_path
+
+            # -- 4. Explanation packets -------------------------------------
+            packets_dir = os.path.join(expl_dir, "packets")
+            os.makedirs(packets_dir, exist_ok=True)
+
+            run_id_str = os.path.basename(save_dir.rstrip(os.sep))
+            builder = ExplanationPacketBuilder(
+                registry=registry,
+                run_id=run_id_str,
+                model_version=run_id_str,
+                top_k=whitebox_top_k,
+            )
+
+            all_explanations = explainer.explain_all()
+
+            # Build OOF probability map for packet metadata.
+            oof_map: dict = {}
+            for i, uid in enumerate(explainer_user_ids):
+                if i < len(y_proba):
+                    oof_map[str(uid)] = float(y_proba[i])
+
+            packets = builder.build_all(
+                all_explanations,
+                provenance=provenance,
+                oof_probabilities=oof_map,
+            )
+
+            # Per-user JSON files
+            for pkt in packets:
+                pkt_path = os.path.join(packets_dir, f"{pkt.case_id.replace(':', '_')}.json")
+                builder.save_packet(pkt, pkt_path)
+
+            # Combined JSONL
+            packets_jsonl = os.path.join(expl_dir, "explanation_packets.jsonl")
+            builder.save_packets_jsonl(packets, packets_jsonl)
+            whitebox_paths["packets_jsonl"] = packets_jsonl
+            whitebox_paths["packets_dir"] = packets_dir
+
+            logger.info("  White-box artifacts saved under: %s", expl_dir)
+
+        except Exception as exc:
+            logger.warning(
+                "White-box explainability failed: %s. "
+                "Original classification results are NOT affected.",
+                exc,
+            )
+            whitebox_paths["_whitebox_error"] = str(exc)
+
+    # ==================================================================
+    # Done
+    # ==================================================================
     print(f"\n{'=' * 50}")
     print(f"  Script 1 done. Outputs in: {save_dir}")
     print("  Enhanced graph edges -> Script 2 & 3")
     print(f"{'=' * 50}")
 
-    return {
+    result: dict = {
         "save_dir": save_dir,
         "edge_path": edge_path,
         "node_feature_path": node_feat_path,
         "result_path": result_path,
     }
+    if whitebox:
+        result["whitebox_paths"] = whitebox_paths
+    return result
 
 
 def parse_args():
@@ -342,6 +534,10 @@ def parse_args():
     )
     parser.add_argument("--max-tweets-per-user", type=int, default=None)
     parser.add_argument("--no-visualizer", action="store_true")
+    parser.add_argument("--whitebox", action="store_true",
+                        help="Enable M1 white-box explainability outputs.")
+    parser.add_argument("--whitebox-top-k", type=int, default=15,
+                        help="Top-K feature contributions per packet (default 15).")
     return parser.parse_args()
 
 
@@ -375,6 +571,8 @@ def main():
         psychology_mode=args.psychology_mode,
         max_tweets_per_user=args.max_tweets_per_user,
         run_visualizer=not args.no_visualizer,
+        whitebox=args.whitebox,
+        whitebox_top_k=args.whitebox_top_k,
     )
 
 

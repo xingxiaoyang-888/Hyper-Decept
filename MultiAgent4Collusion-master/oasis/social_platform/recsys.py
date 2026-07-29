@@ -25,10 +25,8 @@ from typing import Any, Dict, List
 
 import numpy as np
 import torch
-from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import AutoModel, AutoTokenizer
 
 from .process_recsys_posts import (generate_post_vector,
                                    generate_post_vector_openai)
@@ -43,7 +41,9 @@ twhin_tokenizer, twhin_model = None, None
 
 # Create the TF-IDF model
 tfidf_vectorizer = TfidfVectorizer()
-# Recommendation models are loaded lazily by get_recsys_model().
+# Embedding models are loaded only when their recommendation path is used.
+# Importing them here used to make every OASIS run depend on a compatible
+# transformers/PyTorch pair, even for the random and TF-IDF recommenders.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # All historical tweets and the most recent tweet of each user
@@ -68,10 +68,14 @@ def load_model(model_name):
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if model_name == 'paraphrase-MiniLM-L6-v2':
+            from sentence_transformers import SentenceTransformer
+
             return SentenceTransformer(model_name,
                                        device=device,
                                        cache_folder="./models")
         elif model_name == 'Twitter/twhin-bert-base':
+            from transformers import AutoModel, AutoTokenizer
+
             tokenizer = AutoTokenizer.from_pretrained(model_name,
                                                       model_max_length=512)
             model = AutoModel.from_pretrained(model_name,
@@ -80,7 +84,12 @@ def load_model(model_name):
         else:
             raise ValueError(f"Unknown model name: {model_name}")
     except Exception as e:
-        raise Exception(f"Failed to load the model: {model_name}") from e
+        raise RuntimeError(
+            f"Failed to load recommendation model {model_name!r}. "
+            "Use the 'random' or 'twitter' TF-IDF recommender for a "
+            "lightweight run, or install the PyTorch/transformers versions "
+            "declared by the framework."
+        ) from e
 
 
 def get_recsys_model(recsys_type: str = None):
@@ -419,6 +428,7 @@ def rec_sys_personalized_twh(
     # Set some global variables to reduce time consumption
     global date_score, fans_score, t_items, u_items, user_previous_post
     global user_previous_post_all, user_profiles
+    global twhin_tokenizer, twhin_model
     # Get the uid: follower_count dict
     # Update only once, unless adding the feature to include new users midway.
     if (not u_items) or len(u_items) != len(user_table):
@@ -494,6 +504,11 @@ def rec_sys_personalized_twh(
     else:
         # If the number of tweets is greater than the max recommendation
         # count, each user randomly gets personalized post IDs
+
+        if (not use_openai_embedding
+                and (twhin_tokenizer is None or twhin_model is None)):
+            twhin_tokenizer, twhin_model = get_recsys_model(
+                RecsysType.TWHIN.value)
 
         # This requires going through all users to update their profiles,
         # which is a time-consuming operation

@@ -163,45 +163,89 @@ class EmotionVolatilityAnalyzer:
 
         return results
 
-    def evaluate_agent(self, texts: List[str], timestamps: List[float] = None) -> Dict:
+    def evaluate_agent(self, texts: List[str], timestamps: List[float] = None,
+                       return_evidence: bool = False, top_k_evidence: int = 5) -> Dict:
         """
         Aggregates emotion sequence volatility at the agent level.
+
+        Parameters
+        ----------
+        texts : List[str]
+            Agent tweet texts in chronological order.
+        timestamps : List[float], optional
+            Per-text timestamps for sorting.
+        return_evidence : bool
+            If True, include ``evidence`` key with the transition pairs that
+            contributed highest volatility.  Default False.
+        top_k_evidence : int
+            Max number of transition-pair evidence items (default 5).
         """
         if not texts or len(texts) < 2:
-            return self._get_default_scores(insufficient=True)
-            
+            result = self._get_default_scores(insufficient=True)
+            if return_evidence:
+                result["evidence"] = []
+            return result
+
         if timestamps is not None:
             if len(timestamps) != len(texts):
-                logger.warning("Timestamps length mismatch. Ignoring timestamps and assuming texts are chronologically ordered.")
+                logger.warning(
+                    "Timestamps length mismatch. Ignoring timestamps and "
+                    "assuming texts are chronologically ordered."
+                )
             else:
-                # Sort texts chronologically based on timestamps
                 sorted_pairs = sorted(zip(timestamps, texts), key=lambda x: x[0])
                 texts = [p[1] for p in sorted_pairs]
-        
+
         # 1. Clean and filter short noisy texts
         cleaned_texts = [self._clean_text(t) for t in texts]
         valid_indices = [i for i, t in enumerate(cleaned_texts) if len(t) >= 5]
-        
+
         if len(valid_indices) < 2:
-            return self._get_default_scores(insufficient=True)
-            
+            result = self._get_default_scores(insufficient=True)
+            if return_evidence:
+                result["evidence"] = []
+            return result
+
         valid_texts = [cleaned_texts[i] for i in valid_indices]
-        
+
         # 2. Extract 28-dimensional emotion probability vectors
         emotion_matrix = self._get_emotion_vectors_batch(valid_texts)
-        
+
         # 3. Calculate Euclidean distance
         diff_matrix = emotion_matrix[1:] - emotion_matrix[:-1]
-        
+
         # Retain raw Euclidean distances without destructive extreme normalization
         euclidean_distances = np.linalg.norm(diff_matrix, axis=1)
-        
+
         mean_volatility = float(np.mean(euclidean_distances))
         max_volatility = float(np.max(euclidean_distances))
-        
-        # Set Insufficient_Data to False upon successful calculation
-        return {
+
+        result = {
             "Agent_Mean_Volatility": round(mean_volatility, 4),
             "Agent_Max_Volatility": round(max_volatility, 4),
-            "Insufficient_Data": False
+            "Insufficient_Data": False,
         }
+
+        if return_evidence:
+            # Evidence for volatility = transition pairs with highest distance
+            evidence: list = []
+            # euclidean_distances[i] is the distance from valid_indices[i] to valid_indices[i+1]
+            indexed = list(enumerate(euclidean_distances.tolist()))
+            indexed.sort(key=lambda x: x[1], reverse=True)
+            for transition_idx, dist in indexed[:top_k_evidence]:
+                if dist <= 0.0:
+                    continue
+                before_idx = valid_indices[transition_idx]
+                after_idx = valid_indices[transition_idx + 1]
+                evidence.append({
+                    "text_index": before_idx,
+                    "text_index_next": after_idx,
+                    "score": round(float(dist), 4),
+                    "signal": "volatility_transition",
+                    "details": {
+                        "euclidean_distance": round(float(dist), 4),
+                    },
+                })
+            result["evidence"] = evidence
+
+        return result

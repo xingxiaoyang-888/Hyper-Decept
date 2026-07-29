@@ -68,6 +68,18 @@ DATA_DIR = os.path.join(
 )
 DEFAULT_DB_PATH = ":memory:"
 DEFAULT_CSV_PATH = os.path.join(DATA_DIR, "False_Business_0.csv")
+FRAMEWORK_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_framework_data_paths(data_params: dict[str, Any]) -> dict[str, Any]:
+    """Resolve configured DB/CSV paths independently of the launch cwd."""
+
+    resolved = dict(data_params or {})
+    for key in ("db_path", "csv_path"):
+        value = resolved.get(key)
+        if value and not Path(value).is_absolute():
+            resolved[key] = str((FRAMEWORK_ROOT / value).resolve())
+    return resolved
 
 
 async def running(
@@ -110,6 +122,7 @@ async def running(
     task_blackboard = TaskBlackboard()
     shared_memory = SharedMemory()
     twitter_task = asyncio.create_task(infra.running())
+    is_openai_model = False
     if inference_configs["model_type"][:3] == "gpt" or inference_configs["model_type"] == "deepseek-chat":
         is_openai_model = True
 
@@ -229,7 +242,7 @@ if __name__ == "__main__":
     if os.path.exists(args.config_path):
         with open(args.config_path, "r") as f:
             cfg = safe_load(f)
-        data_params = cfg.get("data")
+        data_params = resolve_framework_data_paths(cfg.get("data") or {})
         simulation_params = cfg.get("simulation")
         model_configs = cfg.get("model")
         inference_configs = cfg.get("inference")

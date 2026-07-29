@@ -1,5 +1,6 @@
 import hashlib
 import contextlib
+import json
 import os
 import sqlite3
 import sys
@@ -266,81 +267,168 @@ class MultimodalExtractor:
             aligned_matrix = raw_text_matrix
         return aligned_matrix
 
-    def _extract_llm_native_psychology(self, tweets_list: list):
-        
+    def _extract_llm_native_psychology(self, tweets_list: list,
+                                        return_evidence: bool = False):
+        """Extract 8-dim psychology feature vectors.
+
+        Parameters
+        ----------
+        tweets_list : list of str
+            Per-user tweet pools.
+        return_evidence : bool
+            If True, also return per-user text-level evidence dicts from each
+            analyser.  Default False preserves original behaviour.
+
+        Returns
+        -------
+        psycho_matrix : np.ndarray  (N, 8)
+        evidence_by_user : list of dict or None
+            Only returned when *return_evidence* is True.  Each element is a
+            dict mapping analyser name -> list of evidence items.
+        """
         agent_tweets = [split_tweet_pool(tweets_str, min_len=5) for tweets_str in tweets_list]
         if self.max_tweets_per_user is not None:
             agent_tweets = [texts[:self.max_tweets_per_user] for texts in agent_tweets]
 
         if self.psychology_mode == "off":
             print(" [Psychological Stream] off mode: returning zero psychology features.")
+            if return_evidence:
+                return np.zeros((len(tweets_list), 8), dtype=float), [{} for _ in tweets_list]
             return np.zeros((len(tweets_list), 8), dtype=float)
 
-        cache_path = self._psychology_cache_path(agent_tweets)
-        if cache_path and os.path.exists(cache_path):
-            print(f" [Psychological Stream] hit feature cache: {cache_path}")
-            return np.load(cache_path)
+        cache_prefix = self._psychology_cache_path(agent_tweets)
+        matrix_cache = cache_prefix + ".npy" if cache_prefix else None
+        evidence_cache = cache_prefix + ".evidence.json" if cache_prefix else None
 
-        psycho_features = []
-        
+        # Paired cache hit: both matrix AND evidence sidecar must exist.
+        if matrix_cache and os.path.exists(matrix_cache):
+            if not return_evidence:
+                print(f" [Psychological Stream] hit feature cache: {matrix_cache}")
+                return np.load(matrix_cache)
+            if evidence_cache and os.path.exists(evidence_cache):
+                print(f" [Psychological Stream] hit paired cache: {matrix_cache} + {evidence_cache}")
+                with open(evidence_cache, "r", encoding="utf-8") as fh:
+                    ev_data = json.load(fh)
+                return np.load(matrix_cache), ev_data
+            # Old cache: matrix exists but evidence sidecar missing.
+            # Must re-generate evidence; re-use cached matrix.
+            print(f" [Psychological Stream] cache hit (matrix only), re-generating evidence sidecar ...")
+            psycho_matrix = np.load(matrix_cache)
+            if return_evidence:
+                _, evidence_by_user = self._run_psychology_engines(
+                    agent_tweets, return_evidence=True
+                )
+                if evidence_cache:
+                    with open(evidence_cache, "w", encoding="utf-8") as fh:
+                        json.dump(evidence_by_user, fh, ensure_ascii=False)
+                return psycho_matrix, evidence_by_user
+            return psycho_matrix
+
+        psycho_features, ev_out = self._run_psychology_engines(
+            agent_tweets, return_evidence=return_evidence,
+        )
+        if return_evidence:
+            evidence_by_user = ev_out
+        psycho_matrix = np.array(psycho_features)
+        if matrix_cache:
+            np.save(matrix_cache, psycho_matrix)
+            if return_evidence and evidence_cache:
+                with open(evidence_cache, "w", encoding="utf-8") as fh:
+                    json.dump(evidence_by_user, fh, ensure_ascii=False)
+            print(f"  feature cache saved: {matrix_cache}")
+
+        if return_evidence:
+            return psycho_matrix, evidence_by_user
+        return psycho_matrix
+
+    def _run_psychology_engines(self, agent_tweets, return_evidence=False):
+        """Run all four psychology engines and return features + evidence.
+
+        Extracted so cache-hit path can re-run evidence without re-running
+        the full feature computation.
+        """
+        psycho_features: list = []
+        evidence_by_user: list = []
+
         for agent_tweets_array in tqdm(
             agent_tweets,
             desc="Deep Psycho-Scan",
             unit="agent",
             disable=not self.verbose_progress,
         ):
+            user_evidence: dict = {}
+
             # 1. (Empathy Gap)
             if self.empathy_engine and agent_tweets_array:
-                emp_res = self._run_engine(self.empathy_engine.evaluate_agent, agent_tweets_array)
+                emp_res = self._run_engine(
+                    self.empathy_engine.evaluate_agent,
+                    agent_tweets_array,
+                    return_evidence=return_evidence,
+                )
                 emp_mean = emp_res.get("Agent_Mean_Empathy_Gap", 0.0)
                 emp_max = emp_res.get("Agent_Max_Empathy_Gap", 0.0)
+                if return_evidence:
+                    user_evidence["empathy_gap"] = emp_res.get("evidence", [])
             else:
                 emp_mean, emp_max = 0.0, 0.0
-                
+
             # 2. (Dark Triad)
             if self.dark_triad_engine and agent_tweets_array:
-                dt_res = self._run_engine(self.dark_triad_engine.evaluate_agent, agent_tweets_array)
+                dt_res = self._run_engine(
+                    self.dark_triad_engine.evaluate_agent,
+                    agent_tweets_array,
+                    return_evidence=return_evidence,
+                )
                 dt_mean = dt_res.get("Agent_Mean_Dark_Triad", 0.0)
                 dt_max = dt_res.get("Agent_Max_Dark_Triad", 0.0)
+                if return_evidence:
+                    user_evidence["dark_triad"] = dt_res.get("evidence", [])
             else:
                 dt_mean, dt_max = 0.0, 0.0
-                
+
             # 3.  (Frictionless Contagion)
-            
             if self.contagion_engine and agent_tweets_array:
-                cont_res = self._run_engine(self.contagion_engine.evaluate_agent, agent_tweets_array)
+                cont_res = self._run_engine(
+                    self.contagion_engine.evaluate_agent,
+                    agent_tweets_array,
+                    return_evidence=return_evidence,
+                )
                 cont_mean = cont_res.get("Agent_Mean_Alignment", 0.0)
                 cont_max = cont_res.get("Agent_Contagion_Spike", 0.0)
                 if len(psycho_features) == 0 and cont_mean > 0:
                     print(f"Contagion First non-zero value: mean={cont_mean:.4f}, max={cont_max:.4f}")
+                if return_evidence:
+                    user_evidence["contagion"] = cont_res.get("evidence", [])
             else:
                 cont_mean, cont_max = 0.0, 0.0
-                
+
             # 4.  (Emotion Volatility)
             if self.volatility_engine and agent_tweets_array:
-                vol_res = self._run_engine(self.volatility_engine.evaluate_agent, agent_tweets_array)
-                
+                vol_res = self._run_engine(
+                    self.volatility_engine.evaluate_agent,
+                    agent_tweets_array,
+                    return_evidence=return_evidence,
+                )
                 if not vol_res.get("Insufficient_Data", True):
                     vol_mean = vol_res.get("Agent_Mean_Volatility", 0.0)
                     vol_max = vol_res.get("Agent_Max_Volatility", 0.0)
                 else:
                     vol_mean, vol_max = 0.0, 0.0
+                if return_evidence:
+                    user_evidence["volatility"] = vol_res.get("evidence", [])
             else:
                 vol_mean, vol_max = 0.0, 0.0
-            
-           
+
             psycho_features.append([
-                emp_mean, emp_max,   
-                dt_mean, dt_max,    
-                cont_mean, cont_max, 
-                vol_mean, vol_max    
+                emp_mean, emp_max,
+                dt_mean, dt_max,
+                cont_mean, cont_max,
+                vol_mean, vol_max,
             ])
-            
-        psycho_matrix = np.array(psycho_features)
-        if cache_path:
-            np.save(cache_path, psycho_matrix)
-            print(f"  feature cache saved: {cache_path}")
-        return psycho_matrix
+            if return_evidence:
+                evidence_by_user.append(user_evidence)
+
+        return np.array(psycho_features), evidence_by_user if return_evidence else None
 
     def _psychology_cache_path(self, agent_tweets):
         if not self.use_cache or not self.cache_dir:
@@ -354,17 +442,41 @@ class MultimodalExtractor:
                 encoded = str(text).encode("utf-8", errors="ignore")
                 digest.update(str(len(encoded)).encode("utf-8"))
                 digest.update(encoded)
-        return os.path.join(self.cache_dir, f"psychology_{digest.hexdigest()[:24]}.npy")
+        prefix = f"psychology_{digest.hexdigest()[:24]}"
+        return os.path.join(self.cache_dir, prefix)  # no .npy suffix -- caller appends
 
-    def fuse_multimodal_features(self, db_path: str, bios: list, tweets_list: list = None, user_ids_master: list = None):
-       
-        print("\n" + "="*50)
-        print("="*50)
-        
-        
+    def fuse_multimodal_features(self, db_path: str, bios: list,
+                                 tweets_list: list = None,
+                                 user_ids_master: list = None,
+                                 return_provenance: bool = False):
+        """Fuse semantic, behavioural and psychological modalities.
+
+        Parameters
+        ----------
+        db_path : str
+            Path to SQLite database.
+        bios : list of str
+            Per-user biography / description strings.
+        tweets_list : list of str, optional
+            Per-user tweet pools.
+        user_ids_master : list, optional
+            Ordered user ids to align against.
+        return_provenance : bool
+            If True, returns a third element ``provenance`` mapping user_id
+            to per-feature metadata.  Default False preserves the original
+            (user_ids, fused_matrix) return signature.
+
+        Returns
+        -------
+        user_ids : list of str
+        fused_matrix : np.ndarray
+        provenance : dict   (only when *return_provenance* is True)
+        """
+        print("\n" + "=" * 50)
+        print("=" * 50)
+
         user_ids, behavior_matrix = self.extract_behavior_features(db_path, user_ids_master)
-        
-        
+
         if tweets_list is None:
             parsed_bios, parsed_tweets = [], []
             for s in bios:
@@ -379,11 +491,16 @@ class MultimodalExtractor:
         else:
             bios_input, tweets_input = bios, tweets_list
 
-       
         aligned_text_matrix = self._encode_text_dual_stream(bios_input, tweets_input)
-        
-        
-        psycho_matrix = self._extract_llm_native_psychology(tweets_input)
+
+        _psycho_result = self._extract_llm_native_psychology(
+            tweets_input, return_evidence=return_provenance,
+        )
+        if return_provenance:
+            psycho_matrix, psycho_evidence = _psycho_result
+        else:
+            psycho_matrix = _psycho_result
+            psycho_evidence = None
 
         min_len = min(len(user_ids), len(aligned_text_matrix), len(behavior_matrix), len(psycho_matrix))
         if min_len < len(user_ids) or min_len < len(aligned_text_matrix):
@@ -392,13 +509,123 @@ class MultimodalExtractor:
             aligned_text_matrix = aligned_text_matrix[:min_len]
             behavior_matrix = behavior_matrix[:min_len]
             psycho_matrix = psycho_matrix[:min_len]
-        
-       
+            if psycho_evidence is not None:
+                psycho_evidence = psycho_evidence[:min_len]
+
         enhanced_behavior = np.hstack((behavior_matrix, psycho_matrix))
         behavior_matrix_scaled = self.scaler.fit_transform(enhanced_behavior)
-        
-       
+
         fused_matrix = np.hstack((aligned_text_matrix, behavior_matrix_scaled))
-        
+
         print(f" complete: {fused_matrix.shape} ")
-        return user_ids, fused_matrix
+
+        if not return_provenance:
+            return user_ids, fused_matrix
+
+        # -- Build provenance -----------------------------------------------
+        provenance: dict = {}
+        # We record the *raw* (pre-scaling) psychology feature values in
+        # provenance so they are interpretable.
+        psycho_raw = np.hstack((behavior_matrix, psycho_matrix))
+        # psycho_raw columns:
+        #  0: Follower_Following_Ratio
+        #  1: Action_Frequency
+        #  2: Like_Ratio
+        #  3: Retweet_Ratio
+        #  4: Reply_Ratio
+        #  5: Temporal_Entropy (listed_count)
+        #  6: URL_Ratio
+        #  7: Mention_Ratio
+        #  8: Hashtag_Ratio
+        #  9: Media_Ratio
+        # 10: Empathy_Gap_Mean,  11: Empathy_Gap_Max
+        # 12: Dark_Triad_Mean,   13: Dark_Triad_Max
+        # 14: Contagion_Mean,    15: Contagion_Max
+        # 16: Volatility_Mean,   17: Volatility_Max
+
+        behaviour_names = [
+            "Follower_Following_Ratio", "Action_Frequency",
+            "Like_Ratio", "Retweet_Ratio", "Reply_Ratio",
+            "Temporal_Entropy", "URL_Ratio", "Mention_Ratio",
+            "Hashtag_Ratio", "Media_Ratio",
+        ]
+        psycho_names = [
+            "Empathy_Gap_Mean", "Empathy_Gap_Max",
+            "Dark_Triad_Mean", "Dark_Triad_Max",
+            "Contagion_Mean", "Contagion_Max",
+            "Volatility_Mean", "Volatility_Max",
+        ]
+        all_raw_names = behaviour_names + psycho_names
+
+        psycho_evidence_sources = {
+            "Empathy_Gap_Mean": "empathy_gap",
+            "Empathy_Gap_Max": "empathy_gap",
+            "Dark_Triad_Mean": "dark_triad",
+            "Dark_Triad_Max": "dark_triad",
+            "Contagion_Mean": "contagion",
+            "Contagion_Max": "contagion",
+            "Volatility_Mean": "volatility",
+            "Volatility_Max": "volatility",
+        }
+
+        for i, uid in enumerate(user_ids):
+            uid_str = str(uid)
+            entry: dict = {}
+
+            # -- behavioural features (no per-text evidence) ----------------
+            for j, name in enumerate(behaviour_names):
+                entry[name] = {
+                    "value": float(psycho_raw[i, j]) if i < psycho_raw.shape[0] else 0.0,
+                    "extractor": "MultimodalExtractor.extract_behavior_features",
+                    "evidence_ids": [],
+                    "text_indices": [],
+                    "metadata": {"feature_group": "behavior"},
+                }
+
+            # -- psychology features with text evidence ---------------------
+            for j, name in enumerate(psycho_names):
+                prov: dict = {
+                    "value": float(psycho_raw[i, 10 + j]) if i < psycho_raw.shape[0] else 0.0,
+                    "extractor": "",
+                    "evidence_ids": [],
+                    "text_indices": [],
+                    "metadata": {"feature_group": "psychology"},
+                }
+
+                source_key = psycho_evidence_sources.get(name, "")
+                if source_key == "empathy_gap":
+                    prov["extractor"] = "EmpathyGapAnalyzer"
+                elif source_key == "dark_triad":
+                    prov["extractor"] = "DarkTriadAnalyzer"
+                elif source_key == "contagion":
+                    prov["extractor"] = "ContagionAnalyzer"
+                elif source_key == "volatility":
+                    prov["extractor"] = "EmotionVolatilityAnalyzer"
+
+                # Link evidence items from this user's text-level results.
+                try:
+                    if psycho_evidence is not None and i < len(psycho_evidence):
+                        user_ev = psycho_evidence[i]
+                        items = user_ev.get(source_key, [])
+                        if items:
+                            text_indices: list = []
+                            evidence_ids: list = []
+                            for item in items:
+                                ti = item.get("text_index")
+                                if ti is not None:
+                                    text_indices.append(int(ti))
+                                    # Synthetic stable evidence id when we
+                                    # cannot resolve a real post_id from DB.
+                                    evidence_ids.append(
+                                        f"text:{uid_str}:{ti}"
+                                    )
+                            prov["text_indices"] = text_indices
+                            prov["evidence_ids"] = evidence_ids
+                except Exception:
+                    pass
+
+                entry[name] = prov
+
+            provenance[uid_str] = entry
+
+        return user_ids, fused_matrix, provenance

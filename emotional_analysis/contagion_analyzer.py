@@ -208,26 +208,44 @@ class ContagionAnalyzer:
 
         return final_results
 
-    def evaluate_agent(self, texts: List[str], response_delays: List[float] = None) -> Dict:
+    def evaluate_agent(self, texts: List[str], response_delays: List[float] = None,
+                       return_evidence: bool = False, top_k_evidence: int = 5) -> Dict:
         """
         Aggregate alignments at the agent level.
-        
+
         Args:
             texts: List of tweets from the agent.
-            response_delays: (Optional) Response delays in seconds for calculating time penalty.
+            response_delays: (Optional) Response delays for time penalty.
+            return_evidence: If True, include ``evidence`` key with top-scoring
+                text-level results.  Default False preserves original behaviour.
+            top_k_evidence: Max number of evidence items (default 5).
         """
         if not texts:
-            return {"Agent_Mean_Alignment": 0.0, "Agent_Contagion_Spike": 0.0, "Agent_Frictionless_Index": 0.0}
-            
+            result = {
+                "Agent_Mean_Alignment": 0.0,
+                "Agent_Contagion_Spike": 0.0,
+                "Agent_Frictionless_Index": 0.0,
+            }
+            if return_evidence:
+                result["evidence"] = []
+            return result
+
         batch_results = self.analyze_batch(texts, batch_size=64)
         alignments = [res.get("Max_Payload_Alignment", 0.0) for res in batch_results]
-        
+
         if not alignments:
-            return {"Agent_Mean_Alignment": 0.0, "Agent_Contagion_Spike": 0.0, "Agent_Frictionless_Index": 0.0}
-            
+            result = {
+                "Agent_Mean_Alignment": 0.0,
+                "Agent_Contagion_Spike": 0.0,
+                "Agent_Frictionless_Index": 0.0,
+            }
+            if return_evidence:
+                result["evidence"] = []
+            return result
+
         mean_align = np.mean(alignments)
         max_align = np.max(alignments)
-        
+
         if response_delays is not None and len(response_delays) == len(alignments):
             frictionless_scores = []
             for align, delay in zip(alignments, response_delays):
@@ -235,13 +253,37 @@ class ContagionAnalyzer:
                     delay = 1.0
                 time_penalty = math.exp(-max(0, delay - 5.0) / 60.0)
                 frictionless_scores.append(align * time_penalty)
-            
+
             frictionless_index = np.max(frictionless_scores)
         else:
             frictionless_index = max_align
-        
-        return {
+
+        result = {
             "Agent_Mean_Alignment": round(float(mean_align), 4),
             "Agent_Contagion_Spike": round(float(max_align), 4),
-            "Agent_Frictionless_Index": round(float(frictionless_index), 4)
+            "Agent_Frictionless_Index": round(float(frictionless_index), 4),
         }
+
+        if return_evidence:
+            evidence: list = []
+            indexed = list(enumerate(batch_results))
+            indexed.sort(
+                key=lambda x: x[1].get("Frictionless_Contagion_Score", 0.0),
+                reverse=True,
+            )
+            for text_index, res in indexed[:top_k_evidence]:
+                score = res.get("Frictionless_Contagion_Score", 0.0)
+                if score <= 0.0:
+                    continue
+                evidence.append({
+                    "text_index": text_index,
+                    "score": score,
+                    "signal": "contagion",
+                    "details": {
+                        "max_payload_alignment": res.get("Max_Payload_Alignment", 0.0),
+                        "mean_payload_alignment": res.get("Mean_Payload_Alignment", 0.0),
+                    },
+                })
+            result["evidence"] = evidence
+
+        return result

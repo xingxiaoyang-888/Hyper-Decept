@@ -83,21 +83,37 @@ def generate_follow_graph(num_agents):
     return following_ids
 
 
-def main():
-    if not os.path.exists(DEEPERSONAL_PATH):
-        print(f"[ERROR] Deep persona file not found: {DEEPERSONAL_PATH}")
-        return
-    with open(DEEPERSONAL_PATH, "r", encoding="utf-8") as f:
-        profiles = json.load(f)
-    print(f"Loaded {len(profiles)} deep persona profiles")
+def validate_profiles(profiles):
+    """Validate the DeepPersona-to-OASIS contract."""
 
-    tweet_pool = load_tweet_pool()
+    if not isinstance(profiles, list) or not profiles:
+        raise ValueError(
+            "Deep persona input must be a non-empty JSON list"
+        )
+    invalid_profiles = [
+        idx for idx, profile in enumerate(profiles)
+        if not isinstance(profile, dict)
+        or not isinstance(profile.get("Summary"), str)
+        or not profile["Summary"].strip()
+    ]
+    if invalid_profiles:
+        raise ValueError(
+            "Every deep persona must contain a non-empty string Summary; "
+            f"invalid profile indexes: {invalid_profiles}"
+        )
 
+
+def build_agent_dataframe(profiles, tweet_pool):
+    """Convert validated DeepPersona profiles to the OASIS CSV schema."""
+
+    validate_profiles(profiles)
     n = len(profiles)
     total_bad = NUM_BAD_LEADER + NUM_BAD_MEMBER + NUM_BAD
     if n < total_bad:
-        print(f"[ERROR] JSON only has {n} agents, insufficient to assign {total_bad} bad agents")
-        return
+        raise ValueError(
+            f"JSON only has {n} agents, insufficient to assign "
+            f"{total_bad} bad agents"
+        )
     user_type_list = (
         ["good"] * (n - total_bad)
         + ["bad_leader"] * NUM_BAD_LEADER
@@ -113,7 +129,7 @@ def main():
         user_type = user_type_list[idx]
         name = f"User_{idx + 1}"
         username = f"@User_{idx + 1}"
-        summary = profile.get("Summary", "")
+        summary = profile["Summary"].strip()
 
         activity_freq, activity_labels = generate_activity()
         follow_list = following_ids[idx]
@@ -125,7 +141,11 @@ def main():
             "user_id": idx,
             "name": name,
             "username": username,
-            "description": "",
+            # OASIS uses user_char in the agent prompt but uses the database
+            # bio/description in personalized recommendation.  Store the
+            # same DeepPersona summary in both places so the persona reaches
+            # the complete simulation chain instead of only the LLM prompt.
+            "description": summary,
             "created_at": CREATED_AT,
             "user_char": summary,
             "user_type": user_type,
@@ -139,7 +159,21 @@ def main():
             "activity_level": str(activity_labels),
         })
 
-    df = pd.DataFrame(rows)
+    return pd.DataFrame(rows)
+
+
+def main():
+    if not os.path.exists(DEEPERSONAL_PATH):
+        raise FileNotFoundError(
+            f"Deep persona file not found: {DEEPERSONAL_PATH}"
+        )
+    with open(DEEPERSONAL_PATH, "r", encoding="utf-8") as f:
+        profiles = json.load(f)
+    validate_profiles(profiles)
+    print(f"Loaded {len(profiles)} deep persona profiles")
+
+    tweet_pool = load_tweet_pool()
+    df = build_agent_dataframe(profiles, tweet_pool)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8")
 

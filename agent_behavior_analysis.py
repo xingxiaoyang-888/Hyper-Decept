@@ -8,6 +8,7 @@ Usage:
   python agent_behavior_analysis.py
 
 Outputs:
+
   behavior_analysis/
     ├── feature_table.csv          <- Numerical features per agent
     ├── action_counts.png          <- Bar charts of actions

@@ -1,0 +1,8 @@
+script: new_main_classifier.py
+db_path: /Users/alexmason/Downloads/Hyper-Decept/output/twibot_oasis_smoke/twibot_smoke10_v5.db
+csv_path: /Users/alexmason/Downloads/Hyper-Decept/output/twibot_oasis_smoke/twibot_smoke10_multimodal_v5.csv
+dataset: auto
+sim_threshold: 0.7
+psychology_mode: off
+max_tweets_per_user: 5
+visualizer: False

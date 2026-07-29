@@ -1,0 +1,8 @@
+script: new_main_classifier.py
+db_path: /Users/alexmason/Downloads/Hyper-Decept/output/simulation_route/deeppersona_10_smoke/simulation_10_t2.db
+csv_path: /Users/alexmason/Downloads/Hyper-Decept/output/simulation_route/deeppersona_10_smoke/agents_10.csv
+dataset: auto
+sim_threshold: 0.7
+psychology_mode: off
+max_tweets_per_user: 20
+visualizer: False

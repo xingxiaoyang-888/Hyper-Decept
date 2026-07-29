@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>CollusionShift / ClaimFuzz：66 篇论文新颖性审计</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="report.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">CollusionShift / ClaimFuzz：66 篇论文新颖性审计</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#collusionshift-claimfuzz66-篇论文新颖性审计"
+id="toc-collusionshift-claimfuzz66-篇论文新颖性审计">CollusionShift /
+ClaimFuzz：66 篇论文新颖性审计</a>
+<ul>
+<li><a href="#结论先行" id="toc-结论先行">结论先行</a></li>
+<li><a href="#篇文献覆盖了什么" id="toc-篇文献覆盖了什么">1. 66
+篇文献覆盖了什么</a></li>
+<li><a href="#最接近的工作" id="toc-最接近的工作">2.
+最接近的工作</a></li>
+<li><a href="#哪些贡献已经不能写" id="toc-哪些贡献已经不能写">3.
+哪些贡献已经不能写</a></li>
+<li><a href="#仍可守住的技术边界" id="toc-仍可守住的技术边界">4.
+仍可守住的技术边界</a></li>
+<li><a href="#建议重写后的论文主张" id="toc-建议重写后的论文主张">5.
+建议重写后的论文主张</a></li>
+<li><a href="#最小实验设计与强基线" id="toc-最小实验设计与强基线">6.
+最小实验设计与强基线</a></li>
+<li><a href="#两周-go-no-go" id="toc-两周-go-no-go">7. 两周 Go /
+No-Go</a></li>
+<li><a href="#最终判断" id="toc-最终判断">8. 最终判断</a></li>
+<li><a href="#证据边界" id="toc-证据边界">9. 证据边界</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="collusionshift-claimfuzz66-篇论文新颖性审计">CollusionShift /
+ClaimFuzz：66 篇论文新颖性审计</h1>
+<p><strong>检索截止：2026-07-27</strong><br />
+<strong>问题：</strong>
+是否已经有人做过“自动改变多智能体社会仿真的平台机制，寻找让一条实验结论失效的最小变化，并输出成立/失效边界”？<br />
+<strong>完整逐篇矩阵：</strong> <a
+href="./paper_matrix.csv">paper_matrix.csv</a></p>
+<h2 id="结论先行">结论先行</h2>
+<p>答案不是简单的“做过”或“没做过”，而是分三层：</p>
+<ol type="1">
+<li><strong>问题动机已经被直接做过。</strong> 2026 年的 <a
+href="https://arxiv.org/abs/2605.18890">TRAILS</a> 已明确提出：LLM
+社会仿真的科学结论必须经过稳健性审计；它在囚徒困境和社交网络中改变提示格式、网络同质性、hub
+分配、激活概率、记忆窗口和推荐流大小，并发现宏观结果显著变化。<a
+href="https://arxiv.org/abs/2509.18052">PIMMUR</a>
+更进一步，复现五项研究后发现，原报告的现象在更严格设置下经常消失或反转。</li>
+<li><strong>核心算法外壳也早已有成熟先例。</strong>
+S-TaLiRo、Breach、VerifAI、Adaptive Stress Testing、Differential
+AST、贝叶斯优化证伪、多保真证伪和 ABM
+代理模型研究，早已实现“把性质变成目标函数—主动搜索反例—降低仿真调用—分析边界”。因此，<code>Claim Compiler + Mechanism Schema + Search + Counterexample</code>
+不能整体声称为首创。</li>
+<li><strong>仍有一个窄但真实的空白。</strong> 在本轮 66
+篇中，尚未发现一个端到端系统同时做到：<strong>把随机 LLM
+多智能体社会仿真的比较性科学声明编译为可检验对象；在受现实约束的混合平台机制空间中自动寻找最小反转；严格隔离搜索与确认；控制自适应搜索产生的假阳性；再输出跨种子、模型和后端的成立域/失效域。</strong></li>
+</ol>
+<p>所以，当前方案如果只是“自动调参数，找到一个结论反转”，新颖性不够；如果把论文收窄为下面这句话，仍有机会：</p>
+<blockquote>
+<p><strong>面向随机 LLM
+多智能体社会仿真的声明级稳健性审计：在现实平台机制约束下，低预算搜索比较结论的最小稳定反例，并通过独立确认控制选择后误报，估计结论的成立域与失效域。</strong></p>
+</blockquote>
+<h2 id="篇文献覆盖了什么">1. 66 篇文献覆盖了什么</h2>
+<table>
+<colgroup>
+<col style="width: 30%" />
+<col style="width: 40%" />
+<col style="width: 30%" />
+</colgroup>
+<thead>
+<tr>
+<th>证据组</th>
+<th style="text-align: right;">篇数</th>
+<th>对方案的意义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>直接撞题</td>
+<td style="text-align: right;">10</td>
+<td>已覆盖验证危机、稳健性审计、现象消失/反转、机制可信度和仿真边界</td>
+</tr>
+<tr>
+<td>平台政策/行为/基础</td>
+<td style="text-align: right;">13</td>
+<td>已能切换推荐、治理、网络和人口机制并比较干预</td>
+</tr>
+<tr>
+<td>方法邻近</td>
+<td style="text-align: right;">3</td>
+<td>已有协议化运行、真实数据验证和闭环行为校准</td>
+</tr>
+<tr>
+<td>ABM 验证与敏感性</td>
+<td style="text-align: right;">15</td>
+<td>早已研究参数空间、临界边界、代理模型、遗传搜索和不确定性</td>
+</tr>
+<tr>
+<td>仿真证伪</td>
+<td style="text-align: right;">19</td>
+<td>已有形式化性质、反例搜索、差分测试、BO/RL/多保真/多目标方法</td>
+</tr>
+<tr>
+<td>结论稳健性与统计确认</td>
+<td style="text-align: right;">6</td>
+<td>已有 multiverse、specification
+curve、符号反转、选择后推断和多重检验</td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td style="text-align: right;"><strong>66</strong></td>
+<td>不能用单一领域的“未发现”代替跨领域查重</td>
+</tr>
+</tbody>
+</table>
+<p>本轮优先采用 arXiv、ACL
+Anthology、OpenReview、ACM/IEEE/Springer/Elsevier、JASSS、PMLR
+和作者/机构论文页。矩阵是针对本课题的新颖性编码，不是对论文质量的排名，也不是严格
+PRISMA 系统综述。</p>
+<h2 id="最接近的工作">2. 最接近的工作</h2>
+<h3 id="trails直接占掉llm-社会仿真稳健性审计">2.1 TRAILS：直接占掉“LLM
+社会仿真稳健性审计”</h3>
+<p><a href="https://arxiv.org/abs/2605.18890">TRAILS</a> 的论点几乎与
+CollusionShift
+的动机一致：小的架构或表示变化会通过多轮交互放大，导致宏观结论依赖实现细节。它已做：</p>
+<ul>
+<li>agent / interaction / system 三层扰动分类；</li>
+<li>设计级与表示级扰动；</li>
+<li>多模型、多随机种子和显著性检验；</li>
+<li>社交网络中的同质性、hub、推荐流大小等平台变量；</li>
+<li>要求报告哪些结论稳定、哪些敏感、哪些维度未审计；</li>
+<li>公开代码并呼吁建设可复用扰动库和审计基础设施。</li>
+</ul>
+<p>它尚未做的是：声明编译、预算感知自动搜索、最小机制距离、连续边界细化、自适应搜索后的独立确认和有效域估计。这正是
+ClaimFuzz 必须真正实现并实验证明的部分。</p>
+<h3 id="pimmur直接占掉严谨设置会让现象消失或反转">2.2
+PIMMUR：直接占掉“严谨设置会让现象消失或反转”</h3>
+<p><a href="https://arxiv.org/abs/2509.18052">PIMMUR</a> 审计了 39
+篇研究，并在严格画像、交互、记忆、最小控制、实验盲法和现实性要求下复现五项研究；很多现象不再出现或发生反转。因此，论文不能再以“我们首次发现仿真结论可能是提示/设置伪影”为核心贡献。</p>
+<h3 id="abm-敏感性已经会找参数边界">2.3 ABM
+敏感性：已经会找参数边界</h3>
+<p><a href="https://www.jasss.org/24/2/3.html">The Use of Surrogate
+Models to Analyse Agent-Based Models</a>
+已用代理模型和主动采样识别参数空间中的定性区域与 tipping boundary；<a
+href="https://doi.org/10.1016/j.aej.2013.11.003">Rethinking
+Validation</a> 已用遗传算法高效寻找产生不同结果的 ABM 参数；<a
+href="https://doi.org/10.1016/j.ress.2013.06.035">Global
+Sensitivity/Uncertainty Analysis for Agent-Based Models</a>
+已用元模型做全局敏感性分析。</p>
+<p>这意味着“避免全网格、用 surrogate 找结论变化边界”不是新的。ClaimFuzz
+必须解释为何它不是把旧 ABM 方法换到一个新仓库中。</p>
+<h3 id="仿真证伪已经会自动找反例而且有差分版本">2.4
+仿真证伪：已经会自动找反例，而且有差分版本</h3>
+<p><a href="https://doi.org/10.1007/978-3-642-19835-9_21">S-TaLiRo</a>
+把性质转成连续 robustness 并搜索违反性质的输入；<a
+href="https://doi.org/10.1007/978-3-030-25540-4_25">VerifAI</a>
+已有黑盒仿真、模型化 fuzz、参数合成、反例分析和主动采样；<a
+href="https://arxiv.org/abs/1811.02188">Adaptive Stress Testing</a>
+用强化学习找最可能失败轨迹。</p>
+<p>尤其重要的是 <a
+href="https://ntrs.nasa.gov/api/citations/20190002185/downloads/20190002185.pdf">Differential
+Adaptive Stress
+Testing</a>：它寻找“候选系统失败、基线系统不失败”的最可能事件，已经非常接近“找一个环境让
+A 与 B
+的相对结论失效”。此外，贝叶斯优化、多保真、CMA-ES、深度强化学习、多目标和风险约束版本均已存在。</p>
+<p>所以论文不能把“搜索结论反例”作为算法首创，而应把技术贡献放在<strong>随机科学效应、比较声明、平台机制语义、选择后统计确认和成立域</strong>的组合上。</p>
+<h3 id="统计学搜索到的反例不能用同一批随机种子证明">2.5
+统计学：搜索到的反例不能用同一批随机种子证明</h3>
+<p>ClaimFuzz
+会反复尝试平台参数，直到找到看似反转的点。这相当于自适应地挑选最有利结果；如果随后仍用同一批种子报告显著性，假阳性会被严重低估。<a
+href="https://arxiv.org/abs/1410.2597">Optimal Inference After Model
+Selection</a> 与 <a href="https://arxiv.org/abs/1411.2664">Preserving
+Statistical Validity in Adaptive Data Analysis</a>
+已说明选择后推断和自适应查询的风险。</p>
+<p>因此，方案中的 <code>Confirmation Runner</code>
+不能只是工程模块，而应成为方法核心：</p>
+<ul>
+<li>discovery seeds 只用于搜索；</li>
+<li>候选机制冻结后，用从未看过的 confirmation seeds 复验；</li>
+<li>模型、提示模板和后端迁移属于更高层确认；</li>
+<li>对多个候选点和多条声明控制 family-wise error 或 false
+discovery；</li>
+<li>报告效应量和置信区间，不只报单个 p 值。</li>
+</ul>
+<h2 id="哪些贡献已经不能写">3. 哪些贡献已经不能写</h2>
+<p>下列说法风险很高：</p>
+<ul>
+<li>首次提出 LLM 社会仿真的稳健性审计；</li>
+<li>首次发现小的 prompt / 网络 / 推荐变化会改变宏观结论；</li>
+<li>首次自动改变仿真参数寻找反例；</li>
+<li>首次用贝叶斯优化或代理模型减少仿真次数；</li>
+<li>首次寻找参数空间中的反转边界；</li>
+<li>首次做多保真、多目标或现实约束的反例搜索；</li>
+<li>首次输出结论在哪些配置下成立；</li>
+<li>首次建立仿真外部审计层。</li>
+</ul>
+<p>这些组件都已有直接或强相邻先例。可以引用并组合，但不能把“组合了很多已知模块”直接包装成方法首创。</p>
+<h2 id="仍可守住的技术边界">4. 仍可守住的技术边界</h2>
+<h3 id="比较性科学声明编译而不是安全性质模板">4.1
+比较性“科学声明”编译，而不是安全性质模板</h3>
+<p>目标对象应明确是带方向、效应量和不确定性的比较声明，例如：</p>
+<p><code>C: E[Y | ban, m] - E[Y | downrank, m] &lt;= -δ</code></p>
+<p>其中 <code>m</code> 是平台机制，<code>δ</code>
+是有实质意义的最小效应。搜索目标不是单次轨迹失败，而是找到最小
+<code>d(m,m0)</code> 使该比较在确认数据上反转或失去支持。</p>
+<p>这比“某条轨迹违反
+STL”多出随机总体效应、双方案配对、最小实际效应和统计确认。论文应给出 3–5
+类可编译声明，而不是只支持一个硬编码例子。</p>
+<h3 id="现实平台机制距离">4.2 现实平台机制距离</h3>
+<p>“最小”不能只是归一化参数的 L1/L2。机制距离至少应处理：</p>
+<ul>
+<li>连续变量：推荐跨社区比例、限频阈值、重新注册成本；</li>
+<li>类别变量：热榜/个性化/时间序推荐；</li>
+<li>条件变量：仅在开启封禁后才有重新注册规则；</li>
+<li>结构变量：网络同质性、hub 角色、社区连通性；</li>
+<li>现实约束：变量组合必须能在真实平台逻辑中共存。</li>
+</ul>
+<p>建议把距离拆成
+<code>可实施成本 + 与基线偏离 + 专家可信度惩罚</code>，并做人类专家排序一致性或至少敏感性分析。否则“最近反例”只是人为度量的产物。</p>
+<h3 id="自适应搜索后的统计有效性">4.3 自适应搜索后的统计有效性</h3>
+<p>这是最值得强化的差异点。可设计两阶段或三阶段协议：</p>
+<ol type="1">
+<li><strong>发现：</strong> 小模型/少 Agent/少种子做预算感知搜索；</li>
+<li><strong>边界细化：</strong>
+在候选附近分配额外预算并估计反转概率；</li>
+<li><strong>确认：</strong>
+冻结候选，在新种子、新模型和必要时新后端上做预注册式检验。</li>
+</ol>
+<p>核心指标不仅是找到反例，还包括：首次确认反例的调用数、确认失败率、最小确认距离、边界误差和误报率。</p>
+<h3 id="从一个反例升级为成立域失效域">4.4
+从一个反例升级为成立域/失效域</h3>
+<p>单个 counterexample 很容易被审稿人视为调参。更有价值的输出是：</p>
+<ul>
+<li>哪些机制维度最可能触发反转；</li>
+<li>反转边界及置信带；</li>
+<li>结论稳定的连通区域；</li>
+<li>不同 LLM/后端之间共同成立的交集；</li>
+<li>边界附近是否存在不确定区，而不是强行二分。</li>
+</ul>
+<p>这可以与 specification curve 和 surrogate boundary
+文献对话，但要强调随机多智能体仿真的确认协议。</p>
+<h2 id="建议重写后的论文主张">5. 建议重写后的论文主张</h2>
+<h3 id="不建议">不建议</h3>
+<blockquote>
+<p>我们提出
+ClaimFuzz，首次自动修改平台机制并寻找使多智能体仿真结论反转的最小变化。</p>
+</blockquote>
+<p>这句话会同时被 TRAILS、ABM 敏感性、VerifAI 和 Differential AST
+反驳。</p>
+<h3 id="相对安全">相对安全</h3>
+<blockquote>
+<p>据我们截至 2026 年 7 月的检索，现有 LLM
+社会仿真工作已提出稳健性审计分类并展示设计扰动可改变宏观结论，传统仿真验证也已发展出多种反例搜索算法；但两条文献线尚未形成面向随机
+LLM
+多智能体社会仿真“比较性科学声明”的端到端审计方法。我们提出一种声明级审计协议，将比较结论编译为带实质效应阈值的随机性质，在受现实约束的混合平台机制空间中搜索最小反转，并通过隔离的发现—确认运行控制自适应搜索误报，最终估计跨种子、模型与仿真后端的成立域和失效域。</p>
+</blockquote>
+<p>这仍应使用“据我们检索所知”，不能写绝对的 world-first。</p>
+<h2 id="最小实验设计与强基线">6. 最小实验设计与强基线</h2>
+<h3 id="三条声明先做">6.1 三条声明先做</h3>
+<ol type="1">
+<li><code>封禁 &gt; 内容降权</code>：比较 misinformation reach 或
+infiltration；</li>
+<li><code>中心化检测 &gt; 分布式检测</code>：比较传播抑制与误伤；</li>
+<li><code>固定 leader 合谋 &gt; 独立攻击</code>：比较攻击收益与可检测性。</li>
+</ol>
+<p>每条声明先在原始设置 <code>m0</code> 下稳定复现，再允许 ClaimFuzz
+搜索。若原声明本身跨种子都不稳定，就没有必要谈最小反转。</p>
+<h3 id="搜索基线必须足够强">6.2 搜索基线必须足够强</h3>
+<p>至少比较：</p>
+<ul>
+<li>random / Latin hypercube；</li>
+<li>grid（只用于低维小空间）；</li>
+<li>genetic algorithm / CMA-ES；</li>
+<li>Gaussian-process Bayesian optimization；</li>
+<li>tree-based surrogate（随机森林或 XGBoost）；</li>
+<li>Adaptive Stress Testing / Differential AST 风格方法；</li>
+<li>多保真 BO（如果使用小模型/少 Agent 筛选）。</li>
+</ul>
+<p>主方法必须在至少一个明确指标上显著胜出：更少 simulator
+calls、更小确认距离、更低确认失败率或更准确边界；仅仅“也能找到反例”不够。</p>
+<h3 id="实验协议">6.3 实验协议</h3>
+<ul>
+<li>使用 paired execution：同一初始 checkpoint、网络、persona
+与随机数流分别运行 A/B；</li>
+<li>discovery 与 confirmation 种子完全隔离；</li>
+<li>至少两种 LLM；若成本允许，再加一个非 LLM/轻量后端作多保真层；</li>
+<li>至少两个仿真后端，MultiAgent4Collusion 是主后端，第二后端可从
+OASIS、POSIM 或一个最小可复现 toy backend 中选择；</li>
+<li>对每条声明报告效应量、置信区间、反转概率、最小距离和调用成本；</li>
+<li>所有候选点、失败运行、配置、日志和随机种子均保存，避免只展示成功案例。</li>
+</ul>
+<h2 id="两周-go-no-go">7. 两周 Go / No-Go</h2>
+<p>先不要完整开发八个模块。两周只做一个窄验证：</p>
+<ol type="1">
+<li>从 MultiAgent4Collusion 选一条已稳定的 A/B 结论；</li>
+<li>只开放 5–8 个可解释的平台机制；</li>
+<li>实现 random、BO 和一个 ClaimFuzz 原型；</li>
+<li>discovery 阶段搜索 100–200 次仿真预算；</li>
+<li>冻结最优候选，用新种子做 20–30 次确认；</li>
+<li>在第二条声明上重复。</li>
+</ol>
+<p>建议的 Go 条件：</p>
+<ul>
+<li>至少两条声明中找到现实可接受且可独立确认的反转；</li>
+<li>ClaimFuzz 相比 random 和普通 BO，调用数降低约
+30%，或确认后的最小距离降低约 20%；</li>
+<li>搜索阶段命中的候选大多数能在新种子上确认，而不是大量“假反例”；</li>
+<li>至少一个反转能迁移到第二模型或第二后端。</li>
+</ul>
+<p>若做不到，应停止把它作为“新方法”投入，改成稳健性 benchmark /
+工程工具，或回到你负责的攻击组织韧性主线。</p>
+<h2 id="最终判断">8. 最终判断</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>问题</th>
+<th>判断</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>“LLM 社会仿真结论需要压力测试”是否已被做？</td>
+<td><strong>是，且 2026 年已有非常直接的 TRAILS。</strong></td>
+</tr>
+<tr>
+<td>“改变合理设置后结论可能消失或反转”是否已被做？</td>
+<td><strong>是，TRAILS、PIMMUR、multiverse、specification curve 和 ABM
+敏感性均覆盖。</strong></td>
+</tr>
+<tr>
+<td>“自动搜索反例”是否已被做？</td>
+<td><strong>是，仿真证伪领域已经成熟。</strong></td>
+</tr>
+<tr>
+<td>“找 A 相对 B 失效的差分反例”是否已被做？</td>
+<td><strong>是，Differential AST 是强先例。</strong></td>
+</tr>
+<tr>
+<td>“在随机 LLM
+多智能体社会仿真中，对比较科学声明做最小、现实、低预算、选择后有效的反转搜索并输出成立域”是否发现完整先例？</td>
+<td><strong>本轮 66 篇中未发现端到端完整实现。</strong></td>
+</tr>
+<tr>
+<td>当前方案能否直接投稿？</td>
+<td><strong>不能。需要重写主张并先通过两周 Go/No-Go。</strong></td>
+</tr>
+</tbody>
+</table>
+<p>最直白地说：<strong>CollusionShift 的“想法”有一半已经被 TRAILS
+做掉，另一半被传统仿真证伪做掉；论文机会不在把两半简单拼起来，而在解决它们拼接后才出现的随机比较声明、现实机制距离和搜索后统计有效性。</strong></p>
+<h2 id="证据边界">9. 证据边界</h2>
+<p>本报告纳入 66
+篇与本课题直接或方法上强相关的论文，完整链接、重合点、阻断的主张和剩余空白见
+<a href="./paper_matrix.csv">paper_matrix.csv</a>。2026
+年条目中有预印本或近期会议论文，投稿前应再次核对版本与发表状态。“未发现完整先例”仅表示本轮跨领域检索没有找到，不是数学意义上的首创证明。</p>
+</body>
+</html>

@@ -1,0 +1,36 @@
+data:
+  db_path: ../output/twibot_simulation_1000/twibot_1000_t1_validation.db
+  csv_path: ../output/twibot_oasis_1000/twibot_1000_simulation.csv
+
+simulation:
+  num_timesteps: 1
+  clock_factor: 60
+  recsys_type: random
+  reflection: false
+  shared_reflection: false
+  detection: false
+  # All 1000 agents are instantiated.  For the integration run, a small
+  # evidence-derived active subset calls the LLM so validation finishes on a
+  # single local endpoint; full experiments can increase this value.
+  activation_scale: 0.02
+  force_all_agents_active: false
+
+model:
+  num_agents: 1000
+  model_random_seed: 42
+  cfgs:
+    - model_type: qwen3.5:9b
+      num: 1000
+      server_url: http://127.0.0.1:11434/v1
+      model_path: openai
+      stop_tokens: []
+      temperature: 0.0
+
+inference:
+  model_type: qwen3.5:9b
+  model_path: openai
+  stop_tokens: []
+  timeout: 300
+  server_url:
+    - host: 127.0.0.1
+      ports: [11434]

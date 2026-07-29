@@ -21,6 +21,14 @@ data/
 *.npy
 outputs/
 
+# Small, reproducibility-critical inputs for the independent-attack baseline.
+# Keep bulk datasets/results ignored, but allow these exact treatment files.
+!data/
+data/*
+!data/72agent_independent.csv
+!MultiAgent4Collusion-master/scripts/twitter_simulation/align_with_real_world/system_prompt(static).json
+!MultiAgent4Collusion-master/scripts/twitter_simulation/align_with_real_world/system_prompt(dynamic).json
+
 # 4. 你的本地虚拟环境 (防止把几百MB的库传上去)
 venv/
 env/
@@ -149,3 +157,6 @@ mac/
 
 .runtime/
 **/model.safetensors
+
+# Original TwiBot-22 dataset (licensed raw data; never commit to Git).
+TwiBot-22/

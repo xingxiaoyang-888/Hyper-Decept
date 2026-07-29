@@ -1,0 +1,33 @@
+data:
+  db_path: ../output/simulation_route/deeppersona_10_smoke/simulation_10_t2_fixed.db
+  csv_path: ../output/simulation_route/deeppersona_10_smoke/agents_10.csv
+
+simulation:
+  num_timesteps: 2
+  clock_factor: 60
+  recsys_type: random
+  reflection: false
+  shared_reflection: false
+  detection: false
+  activation_scale: 1.0
+  force_all_agents_active: true
+
+model:
+  num_agents: 10
+  model_random_seed: 42
+  cfgs:
+    - model_type: qwen3.5:9b
+      num: 10
+      server_url: http://127.0.0.1:11434/v1
+      model_path: openai
+      stop_tokens: []
+      temperature: 0.0
+
+inference:
+  model_type: qwen3.5:9b
+  model_path: openai
+  stop_tokens: []
+  timeout: 300
+  server_url:
+    - host: 127.0.0.1
+      ports: [11434]

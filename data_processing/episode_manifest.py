@@ -387,8 +387,12 @@ def build_recommended_dataset_plan(
             label_provenance={"bot": "annotated"},
             capabilities={
                 "temporal": False,
-                "raw_text": True,
-                "external_neighbors": True,
+                # The standard release contains anonymous 20d profile features
+                # plus 768d precomputed LaBSE vectors, not raw tweets or the
+                # 400k unlabelled neighbors from MGTAB-large.
+                "raw_text": False,
+                "precomputed_text_embeddings": True,
+                "external_neighbors": False,
                 "ground_truth_roles": False,
             },
             artifacts={

@@ -21,6 +21,9 @@ data/
 *.npy
 outputs/
 
+# Keep the validated, aggregate-only source for the MGTAB audit report.
+!docs/mgtab_field_audit_artifact.json
+
 # Small, reproducibility-critical inputs for the independent-attack baseline.
 # Keep bulk datasets/results ignored, but allow these exact treatment files.
 !data/
@@ -160,3 +163,6 @@ mac/
 
 # Original TwiBot-22 dataset (licensed raw data; never commit to Git).
 TwiBot-22/
+
+# Original MGTAB dataset (licensed research data; never commit to Git).
+MGTAB/

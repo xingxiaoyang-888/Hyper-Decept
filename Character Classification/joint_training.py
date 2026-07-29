@@ -300,6 +300,54 @@ def load_episode_batch_from_manifest(
     from graph_builder import build_hetero_data, load_post_embeddings
 
     artifacts = dict(getattr(manifest, "artifacts", {}))
+    if manifest.dataset_name == "mgtab":
+        from data_processing.mgtab_adapter import MGTABAdapter
+
+        required = {
+            "edge_index_pt",
+            "edge_type_pt",
+            "edge_weight_pt",
+            "features_pt",
+            "labels_bot_pt",
+            "labels_stance_pt",
+        }
+        missing = sorted(required.difference(artifacts))
+        if missing:
+            raise ValueError(f"episode manifest missing artifacts: {missing}")
+        if not Path(manifest.source_path).is_dir():
+            raise FileNotFoundError(
+                f"MGTAB tensor bundle does not exist: {manifest.source_path}"
+            )
+        for name in sorted(required):
+            if not Path(artifacts[name]).is_file():
+                raise FileNotFoundError(
+                    f"MGTAB artifact does not exist: {name}={artifacts[name]}"
+                )
+
+        graph, labels, adapter_manifest = MGTABAdapter(
+            manifest.source_path
+        ).load()
+        if node_split is not None:
+            requested_split = str(node_split).lower()
+            requested_split = {
+                "val": "validation", "dev": "validation"
+            }.get(requested_split, requested_split)
+            if requested_split not in {"train", "validation", "test"}:
+                raise ValueError("node_split must be train, validation, or test")
+            # MGTAB is transductive: retain every graph node while exposing
+            # supervision only for the requested split.
+            labels = labels[labels["data_split"] == requested_split].copy()
+        graph.adapter_manifest = adapter_manifest
+        return build_episode_batch(
+            graph,
+            episode_id=manifest.episode_id,
+            domain=manifest.domain,
+            labels_frame=labels,
+            role_vocabulary=role_vocabulary,
+            action_vocabulary=action_vocabulary,
+            dataset_name=manifest.dataset_name,
+        )
+
     missing = sorted({"features_csv", "labels_csv"}.difference(artifacts))
     if missing:
         raise ValueError(f"episode manifest missing artifacts: {missing}")
@@ -532,10 +580,28 @@ class DomainAwareLorentzHGT(torch.nn.Module):
             node_type: self.feature_adapters[dataset][node_type](features.float())
             for node_type, features in graph.x_dict.items()
         }
+        reliability_fields = (
+            "base_weight",
+            "multiplicity",
+            "temporal_sync",
+            "temporal_recency",
+            "temporal_available",
+        )
+        edge_attribute_dict = {}
+        for edge_type in graph.edge_types:
+            store = graph[edge_type]
+            attributes = {
+                name: getattr(store, name)
+                for name in reliability_fields
+                if hasattr(store, name)
+            }
+            if attributes:
+                edge_attribute_dict[edge_type] = attributes
         lorentz_nodes = self.encoder.encode_lorentz_nodes(
             adapted,
             graph.edge_index_dict,
             edge_mask_dict=edge_mask_dict,
+            edge_attribute_dict=edge_attribute_dict,
         )
         curvature = self.encoder.common_curvature()
         user_lorentz = lorentz_nodes["user"]

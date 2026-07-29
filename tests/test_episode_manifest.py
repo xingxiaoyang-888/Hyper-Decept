@@ -93,6 +93,18 @@ def test_real_training_protocols_separate_holdout_from_multisource_use(tmp_path)
     assert mgtab.capabilities["raw_text"] is False
     assert mgtab.capabilities["precomputed_text_embeddings"] is True
     assert mgtab.capabilities["external_neighbors"] is False
+    assert set(mgtab.artifacts) == {
+        "edge_index_pt",
+        "edge_type_pt",
+        "edge_weight_pt",
+        "features_pt",
+        "labels_bot_pt",
+        "labels_stance_pt",
+    }
+    assert not {"features_csv", "labels_csv", "splits_csv"}.intersection(
+        mgtab.artifacts
+    )
+    assert all(path.endswith(".pt") for path in mgtab.artifacts.values())
     assert p1[mgtab_id] == "test"
     assert p2[mgtab_id] == "shared"
 

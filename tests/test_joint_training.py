@@ -88,6 +88,48 @@ def _batches(module):
     return real, synthetic
 
 
+def _write_mgtab_bundle(root):
+    node_count = 60
+    features = torch.randn(node_count, 788, dtype=torch.float32) * 0.01
+    bot_labels = []
+    stance_labels = []
+    for bot in (0, 1):
+        for stance in (0, 1, 2):
+            bot_labels.extend([bot] * 10)
+            stance_labels.extend([stance] * 10)
+    edge_index = torch.tensor([
+        list(range(14)),
+        list(range(1, 15)),
+    ], dtype=torch.long)
+    torch.save(edge_index, root / "edge_index.pt")
+    torch.save(torch.tensor([*range(7), *range(7)]), root / "edge_type.pt")
+    torch.save(torch.ones(14), root / "edge_weight.pt")
+    torch.save(features, root / "features.pt")
+    torch.save(torch.tensor(bot_labels), root / "labels_bot.pt")
+    torch.save(torch.tensor(stance_labels), root / "labels_stance.pt")
+
+
+def _mgtab_manifest(root):
+    return EpisodeManifest(
+        episode_id="real:mgtab:test",
+        dataset_name="mgtab",
+        domain="real",
+        purpose="real_external",
+        partition="shared",
+        split_level="node",
+        source_path=str(root),
+        identity_scope="dataset",
+        artifacts={
+            "edge_index_pt": str(root / "edge_index.pt"),
+            "edge_type_pt": str(root / "edge_type.pt"),
+            "edge_weight_pt": str(root / "edge_weight.pt"),
+            "features_pt": str(root / "features.pt"),
+            "labels_bot_pt": str(root / "labels_bot.pt"),
+            "labels_stance_pt": str(root / "labels_stance.pt"),
+        },
+    )
+
+
 def test_target_alignment_keeps_privileged_labels_synthetic_only():
     module = _load_module()
     real, synthetic = _batches(module)
@@ -305,6 +347,70 @@ def test_manifest_loader_reuses_graph_builder_and_explicit_feature_contract(tmp_
     assert batch.bot_targets.tolist() == [0.0, 0.0, 1.0, 1.0]
     assert batch.role_mask.all()
     assert batch.temporal_action_mask.all()
+
+
+def test_manifest_loader_uses_mgtab_adapter_and_preserves_transductive_graph(
+    tmp_path,
+):
+    module = _load_module()
+    _write_mgtab_bundle(tmp_path)
+    batch = module.load_episode_batch_from_manifest(
+        _mgtab_manifest(tmp_path), node_split="train"
+    )
+
+    assert batch.dataset_name == "mgtab"
+    assert batch.domain == "real"
+    assert batch.graph["user"].x.shape == (60, 789)
+    assert batch.bot_mask.sum() == 42
+    assert batch.graph["user"].num_nodes == 60
+    assert not batch.role_mask.any()
+    assert not batch.campaign_mask.any()
+    assert not batch.temporal_action_mask.any()
+    assert batch.graph.adapter_manifest["split_strategy"].endswith(
+        "transductive_node_classification"
+    )
+
+
+def test_mgtab_manifest_to_model_loss_and_backward_is_end_to_end(tmp_path):
+    torch.manual_seed(13)
+    module = _load_module()
+    _write_mgtab_bundle(tmp_path)
+    batch = module.load_episode_batch_from_manifest(
+        _mgtab_manifest(tmp_path), node_split="train"
+    )
+    metadata = module.merge_heterogeneous_metadata([batch.graph])
+    model = module.DomainAwareLorentzHGT(
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        metadata=metadata,
+        num_roles=3,
+        num_temporal_actions=2,
+        dataset_domains=("mgtab",),
+        dropout=0.0,
+    )
+
+    output = model(batch.graph, domain="real", dataset_name="mgtab")
+    losses = module.compute_episode_losses(
+        model, output, batch, module.JointLossConfig()
+    )
+    assert set(losses) == {"detection", "total"}
+    assert torch.isfinite(losses["detection"])
+    losses["total"].backward()
+    gradients = [
+        parameter.grad
+        for parameter in model.parameters()
+        if parameter.grad is not None
+    ]
+    assert gradients
+    assert all(torch.isfinite(gradient).all() for gradient in gradients)
+    audits = model.encoder._last_audits
+    assert audits
+    assert all(audit.reliability.shape[0] > 0 for audit in audits.values())
+    assert all(
+        torch.all((audit.reliability >= 0) & (audit.reliability <= 1))
+        for audit in audits.values()
+    )
 
 
 def test_neighbor_sample_masks_context_users_out_of_supervised_losses():

@@ -257,6 +257,43 @@ class LorentzRelationMessage(torch.nn.Module):
             torch.zeros(num_heads)
         )
         self.reliability_bias = torch.nn.Parameter(torch.ones(num_heads))
+        self.reliability_attribute_weights = torch.nn.Parameter(
+            torch.zeros(num_heads, 4)
+        )
+
+    def _reliability_attributes(
+        self,
+        edge_count: int,
+        reference: torch.Tensor,
+        edge_attributes: Optional[Mapping[str, torch.Tensor]],
+    ) -> torch.Tensor:
+        defaults = {
+            "base_weight": 1.0,
+            "multiplicity": 1.0,
+            "temporal_sync": 0.0,
+            "temporal_recency": 0.0,
+            "temporal_available": 0.0,
+        }
+        values: Dict[str, torch.Tensor] = {}
+        for name, default in defaults.items():
+            raw = None if edge_attributes is None else edge_attributes.get(name)
+            if raw is None:
+                values[name] = reference.new_full((edge_count,), default)
+                continue
+            if raw.ndim != 1 or raw.shape[0] != edge_count:
+                raise ValueError(
+                    f"edge attribute {name} must align with edge count {edge_count}"
+                )
+            values[name] = raw.to(device=reference.device, dtype=reference.dtype)
+            if not torch.isfinite(values[name]).all():
+                raise ValueError(f"edge attribute {name} must contain finite values")
+        temporal_available = values["temporal_available"].clamp(0.0, 1.0)
+        return torch.stack([
+            torch.log1p(values["base_weight"].clamp_min(0.0)),
+            torch.log1p(values["multiplicity"].clamp_min(0.0)),
+            values["temporal_sync"].clamp(0.0, 1.0) * temporal_available,
+            values["temporal_recency"].clamp(0.0, 1.0) * temporal_available,
+        ], dim=-1)
 
     def forward(
         self,
@@ -265,6 +302,7 @@ class LorentzRelationMessage(torch.nn.Module):
         edge_index: torch.Tensor,
         common_curvature: torch.Tensor,
         edge_mask: Optional[torch.Tensor] = None,
+        edge_attributes: Optional[Mapping[str, torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, RelationAudit]:
         from torch_geometric.utils import softmax
 
@@ -290,9 +328,17 @@ class LorentzRelationMessage(torch.nn.Module):
         reliability_scale = F.softplus(
             self.reliability_distance_scale_raw
         ) + 1e-4
+        reliability_attributes = self._reliability_attributes(
+            edge_index.shape[1], distance, edge_attributes
+        )
+        attribute_contribution = (
+            reliability_attributes.unsqueeze(1)
+            * self.reliability_attribute_weights.unsqueeze(0)
+        ).sum(dim=-1)
         reliability = torch.sigmoid(
             self.reliability_bias.unsqueeze(0)
             - reliability_scale.unsqueeze(0) * distance
+            + attribute_contribution
         )
         attention = attention * reliability
 
@@ -390,6 +436,9 @@ class IntrinsicLorentzHGTLayer(torch.nn.Module):
         edge_index_dict: Mapping[EdgeType, torch.Tensor],
         common_curvature: torch.Tensor,
         edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+        edge_attribute_dict: Optional[
+            Mapping[EdgeType, Mapping[str, torch.Tensor]]
+        ] = None,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, RelationAudit]]:
         candidates: Dict[str, list] = {node_type: [] for node_type in point_dict}
         audits: Dict[str, RelationAudit] = {}
@@ -404,6 +453,9 @@ class IntrinsicLorentzHGTLayer(torch.nn.Module):
                 edge_index_dict[edge_type],
                 common_curvature,
                 None if edge_mask_dict is None else edge_mask_dict.get(edge_type),
+                None if edge_attribute_dict is None else edge_attribute_dict.get(
+                    edge_type
+                ),
             )
             candidates[target_type].append((key, candidate))
             audits[key] = audit
@@ -496,6 +548,9 @@ class IntrinsicLorentzHGT(torch.nn.Module):
         x_dict: Mapping[str, torch.Tensor],
         edge_index_dict: Mapping[EdgeType, torch.Tensor],
         edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+        edge_attribute_dict: Optional[
+            Mapping[EdgeType, Mapping[str, torch.Tensor]]
+        ] = None,
     ) -> Dict[str, torch.Tensor]:
         curvature = self.common_curvature()
         scale = torch.sigmoid(self.input_scale_raw)
@@ -508,7 +563,11 @@ class IntrinsicLorentzHGT(torch.nn.Module):
         all_audits: Dict[str, RelationAudit] = {}
         for layer_index, layer in enumerate(self.layers):
             points, audits = layer(
-                points, edge_index_dict, curvature, edge_mask_dict=edge_mask_dict
+                points,
+                edge_index_dict,
+                curvature,
+                edge_mask_dict=edge_mask_dict,
+                edge_attribute_dict=edge_attribute_dict,
             )
             all_audits.update({
                 f"layer_{layer_index}:{key}": value for key, value in audits.items()
@@ -521,10 +580,16 @@ class IntrinsicLorentzHGT(torch.nn.Module):
         x_dict: Mapping[str, torch.Tensor],
         edge_index_dict: Mapping[EdgeType, torch.Tensor],
         edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+        edge_attribute_dict: Optional[
+            Mapping[EdgeType, Mapping[str, torch.Tensor]]
+        ] = None,
     ) -> Dict[str, torch.Tensor]:
         curvature = self.common_curvature()
         points = self.encode_lorentz_nodes(
-            x_dict, edge_index_dict, edge_mask_dict=edge_mask_dict
+            x_dict,
+            edge_index_dict,
+            edge_mask_dict=edge_mask_dict,
+            edge_attribute_dict=edge_attribute_dict,
         )
         return {
             node_type: lorentz_to_poincare(point, curvature)
@@ -536,9 +601,15 @@ class IntrinsicLorentzHGT(torch.nn.Module):
         x_dict: Mapping[str, torch.Tensor],
         edge_index_dict: Mapping[EdgeType, torch.Tensor],
         edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
+        edge_attribute_dict: Optional[
+            Mapping[EdgeType, Mapping[str, torch.Tensor]]
+        ] = None,
     ) -> torch.Tensor:
         return self.encode_nodes(
-            x_dict, edge_index_dict, edge_mask_dict=edge_mask_dict
+            x_dict,
+            edge_index_dict,
+            edge_mask_dict=edge_mask_dict,
+            edge_attribute_dict=edge_attribute_dict,
         )["user"]
 
     def geometry_metadata(self) -> Dict[str, object]:
@@ -556,5 +627,12 @@ class IntrinsicLorentzHGT(torch.nn.Module):
             "relation_curvatures": relation_curvatures,
             "edge_masks_supported": True,
             "edge_reliability_gate": True,
+            "edge_reliability_attributes": [
+                "base_weight",
+                "multiplicity",
+                "temporal_sync",
+                "temporal_recency",
+                "temporal_available",
+            ],
             "node_adaptive_self_neighbor_fusion": True,
         }

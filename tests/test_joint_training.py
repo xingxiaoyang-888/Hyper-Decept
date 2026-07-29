@@ -8,6 +8,7 @@ import torch
 from torch_geometric.data import HeteroData
 
 from data_processing.episode_manifest import EpisodeManifest
+from data_processing.mgtab_adapter import MGTABAdapter, write_split_csv
 
 
 MODULE_PATH = (
@@ -86,6 +87,30 @@ def _batches(module):
         dataset_name="simulation",
     )
     return real, synthetic
+
+
+def _write_mgtab_bundle(root):
+    node_count = 60
+    features = torch.full((node_count, 788), 0.25, dtype=torch.float32)
+    features[0, 20:] = 0.0
+    bot_labels = []
+    stance_labels = []
+    for bot in (0, 1):
+        for stance in (0, 1, 2):
+            bot_labels.extend([bot] * 10)
+            stance_labels.extend([stance] * 10)
+    torch.save(
+        torch.tensor([
+            [0, 1, 2, 3, 4, 5, 6],
+            [1, 2, 3, 4, 5, 6, 7],
+        ], dtype=torch.long),
+        root / "edge_index.pt",
+    )
+    torch.save(torch.arange(7), root / "edge_type.pt")
+    torch.save(torch.ones(7), root / "edge_weight.pt")
+    torch.save(features, root / "features.pt")
+    torch.save(torch.tensor(bot_labels), root / "labels_bot.pt")
+    torch.save(torch.tensor(stance_labels), root / "labels_stance.pt")
 
 
 def test_target_alignment_keeps_privileged_labels_synthetic_only():
@@ -376,6 +401,82 @@ def test_manifest_loader_applies_real_node_split_without_graph_leakage(tmp_path)
     assert train.bot_mask.tolist() == [True, True, False, False]
     assert validation.bot_mask.tolist() == [False, False, True, False]
     assert not train.role_mask.any()
+
+
+def test_manifest_loader_routes_mgtab_tensors_to_episode_batch_and_hgt(tmp_path):
+    module = _load_module()
+    _write_mgtab_bundle(tmp_path)
+    manifest = EpisodeManifest(
+        episode_id="real:mgtab:test",
+        dataset_name="mgtab",
+        domain="real",
+        purpose="real_external",
+        partition="shared",
+        split_level="node",
+        source_path=str(tmp_path),
+        identity_scope="dataset",
+        generator_metadata={
+            "split_seed": "42",
+            "multiedge_policy": "coalesce_with_count",
+        },
+    )
+
+    train = module.load_episode_batch_from_manifest(
+        manifest, node_split="train"
+    )
+    validation = module.load_episode_batch_from_manifest(
+        manifest, node_split="validation"
+    )
+    test = module.load_episode_batch_from_manifest(
+        manifest, node_split="test"
+    )
+
+    assert train.dataset_name == "mgtab"
+    assert train.graph["user"].x.shape == (60, 789)
+    assert int(train.bot_mask.sum()) == 42
+    assert int(validation.bot_mask.sum()) == 12
+    assert int(test.bot_mask.sum()) == 6
+    assert not train.role_mask.any()
+    assert not train.campaign_mask.any()
+    assert not train.temporal_action_mask.any()
+    assert train.graph.adapter_manifest["split_source"] == "adapter_generated"
+
+    metadata = module.merge_heterogeneous_metadata([train.graph])
+    model = module.DomainAwareLorentzHGT(
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        metadata=metadata,
+        num_roles=3,
+        num_temporal_actions=2,
+        dropout=0.0,
+    )
+    output = model(train.graph, domain="real", dataset_name="mgtab")
+    assert output["bot_logits"].shape == (60,)
+    assert torch.isfinite(output["bot_logits"]).all()
+
+    _, complete_labels, _ = MGTABAdapter(tmp_path, split_seed=42).load()
+    split_path = write_split_csv(
+        complete_labels, tmp_path / "derived" / "split_seed42.csv"
+    )
+    declared_manifest = EpisodeManifest(
+        episode_id="real:mgtab:declared-split",
+        dataset_name="mgtab",
+        domain="real",
+        purpose="real_external",
+        partition="shared",
+        split_level="node",
+        source_path=str(tmp_path),
+        identity_scope="dataset",
+        artifacts={"splits_csv": str(split_path)},
+        generator_metadata={"split_seed": "42"},
+    )
+    declared = module.load_episode_batch_from_manifest(
+        declared_manifest, node_split="train"
+    )
+    assert int(declared.bot_mask.sum()) == 42
+    assert declared.graph.adapter_manifest["split_source"] == "declared_csv"
+    assert len(declared.graph.adapter_manifest["split_file_sha256"]) == 64
 
 
 def test_evaluation_and_checkpoint_record_calibration_and_geometry(tmp_path):

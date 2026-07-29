@@ -16,7 +16,12 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
 
-from lorentz_hgt import IntrinsicLorentzHGT, logmap0, lorentz_distance
+from lorentz_hgt import (
+    IntrinsicLorentzHGT,
+    LorentzPrototypeClassifier,
+    logmap0,
+    lorentz_distance,
+)
 
 
 EdgeType = Tuple[str, str, str]
@@ -63,12 +68,15 @@ class EpisodeBatch:
     campaign_mask: torch.Tensor
     temporal_action_targets: torch.Tensor
     temporal_action_mask: torch.Tensor
+    dataset_name: str = "unspecified"
 
     def __post_init__(self) -> None:
         if self.domain not in VALID_DOMAINS:
             raise ValueError(f"domain must be one of {sorted(VALID_DOMAINS)}")
         if not str(self.episode_id).strip():
             raise ValueError("episode_id must not be empty")
+        if not str(self.dataset_name).strip():
+            raise ValueError("dataset_name must not be empty")
         if "user" not in self.graph.node_types:
             raise ValueError("episode graph must contain user nodes")
         num_users = int(self.graph["user"].num_nodes)
@@ -150,6 +158,7 @@ def build_episode_batch(
     role_column: str = "role",
     campaign_column: str = "campaign_id",
     action_column: str = "next_action",
+    dataset_name: Optional[str] = None,
 ) -> EpisodeBatch:
     """Align a label frame to graph user order without inventing missing labels."""
     if domain not in VALID_DOMAINS:
@@ -232,6 +241,7 @@ def build_episode_batch(
         campaign_mask=campaign_mask,
         temporal_action_targets=temporal_targets,
         temporal_action_mask=temporal_mask,
+        dataset_name=dataset_name or domain,
     )
 
 
@@ -394,6 +404,7 @@ def load_episode_batch_from_manifest(
         labels_frame=labels,
         role_vocabulary=role_vocabulary,
         action_vocabulary=action_vocabulary,
+        dataset_name=manifest.dataset_name,
     )
 
 
@@ -440,6 +451,7 @@ def episode_batch_from_neighbor_sample(
         temporal_action_mask=slice_values(
             "temporal_action_mask", seed_only=True
         ),
+        dataset_name=parent.dataset_name,
     )
 
 
@@ -459,20 +471,27 @@ class DomainAwareLorentzHGT(torch.nn.Module):
         num_temporal_actions: int,
         campaign_dim: int = 16,
         domains: Sequence[str] = ("real", "synthetic"),
+        dataset_domains: Sequence[str] = (
+            "twibot22", "mgtab", "simulation", "real", "synthetic",
+        ),
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
         domain_values = tuple(domains)
         if not domain_values or not set(domain_values).issubset(VALID_DOMAINS):
             raise ValueError(f"domains must be drawn from {sorted(VALID_DOMAINS)}")
+        dataset_values = tuple(dict.fromkeys(str(value) for value in dataset_domains))
+        if not dataset_values or any(not value.strip() for value in dataset_values):
+            raise ValueError("dataset_domains must contain non-empty identifiers")
         if num_roles <= 0 or num_temporal_actions <= 0 or campaign_dim <= 0:
             raise ValueError("task dimensions must be positive")
         from torch_geometric.nn import Linear
 
         node_types = tuple(metadata[0])
         self.domains = domain_values
+        self.dataset_domains = dataset_values
         self.feature_adapters = torch.nn.ModuleDict({
-            domain: torch.nn.ModuleDict({
+            dataset: torch.nn.ModuleDict({
                 node_type: torch.nn.Sequential(
                     Linear(-1, hidden_dim),
                     torch.nn.LayerNorm(hidden_dim),
@@ -480,7 +499,7 @@ class DomainAwareLorentzHGT(torch.nn.Module):
                 )
                 for node_type in node_types
             })
-            for domain in domain_values
+            for dataset in dataset_values
         })
         self.encoder = IntrinsicLorentzHGT(
             hidden_dim=hidden_dim,
@@ -489,10 +508,8 @@ class DomainAwareLorentzHGT(torch.nn.Module):
             metadata=metadata,
             dropout=dropout,
         )
-        self.bot_heads = torch.nn.ModuleDict({
-            domain: torch.nn.Linear(hidden_dim, 1) for domain in domain_values
-        })
-        self.role_head = torch.nn.Linear(hidden_dim, num_roles)
+        self.bot_head = LorentzPrototypeClassifier(hidden_dim, 2)
+        self.role_head = LorentzPrototypeClassifier(hidden_dim, num_roles)
         self.campaign_projection = torch.nn.Linear(hidden_dim, campaign_dim)
         self.temporal_action_head = torch.nn.Linear(
             hidden_dim, num_temporal_actions
@@ -503,12 +520,16 @@ class DomainAwareLorentzHGT(torch.nn.Module):
         graph,
         *,
         domain: str,
+        dataset_name: Optional[str] = None,
         edge_mask_dict: Optional[Mapping[EdgeType, torch.Tensor]] = None,
     ) -> Dict[str, torch.Tensor]:
         if domain not in self.domains:
             raise ValueError(f"model was not configured for domain {domain!r}")
+        dataset = dataset_name or domain
+        if dataset not in self.feature_adapters:
+            raise ValueError(f"model was not configured for dataset {dataset!r}")
         adapted = {
-            node_type: self.feature_adapters[domain][node_type](features.float())
+            node_type: self.feature_adapters[dataset][node_type](features.float())
             for node_type, features in graph.x_dict.items()
         }
         lorentz_nodes = self.encoder.encode_lorentz_nodes(
@@ -519,14 +540,16 @@ class DomainAwareLorentzHGT(torch.nn.Module):
         curvature = self.encoder.common_curvature()
         user_lorentz = lorentz_nodes["user"]
         user_tangent = logmap0(user_lorentz, curvature)
+        bot_class_logits = self.bot_head(user_lorentz, curvature)
         result = {
             "user_lorentz": user_lorentz,
             "user_tangent": user_tangent,
-            "bot_logits": self.bot_heads[domain](user_tangent).squeeze(-1),
+            "bot_class_logits": bot_class_logits,
+            "bot_logits": bot_class_logits[:, 1] - bot_class_logits[:, 0],
         }
         if domain == "synthetic":
             result.update({
-                "role_logits": self.role_head(user_tangent),
+                "role_logits": self.role_head(user_lorentz, curvature),
                 "campaign_embedding": self.campaign_projection(user_tangent),
                 "temporal_action_logits": self.temporal_action_head(user_tangent),
             })
@@ -537,8 +560,12 @@ class DomainAwareLorentzHGT(torch.nn.Module):
         metadata.update({
             "geometry_backend": self.geometry_backend,
             "domains": list(self.domains),
-            "domain_specific_input_adapters": True,
-            "domain_specific_bot_heads": True,
+            "dataset_domains": list(self.dataset_domains),
+            "dataset_specific_input_adapters": True,
+            "domain_specific_bot_heads": False,
+            "decision_geometry": "lorentz_distance_prototypes",
+            "bot_prototypes": self.bot_head.num_classes,
+            "role_prototypes": self.role_head.num_classes,
             "privileged_simulation_heads": ["role", "campaign", "next_action"],
         })
         return metadata
@@ -546,48 +573,61 @@ class DomainAwareLorentzHGT(torch.nn.Module):
 
 @dataclass(frozen=True)
 class JointLossConfig:
-    real_bot: float = 1.0
-    synthetic_bot: float = 0.5
-    role: float = 0.25
-    campaign: float = 0.2
-    temporal_action: float = 0.2
-    relation: float = 0.1
-    domain_alignment: float = 0.05
+    detection_weight: float = 1.0
+    privileged_weight: float = 0.3
+    alignment_weight: float = 0.05
+    privileged_role_share: float = 1.0
+    privileged_campaign_share: float = 1.0
+    privileged_action_share: float = 1.0
+    privileged_warmup_epochs: int = 1
+    privileged_decay_epochs: int = 20
+    privileged_final_scale: float = 0.1
     alignment_method: str = "hyperbolic_supcon"
     alignment_temperature: float = 0.2
     campaign_temperature: float = 0.2
-    relation_margin: float = 1.0
-    max_relation_edges: int = 4096
     gradient_clip_norm: float = 5.0
     real_positive_class_weight: Optional[float] = None
     synthetic_positive_class_weight: Optional[float] = None
 
     def __post_init__(self) -> None:
         values = (
-            self.real_bot,
-            self.synthetic_bot,
-            self.role,
-            self.campaign,
-            self.temporal_action,
-            self.relation,
-            self.domain_alignment,
+            self.detection_weight,
+            self.privileged_weight,
+            self.alignment_weight,
+            self.privileged_role_share,
+            self.privileged_campaign_share,
+            self.privileged_action_share,
         )
         if any(value < 0 for value in values):
             raise ValueError("loss weights must be non-negative")
         if self.campaign_temperature <= 0 or self.alignment_temperature <= 0:
             raise ValueError("alignment and campaign temperatures must be positive")
-        if self.relation_margin < 0:
-            raise ValueError("temperature must be positive and margin non-negative")
         if self.alignment_method not in {"hyperbolic_supcon", "coral"}:
             raise ValueError("alignment_method must be hyperbolic_supcon or coral")
-        if self.max_relation_edges <= 0 or self.gradient_clip_norm <= 0:
-            raise ValueError("edge budget and gradient clip norm must be positive")
+        if self.gradient_clip_norm <= 0:
+            raise ValueError("gradient clip norm must be positive")
+        if self.privileged_warmup_epochs < 0 or self.privileged_decay_epochs <= 0:
+            raise ValueError("privileged schedule epochs must be valid")
+        if not 0.0 <= self.privileged_final_scale <= 1.0:
+            raise ValueError("privileged_final_scale must be in [0, 1]")
         for name, value in (
             ("real_positive_class_weight", self.real_positive_class_weight),
             ("synthetic_positive_class_weight", self.synthetic_positive_class_weight),
         ):
             if value is not None and value <= 0:
                 raise ValueError(f"{name} must be positive when provided")
+
+    def privileged_scale(self, epoch: int) -> float:
+        if epoch < 0:
+            raise ValueError("epoch must be non-negative")
+        if epoch < self.privileged_warmup_epochs:
+            return 1.0
+        progress = min(
+            1.0,
+            (epoch - self.privileged_warmup_epochs)
+            / self.privileged_decay_epochs,
+        )
+        return 1.0 - progress * (1.0 - self.privileged_final_scale)
 
 
 def _zero_like(reference: torch.Tensor) -> torch.Tensor:
@@ -617,55 +657,6 @@ def _campaign_loss(
     if not torch.any(pair_targets == 1) or not torch.any(pair_targets == 0):
         return _zero_like(embedding)
     return F.binary_cross_entropy_with_logits(logits, pair_targets)
-
-
-def _relation_ranking_loss(
-    model: DomainAwareLorentzHGT,
-    output: Mapping[str, torch.Tensor],
-    graph,
-    *,
-    margin: float,
-    max_edges: int,
-) -> torch.Tensor:
-    positives = []
-    for edge_type, edge_index in graph.edge_index_dict.items():
-        if edge_type[0] == "user" and edge_type[2] == "user":
-            positives.append(edge_index)
-    reference = output["user_lorentz"]
-    if not positives or reference.shape[0] < 2:
-        return _zero_like(reference)
-    positive_edges = torch.cat(positives, dim=1)
-    positive_edges = torch.unique(positive_edges, dim=1)
-    if positive_edges.shape[1] > max_edges:
-        selected = torch.randperm(
-            positive_edges.shape[1], device=positive_edges.device
-        )[:max_edges]
-        positive_edges = positive_edges[:, selected]
-    num_users = reference.shape[0]
-    from torch_geometric.utils import negative_sampling
-
-    negative_edges = negative_sampling(
-        positive_edges,
-        num_nodes=num_users,
-        num_neg_samples=positive_edges.shape[1],
-        method="sparse",
-        force_undirected=False,
-    )
-    pair_count = min(positive_edges.shape[1], negative_edges.shape[1])
-    if pair_count == 0:
-        return _zero_like(reference)
-    positive_edges = positive_edges[:, :pair_count]
-    negative_edges = negative_edges[:, :pair_count]
-    source, target = positive_edges
-    negative_source, negative_target = negative_edges
-    curvature = model.encoder.common_curvature()
-    positive_distance = lorentz_distance(
-        reference[source], reference[target], curvature
-    ).squeeze(-1)
-    negative_distance = lorentz_distance(
-        reference[negative_source], reference[negative_target], curvature
-    ).squeeze(-1)
-    return F.softplus(positive_distance - negative_distance + margin).mean()
 
 
 def coral_alignment_loss(first: torch.Tensor, second: torch.Tensor) -> torch.Tensor:
@@ -773,8 +764,10 @@ def compute_episode_losses(
     output: Mapping[str, torch.Tensor],
     batch: EpisodeBatch,
     config: JointLossConfig,
+    *,
+    epoch: int = 0,
 ) -> Dict[str, torch.Tensor]:
-    """Compute only losses backed by labels available in this episode."""
+    """Compute detection and one bundled privileged-simulation objective."""
     losses: Dict[str, torch.Tensor] = {}
     reference = output["user_tangent"]
     if torch.any(batch.bot_mask):
@@ -795,41 +788,42 @@ def compute_episode_losses(
         )
     else:
         bot_loss = _zero_like(reference)
-    bot_weight = config.real_bot if batch.domain == "real" else config.synthetic_bot
-    losses["bot"] = bot_weight * bot_loss
+    losses["detection"] = config.detection_weight * bot_loss
 
     if batch.domain == "synthetic":
-        losses["role"] = (
-            config.role
-            * F.cross_entropy(
+        privileged_parts = []
+        if torch.any(batch.role_mask):
+            privileged_parts.append(
+                config.privileged_role_share * F.cross_entropy(
                 output["role_logits"][batch.role_mask],
                 batch.role_targets[batch.role_mask],
+                )
             )
-            if torch.any(batch.role_mask)
-            else _zero_like(reference)
-        )
-        losses["campaign"] = config.campaign * _campaign_loss(
-            output["campaign_embedding"],
-            batch.campaign_targets,
-            batch.campaign_mask,
-            config.campaign_temperature,
-        )
-        losses["temporal_action"] = (
-            config.temporal_action
-            * F.cross_entropy(
+        if torch.any(batch.campaign_mask):
+            privileged_parts.append(
+                config.privileged_campaign_share * _campaign_loss(
+                    output["campaign_embedding"],
+                    batch.campaign_targets,
+                    batch.campaign_mask,
+                    config.campaign_temperature,
+                )
+            )
+        if torch.any(batch.temporal_action_mask):
+            privileged_parts.append(
+                config.privileged_action_share * F.cross_entropy(
                 output["temporal_action_logits"][batch.temporal_action_mask],
                 batch.temporal_action_targets[batch.temporal_action_mask],
+                )
             )
-            if torch.any(batch.temporal_action_mask)
-            else _zero_like(reference)
-        )
-    losses["relation"] = config.relation * _relation_ranking_loss(
-        model,
-        output,
-        batch.graph,
-        margin=config.relation_margin,
-        max_edges=config.max_relation_edges,
-    )
+        if privileged_parts:
+            normalized = torch.stack(privileged_parts).mean()
+            losses["privileged"] = (
+                config.privileged_weight
+                * config.privileged_scale(epoch)
+                * normalized
+            )
+        else:
+            losses["privileged"] = _zero_like(reference)
     losses["total"] = sum(losses.values(), _zero_like(reference))
     return losses
 
@@ -849,6 +843,7 @@ class DomainAlternatingTrainer:
         self.optimizer = optimizer
         self.config = config or JointLossConfig()
         self.device = torch.device(device)
+        self.epoch = 0
 
     def train_step(
         self,
@@ -861,13 +856,22 @@ class DomainAlternatingTrainer:
         synthetic_batch.to(self.device)
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
-        real_output = self.model(real_batch.graph, domain="real")
-        synthetic_output = self.model(synthetic_batch.graph, domain="synthetic")
+        real_output = self.model(
+            real_batch.graph,
+            domain="real",
+            dataset_name=real_batch.dataset_name,
+        )
+        synthetic_output = self.model(
+            synthetic_batch.graph,
+            domain="synthetic",
+            dataset_name=synthetic_batch.dataset_name,
+        )
         real_losses = compute_episode_losses(
-            self.model, real_output, real_batch, self.config
+            self.model, real_output, real_batch, self.config, epoch=self.epoch
         )
         synthetic_losses = compute_episode_losses(
-            self.model, synthetic_output, synthetic_batch, self.config
+            self.model, synthetic_output, synthetic_batch, self.config,
+            epoch=self.epoch,
         )
         if self.config.alignment_method == "hyperbolic_supcon":
             raw_alignment = hyperbolic_supervised_alignment_loss(
@@ -885,7 +889,7 @@ class DomainAlternatingTrainer:
                 synthetic_output,
                 synthetic_batch,
             )
-        alignment = self.config.domain_alignment * raw_alignment
+        alignment = self.config.alignment_weight * raw_alignment
         total = real_losses["total"] + synthetic_losses["total"] + alignment
         total.backward()
         gradient_norm = torch.nn.utils.clip_grad_norm_(
@@ -928,6 +932,7 @@ class DomainAlternatingTrainer:
             values = self.train_step(next(real_iterator), next(synthetic_iterator))
             for name, value in values.items():
                 totals[name] = totals.get(name, 0.0) + value
+        self.epoch += 1
         return {name: value / steps for name, value in totals.items()}
 
 
@@ -951,7 +956,11 @@ def evaluate_bot_batch(
         raise ValueError("calibration_bins must exceed one")
     batch.to(device)
     model.eval()
-    output = model(batch.graph, domain=batch.domain)
+    output = model(
+        batch.graph,
+        domain=batch.domain,
+        dataset_name=batch.dataset_name,
+    )
     mask = batch.bot_mask
     if not torch.any(mask):
         raise ValueError("evaluation batch contains no bot labels")

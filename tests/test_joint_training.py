@@ -74,6 +74,7 @@ def _batches(module):
         episode_id="real:toy",
         domain="real",
         labels_frame=_real_labels(),
+        dataset_name="twibot22",
     )
     synthetic = module.build_episode_batch(
         synthetic_graph,
@@ -82,6 +83,7 @@ def _batches(module):
         labels_frame=_synthetic_labels(),
         role_vocabulary={"member": 0, "leader": 1, "amplifier": 2},
         action_vocabulary={"post": 0, "reply": 1},
+        dataset_name="simulation",
     )
     return real, synthetic
 
@@ -124,10 +126,15 @@ def test_joint_model_accepts_domain_specific_feature_dimensions():
     real_output = model(real.graph, domain="real")
     synthetic_output = model(synthetic.graph, domain="synthetic")
     assert real_output["bot_logits"].shape == (4,)
+    assert real_output["bot_class_logits"].shape == (4, 2)
     assert "role_logits" not in real_output
     assert synthetic_output["role_logits"].shape == (4, 3)
     assert synthetic_output["temporal_action_logits"].shape == (4, 2)
     assert synthetic_output["campaign_embedding"].shape == (4, 16)
+    assert model.geometry_metadata()["decision_geometry"] == (
+        "lorentz_distance_prototypes"
+    )
+    assert model.geometry_metadata()["domain_specific_bot_heads"] is False
 
 
 def test_joint_train_step_routes_all_available_losses_and_backpropagates():
@@ -153,18 +160,67 @@ def test_joint_train_step_routes_all_available_losses_and_backpropagates():
     expected = {
         "loss_total",
         "loss_alignment",
-        "loss_real_bot",
-        "loss_real_relation",
-        "loss_synthetic_bot",
-        "loss_synthetic_role",
-        "loss_synthetic_campaign",
-        "loss_synthetic_temporal_action",
-        "loss_synthetic_relation",
+        "loss_real_detection",
+        "loss_synthetic_detection",
+        "loss_synthetic_privileged",
         "gradient_norm",
     }
     assert expected.issubset(metrics)
     assert all(torch.isfinite(torch.tensor(value)) for value in metrics.values())
     assert metrics["gradient_norm"] > 0
+
+
+def test_privileged_supervision_is_one_decaying_auxiliary_objective():
+    module = _load_module()
+    _, synthetic = _batches(module)
+    metadata = module.merge_heterogeneous_metadata([synthetic.graph])
+    model = module.DomainAwareLorentzHGT(
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        metadata=metadata,
+        num_roles=3,
+        num_temporal_actions=2,
+        dropout=0.0,
+    )
+    output = model(
+        synthetic.graph, domain="synthetic", dataset_name="simulation"
+    )
+    config = module.JointLossConfig(
+        privileged_warmup_epochs=0,
+        privileged_decay_epochs=10,
+        privileged_final_scale=0.1,
+    )
+    early = module.compute_episode_losses(
+        model, output, synthetic, config, epoch=0
+    )
+    late = module.compute_episode_losses(
+        model, output, synthetic, config, epoch=10
+    )
+    assert set(early) == {"detection", "privileged", "total"}
+    assert late["privileged"] < early["privileged"]
+
+
+def test_dataset_specific_adapters_share_one_bot_prototype_head():
+    module = _load_module()
+    real, _ = _batches(module)
+    metadata = module.merge_heterogeneous_metadata([real.graph])
+    model = module.DomainAwareLorentzHGT(
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        metadata=metadata,
+        num_roles=3,
+        num_temporal_actions=2,
+        dataset_domains=("twibot22", "mgtab", "simulation"),
+        dropout=0.0,
+    )
+    twibot = model(real.graph, domain="real", dataset_name="twibot22")
+    mgtab = model(real.graph, domain="real", dataset_name="mgtab")
+    assert twibot["bot_logits"].shape == mgtab["bot_logits"].shape == (4,)
+    assert model.geometry_metadata()["dataset_domains"] == [
+        "twibot22", "mgtab", "simulation"
+    ]
 
 
 def test_real_episode_rejects_privileged_ground_truth_masks():

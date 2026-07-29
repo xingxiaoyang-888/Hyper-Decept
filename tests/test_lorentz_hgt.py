@@ -56,6 +56,44 @@ def test_lorentz_to_poincare_stays_inside_unit_ball():
     assert torch.all(torch.linalg.vector_norm(ball, dim=-1) < 1.0)
 
 
+def test_weighted_lorentz_centroid_stays_on_manifold_and_backpropagates():
+    module = _load_module()
+    curvature = torch.tensor(0.8)
+    spatial = torch.randn(3, 4, requires_grad=True) * 0.1
+    points = module.lorentz_from_spatial(spatial, curvature)
+    weights = torch.tensor([0.2, 0.3, 0.5], requires_grad=True)
+    centroid = module.weighted_lorentz_centroid(
+        points.unsqueeze(0), weights.unsqueeze(0), curvature, dim=1
+    )
+    norm = module.minkowski_dot(centroid, centroid).squeeze(-1)
+    assert torch.allclose(norm, torch.tensor([-1.25]), atol=1e-5)
+    centroid[..., 1:].sum().backward()
+    assert weights.grad is not None
+    assert torch.isfinite(weights.grad).all()
+
+
+def test_lorentz_prototype_classifier_uses_valid_learned_prototypes():
+    module = _load_module()
+    curvature = torch.tensor(1.2)
+    classifier = module.LorentzPrototypeClassifier(5, 3)
+    points = module.expmap0(torch.randn(7, 5) * 0.1, curvature)
+    logits = classifier(points, curvature)
+    prototypes = classifier.prototypes(curvature)
+    prototype_norms = module.minkowski_dot(
+        prototypes, prototypes
+    ).squeeze(-1)
+    assert logits.shape == (7, 3)
+    assert torch.isfinite(logits).all()
+    assert torch.allclose(
+        prototype_norms,
+        torch.full_like(prototype_norms, -1.0 / 1.2),
+        atol=1e-5,
+    )
+    logits.sum().backward()
+    assert classifier.prototype_spatial.grad is not None
+    assert torch.isfinite(classifier.prototype_spatial.grad).all()
+
+
 def test_intrinsic_hgt_supports_relation_masks_and_curvature_gradients():
     module = _load_module()
     data, follows, _ = _toy_data()
@@ -100,6 +138,12 @@ def test_relation_specific_curvatures_are_exposed_for_audit():
     assert f"layer_0:{module.edge_type_name(follows)}" in keys
     assert f"layer_0:{module.edge_type_name(posts)}" in keys
     assert all(value < 0.0 for value in keys.values())
+    assert metadata["edge_reliability_gate"] is True
+    assert metadata["node_adaptive_self_neighbor_fusion"] is True
+    audits = model._last_audits
+    assert audits
+    assert all(torch.all((audit.reliability >= 0) & (audit.reliability <= 1))
+               for audit in audits.values())
 
 
 def test_masked_relation_with_zero_budget_is_numerically_stable():

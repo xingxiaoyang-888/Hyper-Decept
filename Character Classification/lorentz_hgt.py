@@ -106,6 +106,89 @@ def lorentz_to_poincare(
     return sqrt_k * point[..., 1:] / (sqrt_k * point[..., :1] + 1.0).clamp_min(eps)
 
 
+def weighted_lorentz_centroid(
+    points: torch.Tensor,
+    weights: torch.Tensor,
+    curvature: torch.Tensor,
+    *,
+    dim: int = -2,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Normalize a positive weighted Minkowski sum back to the hyperboloid."""
+    if points.ndim < 2 or points.shape[-1] < 2:
+        raise ValueError("points must contain Lorentz coordinates")
+    if weights.shape != points.shape[:-1]:
+        raise ValueError("weights must match points without the coordinate axis")
+    if torch.any(weights < 0):
+        raise ValueError("Lorentz centroid weights must be non-negative")
+    coordinate_dim = points.ndim - 1
+    normalized_dim = dim if dim >= 0 else points.ndim + dim
+    if normalized_dim < 0 or normalized_dim >= coordinate_dim:
+        raise ValueError("centroid dimension must index a non-coordinate axis")
+
+    weighted_sum = (points * weights.unsqueeze(-1)).sum(dim=normalized_dim)
+    total_weight = weights.sum(dim=normalized_dim)
+    minkowski_norm = minkowski_dot(weighted_sum, weighted_sum).squeeze(-1)
+    valid = (total_weight > eps) & (minkowski_norm < -eps)
+    scale = torch.sqrt(
+        (-curvature.to(weighted_sum) * minkowski_norm).clamp_min(eps)
+    )
+    centroid = weighted_sum / scale.unsqueeze(-1)
+    origin = torch.zeros_like(centroid)
+    origin[..., 0] = torch.rsqrt(curvature.to(origin))
+    return torch.where(valid.unsqueeze(-1), centroid, origin)
+
+
+class LorentzPrototypeClassifier(torch.nn.Module):
+    """Classify manifold points by geodesic distance to learned prototypes."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_classes: int,
+        *,
+        initial_temperature: float = 1.0,
+        minimum_temperature: float = 1e-3,
+    ) -> None:
+        super().__init__()
+        if hidden_dim <= 0 or num_classes <= 1:
+            raise ValueError("prototype dimensions and class count must be valid")
+        if initial_temperature <= minimum_temperature:
+            raise ValueError("initial temperature must exceed its minimum")
+        self.hidden_dim = int(hidden_dim)
+        self.num_classes = int(num_classes)
+        self.minimum_temperature = float(minimum_temperature)
+        self.prototype_spatial = torch.nn.Parameter(
+            torch.empty(num_classes, hidden_dim)
+        )
+        torch.nn.init.normal_(self.prototype_spatial, mean=0.0, std=0.02)
+        inverse_softplus = torch.log(
+            torch.expm1(torch.tensor(initial_temperature - minimum_temperature))
+        )
+        self.temperature_raw = torch.nn.Parameter(inverse_softplus)
+        self.bias = torch.nn.Parameter(torch.zeros(num_classes))
+
+    def temperature(self) -> torch.Tensor:
+        return self.minimum_temperature + F.softplus(self.temperature_raw)
+
+    def prototypes(self, curvature: torch.Tensor) -> torch.Tensor:
+        return lorentz_from_spatial(self.prototype_spatial, curvature)
+
+    def forward(
+        self,
+        points: torch.Tensor,
+        curvature: torch.Tensor,
+    ) -> torch.Tensor:
+        if points.shape[-1] != self.hidden_dim + 1:
+            raise ValueError("point dimension does not match prototype dimension")
+        distances = lorentz_distance(
+            points.unsqueeze(-2),
+            self.prototypes(curvature).unsqueeze(0),
+            curvature,
+        ).squeeze(-1)
+        return self.bias - distances / self.temperature().to(points)
+
+
 class BoundedCurvature(torch.nn.Module):
     """Stable learnable magnitude for a negative curvature."""
 
@@ -152,6 +235,7 @@ class LorentzLinear(torch.nn.Module):
 class RelationAudit:
     curvature: torch.Tensor
     attention: torch.Tensor
+    reliability: torch.Tensor
 
 
 class LorentzRelationMessage(torch.nn.Module):
@@ -169,6 +253,10 @@ class LorentzRelationMessage(torch.nn.Module):
         self.output_transform = LorentzLinear(hidden_dim, hidden_dim)
         self.distance_scale_raw = torch.nn.Parameter(torch.zeros(num_heads))
         self.attention_bias = torch.nn.Parameter(torch.zeros(num_heads))
+        self.reliability_distance_scale_raw = torch.nn.Parameter(
+            torch.zeros(num_heads)
+        )
+        self.reliability_bias = torch.nn.Parameter(torch.ones(num_heads))
 
     def forward(
         self,
@@ -199,6 +287,15 @@ class LorentzRelationMessage(torch.nn.Module):
             logits, target_index, num_nodes=target_points.shape[0], dim=0
         )
 
+        reliability_scale = F.softplus(
+            self.reliability_distance_scale_raw
+        ) + 1e-4
+        reliability = torch.sigmoid(
+            self.reliability_bias.unsqueeze(0)
+            - reliability_scale.unsqueeze(0) * distance
+        )
+        attention = attention * reliability
+
         if edge_mask is not None:
             mask = edge_mask.to(attention).clamp(0.0, 1.0).unsqueeze(-1)
             attention = attention * mask
@@ -206,19 +303,48 @@ class LorentzRelationMessage(torch.nn.Module):
         source_spatial = source_relation[source_index, 1:].reshape(
             -1, self.num_heads, self.head_dim
         )
-        messages = source_spatial * attention.unsqueeze(-1)
-        aggregate = messages.new_zeros(
-            (target_points.shape[0], self.num_heads, self.head_dim)
+        source_head_points = lorentz_from_spatial(
+            source_spatial, relation_curvature
         )
-        aggregate.index_add_(0, target_index, messages)
-        aggregate = aggregate.reshape(target_points.shape[0], -1)
-        relation_point = lorentz_from_spatial(aggregate, relation_curvature)
+        weighted_points = source_head_points * attention.unsqueeze(-1)
+        aggregate = weighted_points.new_zeros(
+            (target_points.shape[0], self.num_heads, self.head_dim + 1)
+        )
+        aggregate.index_add_(0, target_index, weighted_points)
+        confidence = attention.new_zeros(
+            (target_points.shape[0], self.num_heads)
+        )
+        confidence.index_add_(0, target_index, attention)
+        confidence = confidence.clamp(0.0, 1.0)
+        head_centroids = weighted_lorentz_centroid(
+            aggregate.unsqueeze(-2),
+            torch.ones_like(aggregate[..., 0]).unsqueeze(-1),
+            relation_curvature,
+            dim=-2,
+        )
+        head_origin = torch.zeros_like(head_centroids)
+        head_origin[..., 0] = torch.rsqrt(
+            relation_curvature.to(head_origin)
+        )
+        head_centroids = weighted_lorentz_centroid(
+            torch.stack([head_origin, head_centroids], dim=-2),
+            torch.stack([1.0 - confidence, confidence], dim=-1),
+            relation_curvature,
+            dim=-2,
+        )
+        combined_spatial = head_centroids[..., 1:].reshape(
+            target_points.shape[0], -1
+        )
+        relation_point = lorentz_from_spatial(
+            combined_spatial, relation_curvature
+        )
         common_point = self.output_transform(
             relation_point, relation_curvature, common_curvature
         )
         return common_point, RelationAudit(
             curvature=relation_curvature,
             attention=attention,
+            reliability=reliability,
         )
 
 
@@ -245,8 +371,12 @@ class IntrinsicLorentzHGTLayer(torch.nn.Module):
             edge_type_name(edge_type): torch.nn.Parameter(torch.tensor(0.0))
             for edge_type in self.edge_types
         })
-        self.residual_gates = torch.nn.ParameterDict({
-            node_type: torch.nn.Parameter(torch.tensor(0.0))
+        self.fusion_gates = torch.nn.ModuleDict({
+            node_type: torch.nn.Sequential(
+                torch.nn.Linear(3 * hidden_dim, hidden_dim),
+                torch.nn.GELU(),
+                torch.nn.Linear(hidden_dim, 1),
+            )
             for node_type in node_types
         })
         self.norms = torch.nn.ModuleDict({
@@ -280,23 +410,45 @@ class IntrinsicLorentzHGTLayer(torch.nn.Module):
 
         output: Dict[str, torch.Tensor] = {}
         for node_type, current in point_dict.items():
-            residual_spatial = current[..., 1:]
             typed_candidates = candidates[node_type]
             if typed_candidates:
                 gate_logits = torch.stack([
                     self.relation_gates[key] for key, _ in typed_candidates
                 ])
-                gate_values = torch.softmax(gate_logits, dim=0)
-                relation_spatial = sum(
-                    gate_values[index] * candidate[..., 1:]
-                    for index, (_, candidate) in enumerate(typed_candidates)
+                relation_weights = torch.softmax(gate_logits, dim=0)
+                candidate_points = torch.stack(
+                    [candidate for _, candidate in typed_candidates], dim=1
                 )
-                residual_weight = torch.sigmoid(self.residual_gates[node_type])
-                mixed = residual_weight * residual_spatial
-                mixed = mixed + (1.0 - residual_weight) * relation_spatial
+                candidate_weights = relation_weights.unsqueeze(0).expand(
+                    current.shape[0], -1
+                )
+                relation_centroid = weighted_lorentz_centroid(
+                    candidate_points,
+                    candidate_weights,
+                    common_curvature,
+                    dim=1,
+                )
+                residual_spatial = current[..., 1:]
+                relation_spatial = relation_centroid[..., 1:]
+                residual_weight = torch.sigmoid(
+                    self.fusion_gates[node_type](torch.cat([
+                        residual_spatial,
+                        relation_spatial,
+                        torch.abs(residual_spatial - relation_spatial),
+                    ], dim=-1))
+                ).squeeze(-1)
+                mixed = weighted_lorentz_centroid(
+                    torch.stack([current, relation_centroid], dim=1),
+                    torch.stack([
+                        residual_weight.expand(current.shape[0]),
+                        (1.0 - residual_weight).expand(current.shape[0]),
+                    ], dim=1),
+                    common_curvature,
+                    dim=1,
+                )
             else:
-                mixed = residual_spatial
-            refined = self.norms[node_type](mixed)
+                mixed = current
+            refined = self.norms[node_type](mixed[..., 1:])
             refined = F.gelu(refined)
             refined = F.dropout(refined, p=self.dropout, training=self.training)
             output[node_type] = lorentz_from_spatial(refined, common_curvature)
@@ -403,4 +555,6 @@ class IntrinsicLorentzHGT(torch.nn.Module):
             ),
             "relation_curvatures": relation_curvatures,
             "edge_masks_supported": True,
+            "edge_reliability_gate": True,
+            "node_adaptive_self_neighbor_fusion": True,
         }

@@ -9,6 +9,9 @@ Output: chunked_profiles.json (readable, used for inspecting chunk quality)
 
 import json
 import os
+import re
+import argparse
+from pathlib import Path
 
 # Top-level sections to be treated as independent chunks
 SECTION_MAPPING = {
@@ -21,7 +24,12 @@ SECTION_MAPPING = {
 }
 
 # Top-level fields in the profile that do not need to be chunked
-SKIP_KEYS = {"Generated At", "Profile Index"}
+SKIP_KEYS = {"Generated At", "Profile Index", "Summary"}
+
+
+def section_slug(section_name: str) -> str:
+    """Create stable metadata for official sections not known in advance."""
+    return re.sub(r"[^a-z0-9]+", "_", section_name.lower()).strip("_")
 
 
 def flatten_dict(d: dict, parent_key: str = "") -> list[tuple[str, str]]:
@@ -68,10 +76,12 @@ def chunk_profile(profile: dict, agent_id: int) -> list[dict]:
             "text": summary.strip(),
         })
 
-    # 2. Remaining semantic blocks
+    # 2. Known semantic blocks
+    processed_keys = set()
     for section_key, json_key in SECTION_MAPPING.items():
         section_data = profile.get(json_key)
         if isinstance(section_data, dict):
+            processed_keys.add(json_key)
             text = build_section_text(section_key, section_data)
             if text.strip():
                 chunks.append({
@@ -80,13 +90,44 @@ def chunk_profile(profile: dict, agent_id: int) -> list[dict]:
                     "text": text,
                 })
 
+    # 3. Preserve future/variant DeepPersona sections instead of silently
+    # dropping them when the official taxonomy evolves.
+    for json_key, section_data in profile.items():
+        if (
+            json_key in SKIP_KEYS
+            or json_key in processed_keys
+            or not isinstance(section_data, dict)
+        ):
+            continue
+        section_key = section_slug(json_key)
+        text = build_section_text(section_key, section_data)
+        if text.strip():
+            chunks.append({
+                "agent_id": agent_id,
+                "section": section_key,
+                "text": text,
+            })
+
     return chunks
 
 
+def parse_args():
+    script_dir = Path(__file__).resolve().parent
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input", type=Path, default=script_dir / "deeppersonal_agents.json"
+    )
+    parser.add_argument(
+        "--output", type=Path, default=script_dir / "chunked_profiles.json"
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    input_path = os.path.join(script_dir, "deeppersonal_agents.json")
-    output_path = os.path.join(script_dir, "chunked_profiles.json")
+    input_path = args.input.expanduser().resolve()
+    output_path = args.output.expanduser().resolve()
 
     # Read input
     with open(input_path, "r", encoding="utf-8") as f:
@@ -102,6 +143,7 @@ def main():
         all_chunks.extend(chunks)
 
     # Write output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, ensure_ascii=False, indent=2)
 

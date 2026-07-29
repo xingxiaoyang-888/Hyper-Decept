@@ -1,0 +1,9 @@
+script: new_main_classifier.py
+db_path: D:\Github\Multi-AFG-Detection\data\twibot_5000_v5.db
+csv_path: D:\Github\Multi-AFG-Detection\data\twibot_5000_multimodal_v5.csv
+dataset: auto
+sim_threshold: 0.7
+psychology_mode: full
+max_tweets_per_user: None
+visualizer: True
+xgb_device: cpu

@@ -12,15 +12,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DATASET_PRESETS = {
     "agent72": (
-        PROJECT_ROOT / "data" / "test_72.db",
+        PROJECT_ROOT / "data" / "simu_db" / "test.db",
         PROJECT_ROOT / "data" / "72agent_deeppersonal.csv",
     ),
     "test72": (
-        PROJECT_ROOT / "data" / "test_72.db",
+        PROJECT_ROOT / "data" / "simu_db" / "test.db",
         PROJECT_ROOT / "data" / "72agent_deeppersonal.csv",
     ),
     "72": (
-        PROJECT_ROOT / "data" / "test_72.db",
+        PROJECT_ROOT / "data" / "simu_db" / "test.db",
         PROJECT_ROOT / "data" / "72agent_deeppersonal.csv",
     ),
     "twibot120": (

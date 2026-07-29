@@ -1,0 +1,8 @@
+script: new_main_classifier.py
+db_path: /Users/alexmason/Downloads/Hyper-Decept/MultiAgent4Collusion-master/our_twitter_sim/smoke_72_all_active.db
+csv_path: /Users/alexmason/Downloads/Hyper-Decept/data/72agent_deeppersonal.csv
+dataset: auto
+sim_threshold: 0.7
+psychology_mode: off
+max_tweets_per_user: None
+visualizer: False

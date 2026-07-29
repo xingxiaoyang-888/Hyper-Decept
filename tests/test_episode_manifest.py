@@ -86,6 +86,13 @@ def test_real_training_protocols_separate_holdout_from_multisource_use(tmp_path)
         episode.episode_id for episode in plan.episodes
         if episode.dataset_name == "mgtab"
     )
+    mgtab = next(
+        episode for episode in plan.episodes
+        if episode.dataset_name == "mgtab"
+    )
+    assert mgtab.capabilities["raw_text"] is False
+    assert mgtab.capabilities["precomputed_text_embeddings"] is True
+    assert mgtab.capabilities["external_neighbors"] is False
     assert p1[mgtab_id] == "test"
     assert p2[mgtab_id] == "shared"
 

@@ -58,9 +58,18 @@ def run_gang_detection(edge_path=EDGE_PATH, result_path=RESULT_PATH, save_dir=SA
 
     logger.info("Loading classification results...")
     df_result = pd.read_csv(result_path)
-    logger.info("  Total: %s nodes, bots: %s", len(df_result), int(df_result["is_bad"].sum()))
+    # Community detection must operate on the classifier output.  Using
+    # ``is_bad`` here leaks the ground-truth labels into the detection stage
+    # and makes the reported gangs unavailable in a real inference setting.
+    prediction_col = "y_pred" if "y_pred" in df_result.columns else "is_bad"
+    logger.info(
+        "  Total: %s nodes, predicted bots: %s (source=%s)",
+        len(df_result),
+        int(df_result[prediction_col].sum()),
+        prediction_col,
+    )
 
-    bot_ids = set(df_result[df_result["is_bad"] == 1]["user_id"].astype(str))
+    bot_ids = set(df_result[df_result[prediction_col] == 1]["user_id"].astype(str))
     bot_nodes = [node for node in G.nodes() if node in bot_ids]
     G_bot = G.subgraph(bot_nodes).copy()
     logger.info("  Bot subgraph: %s nodes, %s edges", G_bot.number_of_nodes(), G_bot.number_of_edges())
@@ -113,7 +122,7 @@ def run_gang_detection(edge_path=EDGE_PATH, result_path=RESULT_PATH, save_dir=SA
         profile.to_csv(profile_path)
         logger.info("Gang profiles saved: %s", profile_path)
 
-    gang_cols = ["user_id", "user_type", "is_bad", "gang_id"]
+    gang_cols = ["user_id", "user_type", "is_bad", "y_pred", "prob_bot", "gang_id"]
     if "name" in df_bot.columns:
         gang_cols.insert(1, "name")
     if "username" in df_bot.columns:

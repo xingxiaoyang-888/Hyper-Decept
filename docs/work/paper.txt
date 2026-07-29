@@ -1,0 +1,435 @@
+HyperDecept: Cross-Dimensional Multimodal Detection of
+LLM-Driven Coordinated Deception
+AnonymousAuthor(s)
+Abstract WeproposeHyperDecept,across-dimensionalframeworkthat
+TheevolutionofLargeLanguageModels(LLMs)hasgivenrise integratesLLM-nativepsychologicalprofiling,hyperbolichetero-
+toLLM-drivensocialbotscapableofpersonacamouflage,adaptive geneous graph learning, non-parametric tactical role discovery,
+interaction,andhierarchicalcollaboration.Traditionaldetectors andcost-sensitiveclassification.Theframeworkiscoupledwitha
+relyingonshallowbehavioralstatisticsandflattopologicalrepre- simulation-to-detectionpipelineinwhichLLM-drivenagentsinter-
+sentationsareinsufficientforcapturingsuchmulti-agentdeception actunderrecommendationfeedback,reflection,sharedreflection,
+games.WeproposeHyperDecept,across-dimensionalmultimodal centralizedordecentralizedcollusion,andplatforminterventions
+frameworkforidentifyingcoordinateddeceptiveagents.Hyper- suchasprebunking,debunking,andbanning.Ourcontributions
+DeceptintroducesLLM-nativepsychologicalprofilingmatricesto arethreefold:(1)weformulateLLM-drivenCIBastrajectory-level
+capturemanipulationfeatures,employsaHeterogeneousGraph multi-agentdeceptiondetection;(2)wedesignamultimodalde-
+Transformer(HGT)toprojectheterogeneousinteractionnetworks tectorcombiningpsychological,semantic,behavioral,hyperbolic-
+intoaPoincaréhyperbolicspace,andincorporatesaDirichletPro- topological,androle-structuralsignals;and(3)weevaluatethe
+cess Mixture Model (DPMM) for discovering tactical roles in a frameworkonTwiBot-22andcontrolledsimulationtraces,with
+non-parametricmanner.ExperimentsonTwiBot-22andcontrolled SHAP-basedanalysisforexplainingcollaborativedeceptionmech-
+simulationtracesshowthatHyperDeceptimprovesthebalance anisms.
+betweenprecisionandrecallagainstrepresentativebot-detection
+baselines.Furthermore,SHAP-basedinterpretationdecomposescol- 2 ProblemDefinition
+l
+t
+a
+o
+b
+p
+o
+o
+r
+l
+a
+o
+t
+g
+i
+i
+v
+c
+e
+a
+d
+l
+e
+e
+c
+v
+e
+id
+p
+e
+ti
+n
+o
+c
+n
+e.
+in
+T
+t
+h
+o
+e
+p
+a
+s
+n
+y
+o
+ch
+n
+o
+y
+l
+m
+og
+iz
+ic
+e
+a
+d
+l,
+im
+be
+p
+h
+l
+a
+e
+v
+m
+io
+e
+r
+n
+a
+t
+l
+a
+,
+t
+a
+io
+n
+n
+d
+i
+h
+s
+y
+a
+p
+v
+e
+a
+r
+i
+b
+la
+o
+b
+li
+l
+c
+e
+- Let U = {𝑢 𝑖}
+𝑖
+𝑁
+=1
+denote agents observed over timesteps𝑡 =
+1,...,𝑇.Ateachtimestep,agent𝑢 𝑖 mayexecuteanaction𝑎 𝑖,𝑡 ∈A,
+athttps://anonymous.4open.science/r/Hyper-Decept-0D28/.
+generatecontent𝑐 𝑖,𝑡,andreceiveplatformfeedback𝑜 𝑖,𝑡,including
+exposure,engagement,recommendationoutputs,orintervention
+CCSConcepts signals.Itstrajectoryis𝜏 𝑖 = {(𝑎 𝑖,𝑡 ,𝑐 𝑖,𝑡 ,𝑜 𝑖,𝑡)}𝑇 𝑡=1 .Platforminterac-
+•Informationsystems→Socialnetworks;•Computingmethod- tionsformadynamicheterogeneousgraph𝐺 𝑡 =(V𝑡 ,E𝑡 ,R),where
+ologies→Supervisedlearningbyclassification;•Securityand nodesincludeagentsandcontentitems,andrelationtypesinclude
+privacy→Socialnetworksecurityandprivacy. follows,posts,replies,reposts,andlikes.
+Thedetectiontaskistolearn𝑓 𝜃(𝜏 𝑖 ,{𝐺 𝑡}𝑇 𝑡=1 )→ [0,1],where𝑦 𝑖 =
+Keywords 1indicatesadeceptiveorcollusivebotand𝑦 𝑖 =0indicatesabenign
+user.HyperDeceptalsoinfersalatenttacticalrole𝑟 𝑖 forsuspicious
+SocialBotDetection,HyperbolicGraphLearning,Psychological
+agents,suchasleader,bridge,amplifier,orperipheralexecutor.We
+Profiling,CoordinatedInauthenticBehavior
+assume that an attacker may control multiple LLM-driven bots
+withpersonacamouflageandhierarchicalcoordination,whereas
+the defender observes only platform-visible text, behavior, and
+1 Introduction graphtraces,nothiddenpromptsorprivatecoordinationchannels.
+LargeLanguageModels(LLMs)arechangingtheoperational
+formofonlinedeception.Moderncoordinatedinauthenticbehav- 3 ProposedMethodology
+ior(CIB)isnolongerlimitedtoisolatedrule-basedaccounts,but
+3.1 Multi-AgentGameFramework
+increasinglyinvolvesmulti-agentsystemsthatmaintainplausible
+personas,adapttoplatformfeedback,andcoordinatethroughex- Figure1presentstheoverallarchitectureofHyperDecept,includ-
+plicitorimplicitcommandstructures.Suchbehavioristherefore ingpsychologicalfeatureinitialization,heterogeneousgraphen-
+notonlyacontentclassificationproblem,butatrajectory-level coding,hyperbolicrolediscovery,andattribution-awaredeception
+deceptiongameembeddedinsocialplatforms. detection.TostudyCIBunderplatformdynamics,HyperDeceptem-
+Existingdetectorscombinetextualencoderswithgraphneural ploysagenerativesimulation-to-detectionecosystembuiltaround
+networks,includingrelationalanddynamicgraphmodelsforsocial anopen-sourceLLM-agentsandbox[18].Theenvironmentisfor-
+botdetection[5,9].However,manysystemsstillfusemodalities mulatedasapartiallyobservableMarkovgameinwhichbenignand
+atasuperficiallevel.Textualfeaturescapturesemanticsimilarity deceptiveagentshaveheterogeneousprofiles,activitylevels,social
+orlinguisticartifacts,whileEuclideangraphencoderscompress links,andcontentinterests.Agentsinteractwithmixedcontent
+scale-freeinteractionstructuresintospacesthatarepoorlymatched seeds,includingmisinformationandpromotionalscenarios,un-
+tohierarchicalcommandchains.Asaresult,thesedetectorsmay derinterest-basedandpopularity-basedrecommendationpolicies.
+misscognitive-affectivemanipulationsignalsandmaysufferfrom Deceptiveagentsoptimizeadversarialgoalsbyexchangingobserva-
+dimensionalcrowdingorover-smoothingintree-likebotarrays. tions,sharingreflections,andfollowinghierarchicalleader/member
+
+Anon.
+Figure1:OverallarchitectureofHyperDecept.TheframeworkinitializesLLM-nativepsychologicalandbehavioralfeatures,
+performsHGT-basedmeta-pathaggregation,mapsrepresentationsintoaPoincarémanifoldforDPMM-basedtacticalrole
+discovery,andappliesanXGBoostclassifierwithSHAPattributionfordeceptiondetection.
+taskallocations,enablingbothcentralizedanddecentralizedcollu- Aggregatingthesequence-levelmeanandmaximumvaluesof
+sion. thesefourmetricsprovidesan8-dimensionalpsychologicalsig-
+Thesimulatorlogscompletestate-actiontrajectoriestogether naturep𝑖 ∈ R8.Thisformsahighlyinterpretablepsychological
+withrecommendationexposureandplatforminterventionssuch subspacethatfundamentallydifferentiatescomplexLLM-driven
+asdebunkingandbanning.Thesetracessupportcounterfactual personasfromauthentichumancognition.
+analysisofadaptivebotsandprovidecontrolledtrainingevidence
+for the downstream detector, while real-world benchmarks are 3.3 HyperbolicHeterogeneousGraphEncoding
+usedtoexaminewhetherthelearnedsignalsgeneralizebeyondthe
+Command chains in disinformation networks naturally form
+sandbox.
+tree-likehierarchieswhoseleafnodesexpandrapidlywithdepth.
+StandardGNNsembedsuchstructuresintoEuclideanspace,where
+3.2 LLM-NativePsychologicalProfilingMatrices
+polynomialvolumegrowthcancrowdnodesandblurthedistance
+Ratherthantreatinguser-generatedtextsasflatsemanticbags, betweenleadersandlow-levelexecutionaccounts[2,15].Hyper-
+weconstructapsychologicalprofilingmatrixbasedonestablished Deceptaddressesthismismatchbyprojectingheterogeneousin-
+behavioraltheories.CoordinatedInauthenticBehavior(CIB)agents teractionrepresentationsintoaPoincaréball,whoseexponential
+exhibitdissociableanomaliesacrossfourorthogonaldimensions.To volumegrowthbettermatcheshierarchicalexpansion.
+operationalizethese,wedesignfourlightweightextractionengines Wemodeltheinteractionenvironmentasaheterogeneousgraph
+thatdonotrequirecontinuousheavyLLMinference: 𝐺 =(V,E,R)containinguserandcontentnodes.Relationtypesin-
+cludefollows,posts,replies,reposts,likes,andsimilarityedgescon-
+EmpathyGap(EG). CIBagentsoftensimulateaffectivearousal
+structedbythresholdingcosinesimilarityoverthe26-dimensional
+whilemaintainingstructurallyrigidlogic.Weemployaninstruction-
+intrinsicnodefeatures.UserfeaturesconcatenatePCA-reducedse-
+tunedLLMasazero-shotcognitiveevaluatortoscorethisdiscon-
+nect.Foranagent’stexttrajectory𝑇 𝑢,itisdefinedas manticembeddings,behavioralstatistics,andtheeight-dimensional
+psychologicalprofileafterjointnormalization;contentnodesare
+𝐸𝐺 =
+𝑡
+m
+𝑘∈
+a
+𝑇
+x
+𝑢
+(𝑃 𝑒𝑚𝑝𝑎𝑡ℎ𝑦). (1)
+initialized with random static features. HGT performs relation-
+specificmulti-headaggregationintheEuclideanfeaturespace[10]:
+DarkTriad(DT). Leadersindeceptionnetworksexhibitelevated
+Machiavellianismandmanipulationintent.Wefine-tuneaRoBERTa z𝑣 (ℓ+1) =HGT(ℓ)(z𝑣 (ℓ),{z𝑢 (ℓ) :𝑢 ∈N𝑟(𝑣),𝑟 ∈R}). (5)
+classifiertomaptextualoutputstomanipulativeprobabilities
+Positivepairsfromfollowandsimilarityedgesarepulledtogether
+𝐷𝑇 =𝑃(𝑦=𝑚𝑎𝑛𝑖𝑝𝑢𝑙𝑎𝑡𝑖𝑜𝑛 |𝑡 𝑘;𝜃 𝑅𝑜𝐵𝐸𝑅𝑇𝑎). (2)
+viasoftplus-transformedPoincarédistances,whilenegativesam-
+EmotionVolatility(EV). Unlikethecontinuousemotionaltrajec- plesdrawnfromadegree0.75distributionarepushedapartbeyond
+toriesofhumans,statelessbotsdisplayunnaturalinstantaneous amarginof3.0viaahingeloss.TheresultingEuclideanrepresen-
+affectiveshiftswhenrapidlyswitchingtasks.WedefineEVasthe tationz𝑣 ismappedintothePoincaréballviaasoftnormalization
+Euclideannormofconsecutivesentimentvectorshifts projection:
+𝐸𝑉 =∥𝑒 𝑘 −𝑒 𝑘−1 ∥ 2 . (3) h𝑣 = 1+ z ∥ 𝑣 z𝑣∥
+2
+, 𝜌 𝑣 =∥h𝑣∥ 2 . (6)
+FrictionlessContagion(FC). Amplifiersalignabnormallyfastwith
+Inthisspace,pairwisedistancesfollowthestandardPoincarémetric
+upstreamdirectives.Wequantifythisbypenalizingsemanticcosine
+(𝑐 =1):
+similaritywiththeresponsedelayΔ𝜏 𝑘:
+𝐹𝐶 = c
+1
+o
++
+s(
+e
+ℎ
+x
+𝑘
+p
+,ℎ
+(𝛼
+𝑡𝑎
+Δ
+𝑟𝑔
+𝜏
+𝑒
+𝑘
+𝑡
+)
+) . (4) 𝑑 D𝑐 (p𝑢 ,p𝑣)=arcosh (cid:18) 1+2
+(1−∥p
+∥
+𝑢
+p𝑢
+∥2 2
+−
+)(
+p
+1
+𝑣
+−
+∥2 2
+∥p𝑣∥2 2 )
+(cid:19) . (7)
+
+HyperDecept
+Table1:Post-hocprofilingoftheeightdiscoveredtactical theeight-dimensionalpsychologicalsignature—andsixmacroscopic
+roles. graphstatisticsderivedviaNetworkX,suchascentralityandcluster-
+ingcoefficients.Insteadofusinganopaquemultilayerperceptron,
+TacticalRole PoincaréRa- NetworkDegree KeyPsychological
+weadoptacost-sensitiveXGBoostclassifierbecauseitisrobustto
+dius Signature
+heterogeneoustabularfeatures,canpenalizefalsenegativesunder
+OpinionLeader Smallest Highest out-degree Peak Dark Triad
+classimbalance,andiscompatiblewithSHAPTreeExplainer[3,12].
+(Core) and agenda-setting (Machiavellian-
+Thefinaldetectoris
+centrality ism)
+Information Small– High betweenness ElevatedEmpathy 𝑦ˆ𝑖 =𝑓 𝜃([s𝑖;b𝑖;p𝑖;g𝑖]), (8)
+Bridge Medium acrosscommunities Gap
+wheres𝑖,b𝑖,andp𝑖 denotesemantic,behavioral,andpsychological
+Amplifier Medium High in/out-degree Peak Emotion
+features,andg𝑖comprisessixgraph-levelstatisticsderivedfromthe
+and rapid diffusion Volatility
+enhancedinteractiongraph.Role-levelfeaturesareintroducedsep-
+activity
+aratelyintheunsupervisedanalysisstage(§3.4).SHAPdecomposes
+Community Medium Denselocalconnec- Stableengagement
+themarginalcontributionofpsychological,semantic,behavioral,
+Builder tivityandhighclus- withmoderatecon-
+and topological signals. This white-box attribution exposes the
+tering tagiontendency
+mechanismsbehindeachdetectionandlinksclassificationevidence
+Peripheral Medium– Low-to-moderate Weak-to-
+Large degree with local moderate psycho- tothediscoveredtacticalroles.
+executionbehavior logicaldeviation
+4 ExperimentsandInterpretability
+FringeNode Large Sparseconnectivity Irregularaffective
+near the edge of andsemanticalign- 4.1 ExperimentalSetup
+communities ment
+WeevaluateHyperDeceptundertwocomplementarytestingset-
+BoundaryNode Large (Pe- Lowout-degreeand Peak Frictionless
+riphery) boundary-spanning Contagion tings:acontrolledsimulation-datasettestandareal-worlddataset
+execution test.Theprimaryreal-worldbenchmarkisTwiBot-22,whichpro-
+Outsider Largest(Out- Nearly isolated or Lowest role- videsuserprofiles,tweets,labels,andsocialgraphstructuresfor
+ermost) weakly attached to specificpsycholog- graph-basedsocialbotdetection[6].Controlledsimulationtraces
+themaingang icalconcentration areusedformechanism-orientedstresstesting:LLM-drivenagents
+interactunderpredefineddeceptionobjectives,roleconfigurations,
+Theradialcoordinate𝜌 𝑣isusedasaproxyforhierarchicalposition:
+recommendationfeedback,andplatforminterventions[16,19].Ac-
+influentialcoreusers(e.g.,opinionleaders)tendtoremainnear
+cordingly,Table2reportsTwiBot-22detectionperformance,while
+theorigin,whereasperipheralexecutorsarepushedtowardthe
+thesimulationsettingsupportsrole-levelandattribution-levelin-
+boundary.
+terpretation.Inthereal-dataconfiguration,wefurtherincorporate
+DeepPersona-stylepersonalityinformationintoagentprofilesand
+3.4 UnsupervisedGangDetectionandTactical
+conductexperimentsundermultiplepopulationscales,soasto
+RoleDiscovery examinewhetherthedetectorremainsstablewhenthenumberof
+ThestructuralcomplexityofCIBcampaignsvariesacrossplat- participatingagentschangesbyorderofmagnitude.
+formsandobjectives.Pre-specifyingthenumberoftacticalrolescan Wecompareagainstrepresentativetext,behavior,andgraphbase-
+over-segmentsimpleoperationsorcollapsedistinctrolesinlarge lines,includingBGSRD[8],Botometer[20],BotRGCN[7],Simple-
+campaigns.HyperDeceptthereforeusesatwo-stageunsupervised HGN[13],content-polluterdetection[11],GraphSAGE–BERT[4],
+pipeline.First,modularity-basedcommunitydetectionpartitions RGT[5],SGBot[21],T5[17],andBotDGT[9].Wefollowthebench-
+theinteractionsubgraphofsuspectedagentsintocollusivegangs. markconventionandreportaccuracy(ACC),precision(PRE),recall
+Second,aDirichletProcessMixtureModel(DPMM)inferstactical (RC), and F1-score (F1). We further report the two-dimensional
+rolesfromthehyperbolicembeddingsacrosstheentireuserpopu- distancefromtheidealpoint(DIP),whichsummarizesthejoint
+lation,withoutfixingthenumberofclustersinadvance[1].The objectiveofhighprecisionandhighrecall[14]:
+Poincaréradiusisthenusedforpost-hocroleordering. √︁ (1−PRE)2+(1−RC)2
+Inthisspace,nodeswithsmallradiitypicallyoccupycommand DIP=1− √ . (9)
+2
+coresandactasopinionleaders,whereasboundarynodestendto
+executeperipheralamplification.Inourexperiments,theDPMM 4.2 DetectionResultsandAblation
+convergestoanecosystemofeighttacticalroles.Table1reportsa
+Table2showsthatHyperDeceptobtainsthestrongestF1-score
+representativesubsetofthesediscoveredclustersandtheirpost-hoc
+onTwiBot-22andmaintainsthemostbalancedprecision–recall
+profiles.
+profile.WhenevaluatedbyDistancefromtheIdealPosition(DIP),
+HyperDeceptachievesascoreof0.740,comparedwith0.586forthe
+3.5 Cross-DimensionalFusionand
+strongestbaseline,BotRGCN.SinceDIPjointlyaccountsforpreci-
+Classification
+sionandrecall,thisresultindicatesthatHyperDeceptmovescloser
+Fordeceptiondetection,HyperDeceptusesearlyfusion.Each totheidealdetectionpointinthetwo-dimensionalprecision–recall
+agentisrepresentedbya32-dimensionalvectorcomprising26in- space,ratherthanimprovingonemetricbysacrificingtheother.
+trinsicfeatures—semanticcomponents,behavioralstatistics,and Severalgraphandtextbaselinesachievecompetitiveaccuracy,but
+
+Anon.
+(a)Poincarédiskofroleembeddings. (b)Psychologicalprofilingbyrole. (c)SHAPfeatureattribution.
+Figure2:Interpretabilityevidencefromrolegeometry,psychologicalprofiles,andfeatureattribution.ThePoincarédiskshows
+hyperbolicorganizationofdiscoveredroles,theradarchartcomparesrole-levelpsychologicalsignatures,andSHAPidentifies
+influentialbehavioralandrepresentation-levelfeatures.
+Table2:DetectionperformanceonTwiBot-22.DIPsumma- 4.3 AnalysisandInterpretation
+rizesthejointprecision–recallobjective.
+Figure2providescomplementaryevidencebeyondaggregate
+Model ACC PRE RC F1 DIP metrics.ThePoincarédiskindicatesthattheDPMM-derivedroles
+occupystructuredregionsinhyperbolicspace,supportingtheuse
+BGSRD[8] 0.72 0.23 0.20 0.21 0.215
+ofnon-Euclideangeometryforhierarchicalroleorganization.The
+Botometer[20] 0.50 0.31 0.70 0.43 0.468
+BotRGCN[7] 0.80 0.75 0.47 0.58 0.586 radar chart shows that tactical roles differ in psychological sig-
+SimpleHGN[13] 0.77 0.73 0.33 0.45 0.489 natures,suggestingthatrolediscoveryisnotmerelytopological.
+Leeetal.[11] 0.76 0.67 0.20 0.30 0.388 SHAPattributionfurtherrevealsthattheclassifierreliesonboth
+Deshmukhetal.[4] 0.75 — — 0.52 — behavioralvariablesandrepresentation-levelfeatures,consistent
+RGT[5] 0.76 0.75 0.30 0.43 0.474 withthecross-dimensionaldesignofHyperDecept.Togetherwith
+SGBot[21] 0.75 0.73 0.24 0.37 0.430 theablationdiagnostics,theseanalysessuggestthatpsychological
+T5[17] 0.72 0.63 0.12 0.20 0.325
+profilingismostusefulasacomplementarysourceofmechanistic
+BotDGT[9] 0.79 0.72 0.48 0.58 0.582
+evidence,especiallywhencombinedwithsemanticandhyperbolic-
+OurModel,HyperDecept 0.79 0.73 0.75 0.76 0.740
+topologicalsignals.
+5 Conclusion
+theirrecallorDIPremainssubstantiallylower,suggestinglimited
+sensitivitytopersona-camouflagedorstructurallycoordinatedbots. ThispaperpresentsHyperDecept,across-dimensionalframe-
+The simulation-dataset experiments show that the model in- workfordetectingLLM-drivencoordinatedinauthenticbehavior.
+corporatingpsychologicalfeaturesperformsbetteronthedeep Byintegratingsimulation-generatedtrajectories,psychologicalpro-
+humanizedintelligentagentdataset(Acc=0.83,F1=0.87),proving filing,hyperbolicgraphlearning,andnonparametricrolediscovery,
+thatthisalgorithmisadaptabletothehighlyhumanizedtrendof itlinksrobustdetectionwithinterpretable,SHAP-basedevidence
+LLMintelligentagentsandcanaccuratelyidentifyfinelydisguised ofcollaborativedeception.ExperimentsonTwiBot-22demonstrate
+fraudulentbots. abalancedprecision-recallprofileandsignificantlyimprovedF1
+Wefurtherconductmodule-levelablationdiagnosticstoexam- andDIPscorescomparedtorepresentativebaselines.
+inewhetherthepsychologicaldimensionsprovidecomplementary Limitationsincludetheinherentgapbetweencontrolledsimula-
+evidencebeyondsemanticandgraphfeatures.RemovingEmpa- tionsandtheoperationalevasiontacticsofreal-worldadversaries,
+thyGap,DarkTriad,EmotionVolatility,andFrictionlessConta- aswellasmethodologicalrisksoflabelleakagefromprompttem-
+gion decreases F1 by 0.033, 0.025, 0.014, and 0.027, respectively. plates.
+Theconsistentdegradationindicatesthatallfourpsychological Future work will advance HyperDecept across three frontier
+modulescontributeusefulsignalstothefinaldetector,withEmpa- directions:transitioningtoactivemulti-agentadversarialgamesfor
+thyGapandFrictionlessContagionproducingthelargestperfor- real-timeintervention;developingabespoke,low-levelstreaming
+mancedrops.Theseresultssupportthedesignchoiceofmodeling hyperbolic graph engine to handle the massive concurrency of
+cognitive-affectiveinconsistencyandrapiddirectivealignmentas actualsocialnetworks;andexpandingpsychologicalprofilingto
+explicitdimensions,ratherthanrelyingonlyongenericsemantic capturecross-modalcognitivedissonanceinembodieddeceptive
+orgraphfeatures. agents.
+
+HyperDecept
+GenAIUsageDisclosure
+[9] BingHe,YuyueYang,QiangWu,etal.2024.BotDGT:Dynamicity-awareSocial
+BotDetectionwithDynamicGraphTransformers.arXiv:2404.15070[cs.SI]
+GenerativeAItoolswereusedonlyforEnglishproofreading,
+[10] ZiniuHu,YuxiaoDong,KuansanWang,andYizhouSun.2020.Heterogeneous
+grammarchecking,andformattingassistance.Allresearchideas, GraphTransformer.InProceedingsofTheWebConference2020.
+experimentaldesign,codeimplementation,dataprocessing,anal- [11] KyuminLee,BrianEoff,andJamesCaverlee.2011. SevenMonthswiththe
+Devils:ALong-TermStudyofContentPollutersonTwitter.InProceedingsofthe
+ysis,andconclusionsweredevelopedandverifiedbytheauthors. InternationalAAAIConferenceonWebandSocialMedia,Vol.5.185–192.
+Theauthorstakefullresponsibilityforthecontentofthispaper. [12] ScottM.LundbergandSu-InLee.2017. AUnifiedApproachtoInterpreting
+ModelPredictions.InAdvancesinNeuralInformationProcessingSystems.
+[13] QingqingLv,MingDing,QiangLiu,etal.2021.AreWeReallyMakingMuch
+References
+Progress?Revisiting,BenchmarkingandRefiningHeterogeneousGraphNeural
+[1] DavidM.Blei,ThomasL.Griffiths,andMichaelI.Jordan.2010. TheNested Networks.InProceedingsofthe27thACMSIGKDDConferenceonKnowledge
+ChineseRestaurantProcessandBayesianNonparametricInferenceofTopic DiscoveryandDataMining.
+Hierarchies.J.ACM57,2(2010),1–30. [14] A.K.Nandi.2023.FromMultipleIndependentMetricstoSinglePerformance
+[2] InesChami,ZhitaoYing,ChristopherRé,andJureLeskovec.2019.Hyperbolic MeasureBasedonObjectiveFunction.IEEEAccess11(2023),3899–3913.doi:10.
+GraphConvolutionalNeuralNetworks.InAdvancesinNeuralInformationPro- 1109/ACCESS.2023.3235014
+cessingSystems. [15] MaximilianNickelandDouweKiela.2017. PoincaréEmbeddingsforLearn-
+[3] TianqiChenandCarlosGuestrin.2016. XGBoost:AScalableTreeBoosting ingHierarchicalRepresentations.InAdvancesinNeuralInformationProcessing
+System.InProceedingsofthe22ndACMSIGKDDInternationalConferenceon Systems.
+KnowledgeDiscoveryandDataMining. [16] JoonSungPark,JosephO’Brien,CarrieJunCai,MeredithRingelMorris,Percy
+[4] AniruddhaDeshmukh,MelodyMoh,andTeng-ShengMoh.2024.BotDetection Liang,andMichaelS.Bernstein.2023.GenerativeAgents:InteractiveSimulacra
+inSocialMediaUsingGraphSAGEandBERT.In2024IEEE/WICInternational ofHumanBehavior.InProceedingsofthe36thAnnualACMSymposiumonUser
+ConferenceonWebIntelligenceandIntelligentAgentTechnology(WI-IAT).804– InterfaceSoftwareandTechnology.
+811. [17] ColinRaffel,NoamShazeer,AdamRoberts,etal.2020.ExploringtheLimitsof
+[5] ShangbinFeng,ZhaoxuanTan,RuiLi,andMinnanLuo.2022.Heterogeneity- TransferLearningwithaUnifiedText-to-TextTransformer.JournalofMachine
+awareTwitterBotDetectionwithRelationalGraphTransformers.InProceedings LearningResearch21,140(2020),1–67.
+oftheAAAIConferenceonArtificialIntelligence,Vol.36.3977–3985. [18] QibingRenetal.2025. WhenAutonomyGoesRogue:PreparingforRisks
+[6] ShangbinFeng,HerunWan,NingnanWang,etal.2022. TwiBot-22:Towards of Multi-Agent Collusion in Social Systems. (2025). arXiv:2507.14660v2.
+Graph-BasedTwitterBotDetection.InAdvancesinNeuralInformationProcessing arXiv:2507.14660[cs.AI]doi:10.48550/arXiv.2507.14660
+Systems. [19] Z.Wang,Y.Zhou,Z.Luo,etal.2025. DeepPersona:AGenerativeEnginefor
+[7] ShangbinFeng,HerunWan,NingnanWang,JundongLi,andMinnanLuo.2021. ScalingDeepSyntheticPersonas.arXiv:2511.07338
+BotRGCN:TwitterBotDetectionwithRelationalGraphConvolutionalNetworks. [20] Kai-ChengYang,EmilioFerrara,andFilippoMenczer.2022.Botometer101:Social
+InProceedingsoftheIEEE/ACMInternationalConferenceonAdvancesinSocial BotPracticumforComputationalSocialScientists. JournalofComputational
+NetworksAnalysisandMining. SocialScience5,2(2022),1511–1528.
+[8] QingruGuo,HuanXie,YuxuanLi,etal.2021.SocialBotsDetectionviaFusing [21] Kai-ChengYang,OnurVarol,Pik-MaiHui,andFilippoMenczer.2020.Scalable
+BERTandGraphConvolutionalNetworks.Symmetry14,1(2021),30. andGeneralizableSocialBotDetectionthroughDataSelection.InProceedingsof
+theAAAIConferenceonArtificialIntelligence,Vol.34.1096–1103.

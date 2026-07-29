@@ -55,6 +55,7 @@ from datetime import datetime
 import pickle
 
 # ====================== 独立评价指标日志 ======================
+os.makedirs("log", exist_ok=True)
 # 日志会保存在项目根目录：evaluation_metrics.log
 metrics_logger = logging.getLogger("evaluation_metrics")
 metrics_logger.setLevel(logging.INFO)
@@ -292,11 +293,13 @@ async def running(
     reflection: bool = False,
     shared_reflection: bool = False,
     detection: bool = False,
+    activation_scale: float = 1.0,
+    force_all_agents_active: bool = False,
     model_configs: dict[str, Any] | None = None,
     inference_configs: dict[str, Any] | None = None,
     defense_configs: dict[str, Any] | None = None,
     action_space_file_path: str = None,
-    prompt_dir: str = "scripts/twitter_simulation/align_with_real_world",
+    prompt_dir: str = str(Path(__file__).resolve().parent),
 ) -> None:
     db_path = DEFAULT_DB_PATH if db_path is None else db_path
     csv_path = DEFAULT_CSV_PATH if csv_path is None else csv_path
@@ -481,7 +484,9 @@ async def running(
                 threshold = agent.user_info.profile["other_info"]["active_threshold"][
                     int(simulation_time_hour % 24)
                 ]
-                if agent_ac_prob < threshold:
+                if force_all_agents_active or agent_ac_prob < min(
+                    1.0, threshold * activation_scale
+                ):
                     tasks.append(agent.perform_action_by_llm())
             else:
                 await agent.perform_action_by_hci()
@@ -595,7 +600,10 @@ async def running(
     ############################################################
     # debug export: generate summary raw data
     ############################################################
-    save_dir = r"E:\fraud-detection2\Multi-agent-fraud-game-detection\summary_only\to_generate"
+    save_dir = os.path.join(
+        os.path.dirname(os.path.abspath(db_path)),
+        f"{Path(db_path).stem}_artifacts",
+    )
     os.makedirs(save_dir, exist_ok=True)
 
     # ===== Export TaskBlackboard audit log =====
@@ -643,7 +651,7 @@ async def running(
         "agent_past_actions": [agent.past_actions for _, agent in agent_graph.get_agents()]
     }
 
-    with open("detection_agent_data.pkl", "wb") as f:
+    with open(os.path.join(save_dir, "detection_agent_data.pkl"), "wb") as f:
         pickle.dump(save_data, f)
 
     social_log.info("✅ 已保存 detection 所需数据到 detection_agent_data.pkl")
@@ -651,7 +659,7 @@ async def running(
     # summarization and detection
     if detection:
         # 输出调试信息：每个智能体 标签 + summary
-        with open("agent_summary_debug.txt", "w", encoding="utf-8") as f:
+        with open(os.path.join(save_dir, "agent_summary_debug.txt"), "w", encoding="utf-8") as f:
             f.write(f"===== 智能体检测调试信息 =====\n")
             f.write(f"坏智能体ID: {bad_agent_ids}\n\n")
 

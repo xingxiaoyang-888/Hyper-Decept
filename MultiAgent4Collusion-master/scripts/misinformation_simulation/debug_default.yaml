@@ -30,38 +30,36 @@
 
 
 data:
-  db_path: MultiAgent4Collusion-master/our_twitter_sim/test.db
-  csv_path: MultiAgent4Collusion-master/our_twitter_sim/input_agents.csv
+  db_path: our_twitter_sim/smoke_10_run4.db
+  csv_path: ../simulation_data_csv/test_10_good_bad_random_multimodal_wlx.csv
 
 
 simulation:
-  num_timesteps: 5
+  num_timesteps: 1
   clock_factor: 60
-  recsys_type: twhin-bert
-  reflection: True
-  shared_reflection: True
-  detection: True
+  recsys_type: random
+  reflection: False
+  shared_reflection: False
+  detection: False
 
 model:
-  num_agents: 72
+  num_agents: 10
   model_random_seed: NULL
   cfgs:
-    - model_type: glm-4-flash
-      num: 72
-      server_url: https://open.bigmodel.cn/api/paas/v4/
+    - model_type: qwen3.5:9b
+      num: 10
+      server_url: http://127.0.0.1:11434/v1
       model_path: openai
       stop_tokens: []
       temperature: 0.7
 
 inference:
-  model_type: glm-4-flash
+  model_type: qwen3.5:9b
   model_path: openai
   stop_tokens: []
   timeout: 30000
   server_url:
-    - host: open.bigmodel.cn
-      ports: [443]
+    - host: 127.0.0.1
+      ports: [11434]
 
-defense:
-  strategy: ban
-  gap: 5
+# Defense is disabled for the first 10-agent smoke test.

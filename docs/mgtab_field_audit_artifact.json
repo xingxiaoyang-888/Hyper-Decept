@@ -1,0 +1,330 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "MGTAB 标准版字段与完整性审计",
+    "description": "面向 HyperDecept 双曲 HGT 数据接入的只读字段、标签与图结构审计。",
+    "generatedAt": "2026-07-29T06:30:36.927399+00:00",
+    "sources": [
+      {
+        "id": "mgtab_audit",
+        "label": "MGTAB 审计报告只读查询",
+        "path": "docs/mgtab_field_audit_report.sql",
+        "href": "https://github.com/GraphDetec/MGTAB"
+      },
+      {
+        "id": "mgtab_audit_script",
+        "label": "MGTAB 张量审计实现",
+        "path": "data_processing/mgtab_raw_audit.py"
+      },
+      {
+        "id": "mgtab_paper",
+        "label": "MGTAB 官方论文与字段语义",
+        "href": "https://arxiv.org/abs/2301.01123",
+        "query": {
+          "description": "论文 Table 4 给出 20 个账号属性字段顺序和 768 维 LaBSE 推文向量；关系构建章节给出七种关系的方向语义。",
+          "language": "LaTeX"
+        }
+      }
+    ],
+    "cards": [
+      {
+        "id": "node_count",
+        "dataset": "summary",
+        "sourceId": "mgtab_audit",
+        "description": "专家标注账号节点数",
+        "metrics": [
+          {"label": "节点", "field": "node_count", "format": "number"}
+        ]
+      },
+      {
+        "id": "edge_count",
+        "dataset": "summary",
+        "sourceId": "mgtab_audit",
+        "description": "去重前的发布边记录数",
+        "metrics": [
+          {"label": "边记录", "field": "edge_count", "format": "number"}
+        ]
+      },
+      {
+        "id": "feature_dim",
+        "dataset": "summary",
+        "sourceId": "mgtab_audit",
+        "description": "20 维属性与 768 维 LaBSE 的拼接维度",
+        "metrics": [
+          {"label": "特征维度", "field": "feature_dim", "format": "number"}
+        ]
+      },
+      {
+        "id": "high_risk_count",
+        "dataset": "summary",
+        "sourceId": "mgtab_audit",
+        "description": "接入模型前必须显式处理的事项",
+        "metrics": [
+          {"label": "高风险事项", "field": "high_risk_count", "format": "number"}
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "relation_volume_duplicates",
+        "title": "各关系的发布边记录与重复记录",
+        "subtitle": "MGTAB 标准版；重复量集中在 reply 与 quoted",
+        "showDescription": true,
+        "intent": "comparison",
+        "question": "七类关系的边规模如何分布，重复的 source-target-relation 记录集中在哪里？",
+        "rationale": "七个具名类别和两个同单位计数适合使用分组水平条形图；水平布局保留长关系标签，分组编码同时展示总规模与重复量。",
+        "comparisonContext": {
+          "grain": "relation type",
+          "unit": "released edge rows",
+          "denominator": "all released rows in each relation before deduplication"
+        },
+        "type": "horizontalBar",
+        "dataset": "relations",
+        "sourceId": "mgtab_audit",
+        "encodings": {
+          "x": {"field": "relation", "type": "nominal", "label": "关系"},
+          "y": {
+            "fields": ["edge_rows", "duplicate_rows"],
+            "type": "quantitative",
+            "format": "compact",
+            "label": "边记录"
+          },
+          "tooltip": [
+            {"field": "relation", "type": "nominal", "label": "关系"},
+            {"field": "edge_rows", "type": "quantitative", "format": "number", "label": "发布边记录"},
+            {"field": "duplicate_rows", "type": "quantitative", "format": "number", "label": "重复记录"},
+            {"field": "self_loops", "type": "quantitative", "format": "number", "label": "自环"}
+          ]
+        },
+        "valueFormat": "compact",
+        "layout": "full",
+        "labels": {"values": "auto"},
+        "legend": {"position": "bottom", "sort": "spec", "title": "计数类型"},
+        "palette": {"kind": "categorical", "name": "blue-orange"},
+        "settings": {
+          "orientation": "horizontal",
+          "groupMode": "grouped",
+          "categoryLabelPolicy": "wrap",
+          "showValues": true,
+          "sort": "descending"
+        },
+        "surface": {"surface": "export", "viewMode": "both"}
+      }
+    ],
+    "tables": [
+      {
+        "id": "field_contract",
+        "title": "六个发布张量的字段合同",
+        "subtitle": "标准版文件、精确形状及下游语义",
+        "showDescription": true,
+        "dataset": "fields",
+        "sourceId": "mgtab_audit",
+        "density": "spacious",
+        "layout": "full",
+        "defaultSort": {"field": "order", "direction": "asc"},
+        "columns": [
+          {"field": "order", "label": "顺序", "format": "number"},
+          {"field": "file", "label": "文件", "type": "text"},
+          {"field": "shape", "label": "形状", "type": "text"},
+          {"field": "meaning", "label": "含义", "type": "text"}
+        ]
+      },
+      {
+        "id": "relation_audit",
+        "title": "七类关系的结构审计",
+        "subtitle": "边记录数是发布行数；重复记录未预先聚合",
+        "showDescription": true,
+        "dataset": "relations",
+        "sourceId": "mgtab_audit",
+        "density": "dense",
+        "layout": "full",
+        "defaultSort": {"field": "id", "direction": "asc"},
+        "columns": [
+          {"field": "id", "label": "ID", "format": "number"},
+          {"field": "relation", "label": "关系", "type": "text"},
+          {"field": "direction", "label": "方向语义", "type": "text"},
+          {"field": "edge_rows", "label": "边记录", "format": "number"},
+          {"field": "duplicate_rows", "label": "重复记录", "format": "number"},
+          {"field": "self_loops", "label": "自环", "format": "number"},
+          {"field": "weight_range", "label": "权重范围", "type": "text"}
+        ]
+      },
+      {
+        "id": "finding_audit",
+        "title": "接入双曲 HGT 前的风险清单",
+        "subtitle": "按严重度排序；高风险项必须写入数据适配策略",
+        "showDescription": true,
+        "dataset": "findings",
+        "sourceId": "mgtab_audit",
+        "density": "spacious",
+        "layout": "full",
+        "defaultSort": {"field": "priority", "direction": "desc"},
+        "columns": [
+          {"field": "priority", "label": "优先级", "format": "number"},
+          {"field": "severity", "label": "严重度", "type": "text"},
+          {"field": "finding", "label": "发现", "type": "text"},
+          {"field": "evidence", "label": "证据", "type": "text"},
+          {"field": "action", "label": "建议处理", "type": "text"}
+        ]
+      },
+      {
+        "id": "label_audit",
+        "title": "两套监督标签分布",
+        "subtitle": "所有 10,199 个节点同时具有 bot 与 stance 标签",
+        "showDescription": true,
+        "dataset": "labels",
+        "sourceId": "mgtab_audit",
+        "density": "spacious",
+        "layout": "full",
+        "defaultSort": {"field": "order", "direction": "asc"},
+        "columns": [
+          {"field": "order", "label": "顺序", "format": "number"},
+          {"field": "task", "label": "任务", "type": "text"},
+          {"field": "value", "label": "取值", "format": "number"},
+          {"field": "label", "label": "语义", "type": "text"},
+          {"field": "count", "label": "数量", "format": "number"},
+          {"field": "share", "label": "占比", "format": "percent"}
+        ]
+      }
+    ],
+    "blocks": [
+      {
+        "id": "report_title",
+        "type": "markdown",
+        "layout": "full",
+        "body": "# MGTAB 标准版字段与完整性审计"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "mgtab_audit",
+        "body": "## 文件完整，但不能未经处理直接送入双曲 HGT\n\n六个官方张量全部存在，节点数、边数、特征维度、标签分布和七类关系数量均与官方标准版一致，且没有非法索引、未知标签或 NaN/Inf。审计结论为 **warning**，不是数据损坏，而是存在四项必须在适配器里明确处理的建模风险：reply/quoted 重复边、URL/hashtag 单向存储、缺少固定 split/时间字段，以及缺少原始身份与逐条证据。"
+      },
+      {
+        "id": "summary_metrics",
+        "type": "metric-strip",
+        "layout": "full",
+        "cardIds": ["node_count", "edge_count", "feature_dim", "high_risk_count"]
+      },
+      {
+        "id": "scope_definition",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "mgtab_paper",
+        "body": "## 这是匿名化后的多关系图张量，不是原始社交媒体表\n\n每一行节点对应一个专家标注账号，但标准发布包只保留匿名节点索引。`features.pt` 的前 20 维是账号属性，后 768 维是该用户全部推文的 LaBSE 均值向量；原始用户 ID、原始推文、时间戳、活动与角色标签均未发布。七类边由五类有向显式关系和两类无向共现关系组成。"
+      },
+      {"id": "field_contract_block", "type": "table", "layout": "full", "tableId": "field_contract"},
+      {
+        "id": "relation_result",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "mgtab_audit",
+        "body": "## 关系数量吻合，但文件保留了多重边和单向的无向边\n\n`reply` 和 `quoted` 合计有 251,448 条重复记录，说明同一节点对的重复互动被当作多重边保存；直接去重会丢失频率，直接保留又会放大消息。论文把 URL 和 hashtag 定义为无向关系，但发布文件中 563,800 条共现边都没有反向副本，因此 HGT 适配器必须显式补反向边并复制 PMI 权重。"
+      },
+      {"id": "relation_chart_block", "type": "chart", "layout": "full", "chartId": "relation_volume_duplicates"},
+      {"id": "relation_table_block", "type": "table", "layout": "full", "tableId": "relation_audit"},
+      {
+        "id": "risk_result",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "mgtab_audit",
+        "body": "## 数据可用于外部检测验证，但不能承担完整白盒证据验证\n\nMGTAB 很适合测试 bot/stance 分类、多关系结构和几何解释；却无法独立验证时间漂移、跨数据集身份重叠、原始文本证据追溯或团伙角色保真。387 个节点的推文向量全零，52 个节点在标准子图中完全孤立，这两类节点都应单独报告性能。"
+      },
+      {"id": "finding_table_block", "type": "table", "layout": "full", "tableId": "finding_audit"},
+      {
+        "id": "label_result",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "mgtab_audit",
+        "body": "## 标签完整，bot 类占 26.94%\n\n所有节点都有 bot 与 stance 标签。bot 标签为 7,451 个 human 和 2,748 个 bot；stance 标签为 3,776 个 neutral、3,637 个 against 和 2,786 个 support。训练和评估应同时报告 macro-F1，避免总体准确率掩盖 bot 类表现。"
+      },
+      {"id": "label_table_block", "type": "table", "layout": "full", "tableId": "label_audit"},
+      {
+        "id": "method_limitations",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "mgtab_audit_script",
+        "body": "## 审计覆盖结构完整性，但不能重建原始采集过程\n\n审计检查了 SHA256、张量形状和类型、有限值、标签域、特征范围、边端点、关系分布、重复边、自环、反向边覆盖和孤立节点。由于标准包不含原始记录，本次审计不能独立复核专家标注过程、LaBSE 的输入文本、采集日期或账号身份。字段审计使用精确表格而非图表，因为这里的核心任务是核对合同和异常计数，没有时间序列或连续比较关系值得可视化。"
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 下一步应先做确定性适配，再开始训练\n\n1. 实现只读 MGTAB 适配器，生成 `label.csv`、固定 `split.csv` 和特征合同。\n2. URL/hashtag 补反向边并保留相同 PMI 权重。\n3. 对 reply/quoted 同时实现 `preserve_multiedges` 和 `coalesce_with_count`，作为消融实验。\n4. 增加 `tweet_embedding_available` 掩码，并单列零推文向量和孤立节点性能。\n5. 把 MGTAB 定位为独立外部验证集；白盒证据追溯继续依赖 TwiBot-22 与仿真事件日志。"
+      },
+      {
+        "id": "open_questions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 需要团队确认的两项实验选择\n\n- MGTAB 只做独立外部测试，还是将其固定训练分区加入联合训练。\n- reply/quoted 重复互动的主实验采用多重边、计数权重还是二值化。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-29T06:30:36.927399+00:00",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        {"node_count": 10199, "edge_count": 1700108, "feature_dim": 788, "high_risk_count": 4}
+      ],
+      "fields": [
+        {"order": 1, "file": "edge_index.pt", "shape": "[2, 1,700,108]", "meaning": "COO 边端点：第 0 行 source，第 1 行 target"},
+        {"order": 2, "file": "edge_type.pt", "shape": "[1,700,108]", "meaning": "逐边关系类型，取值 0-6"},
+        {"order": 3, "file": "edge_weight.pt", "shape": "[1,700,108]", "meaning": "逐边权重；显式关系为 1，共现关系为 PMI 权重"},
+        {"order": 4, "file": "features.pt", "shape": "[10,199, 788]", "meaning": "20 维账号属性 + 768 维 LaBSE 推文均值向量"},
+        {"order": 5, "file": "labels_bot.pt", "shape": "[10,199]", "meaning": "0=human，1=bot"},
+        {"order": 6, "file": "labels_stance.pt", "shape": "[10,199]", "meaning": "0=neutral，1=against，2=support"}
+      ],
+      "relations": [
+        {"id": 0, "relation": "followers", "direction": "directed", "edge_rows": 308120, "duplicate_rows": 0, "self_loops": 0, "weight_range": "1.0000–1.0000"},
+        {"id": 1, "relation": "friends", "direction": "directed", "edge_rows": 412575, "duplicate_rows": 0, "self_loops": 0, "weight_range": "1.0000–1.0000"},
+        {"id": 2, "relation": "mention", "direction": "directed", "edge_rows": 114516, "duplicate_rows": 0, "self_loops": 3648, "weight_range": "1.0000–1.0000"},
+        {"id": 3, "relation": "reply", "direction": "directed", "edge_rows": 223466, "duplicate_rows": 197086, "self_loops": 159772, "weight_range": "1.0000–1.0000"},
+        {"id": 4, "relation": "quoted", "direction": "directed", "edge_rows": 77631, "duplicate_rows": 54362, "self_loops": 42399, "weight_range": "1.0000–1.0000"},
+        {"id": 5, "relation": "url", "direction": "undirected, stored once", "edge_rows": 263800, "duplicate_rows": 0, "self_loops": 0, "weight_range": "0.0253–1.0000"},
+        {"id": 6, "relation": "hashtag", "direction": "undirected, stored once", "edge_rows": 300000, "duplicate_rows": 0, "self_loops": 0, "weight_range": "0.4577–1.0000"}
+      ],
+      "findings": [
+        {"priority": 3, "severity": "high", "finding": "reply/quoted 重复边", "evidence": "合计 251,448 条重复记录", "action": "明确保留多重边或聚合为计数权重"},
+        {"priority": 3, "severity": "high", "finding": "无向共现边只存一个方向", "evidence": "URL/hashtag 共 563,800 行均无反向副本", "action": "补反向边并复制 PMI 权重"},
+        {"priority": 3, "severity": "high", "finding": "没有发布 split 或时间字段", "evidence": "官方加载器运行时随机 7:2:1", "action": "保存固定 split、种子和划分哈希"},
+        {"priority": 3, "severity": "high", "finding": "匿名预计算发布包", "evidence": "无原始 ID、推文、时间戳、活动/角色标签", "action": "仅用于 bot/stance 与结构外部验证"},
+        {"priority": 2, "severity": "medium", "finding": "推文向量全零", "evidence": "387 个节点，占 3.79%", "action": "增加可用性掩码并分层评估"},
+        {"priority": 2, "severity": "medium", "finding": "孤立节点", "evidence": "52 个节点，占 0.51%", "action": "保留并单独报告性能"}
+      ],
+      "labels": [
+        {"order": 1, "task": "bot", "value": 0, "label": "human", "count": 7451, "share": 0.7305618198},
+        {"order": 2, "task": "bot", "value": 1, "label": "bot", "count": 2748, "share": 0.2694381802},
+        {"order": 3, "task": "stance", "value": 0, "label": "neutral", "count": 3776, "share": 0.3702323757},
+        {"order": 4, "task": "stance", "value": 1, "label": "against", "count": 3637, "share": 0.3566035886},
+        {"order": 5, "task": "stance", "value": 2, "label": "support", "count": 2786, "share": 0.2731640357}
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "mgtab_audit",
+      "label": "MGTAB 审计报告只读查询",
+      "path": "docs/mgtab_field_audit_report.sql",
+      "href": "https://github.com/GraphDetec/MGTAB"
+    },
+    {
+      "id": "mgtab_audit_script",
+      "label": "MGTAB 张量审计实现",
+      "path": "data_processing/mgtab_raw_audit.py"
+    },
+    {
+      "id": "mgtab_paper",
+      "label": "MGTAB 官方论文与字段语义",
+      "href": "https://arxiv.org/abs/2301.01123",
+      "query": {
+        "description": "论文 Table 4 与关系构建章节。",
+        "language": "LaTeX"
+      }
+    }
+  ]
+}

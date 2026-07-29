@@ -247,6 +247,10 @@ class MultimodalExtractor:
         emb_dim = bio_embs.shape[1] if bio_embs.ndim == 2 else self.aligned_text_dim
 
         tweet_groups = [split_tweet_pool(tweets_str, min_len=2) for tweets_str in tweets_list]
+        if self.max_tweets_per_user is not None:
+            tweet_groups = [
+                group[: self.max_tweets_per_user] for group in tweet_groups
+            ]
         flat_tweets = [tweet for group in tweet_groups for tweet in group]
         tweet_embs = np.zeros((len(tweet_groups), emb_dim), dtype=float)
 

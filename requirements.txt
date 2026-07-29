@@ -1,0 +1,17 @@
+numpy
+pandas
+matplotlib
+seaborn
+networkx
+scikit-learn
+xgboost
+imbalanced-learn
+shap
+tqdm
+torch
+transformers
+sentence-transformers
+spacy
+torch-geometric
+ijson
+chromadb

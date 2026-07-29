@@ -3,7 +3,7 @@ name = "oasis-ai"
 version = "0.0.1"
 description = "Open Agents Social Interaction Simulations on a Large Scale"
 authors = ["CAMEL-AI.org"]
-readme = "README.md"
+readme = "README_Framework.md"
 license = "Apache License 2.0"
 keywords = [
     "recommendation-system",
@@ -26,6 +26,7 @@ python = ">=3.10.0,<3.12"
 pandas = "2.2.2"
 igraph = "0.11.6"
 cairocffi = "1.7.1"
+matplotlib = "^3.9.0"
 pytest = "8.2.0"
 pytest-asyncio = "0.23.6"
 pillow = "10.3.0"

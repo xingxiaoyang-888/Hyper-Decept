@@ -13,6 +13,8 @@ Output: E:\fraud-detection2\vector_store\chroma.sqlite3
 import json
 import os
 import sys
+import argparse
+from pathlib import Path
 
 from sentence_transformers import SentenceTransformer
 import chromadb
@@ -22,15 +24,35 @@ import chromadb
 CHUNKED_DATA_PATH = "chunked_profiles.json"
 VECTOR_STORE_DIR = "vector_store"
 COLLECTION_NAME = "agent_profiles"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"    # 384 dimensions, ~80MB, CPU inference, free
+EMBEDDING_MODEL = os.getenv(
+    "DEEP_PERSONA_EMBEDDING_MODEL", "all-mpnet-base-v2"
+)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_CACHE = os.getenv(
+    "DEEP_PERSONA_MODEL_CACHE",
+    os.path.join(PROJECT_ROOT, ".runtime", "huggingface", "hub"),
+)
 # EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"  # Alternative (better for Chinese, also 384 dimensions)
 # ---------- End of Configuration ----------
 
 
+def parse_args():
+    script_dir = Path(__file__).resolve().parent
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input", type=Path, default=script_dir / CHUNKED_DATA_PATH
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=script_dir / VECTOR_STORE_DIR
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    chunked_path = os.path.join(script_dir, CHUNKED_DATA_PATH)
-    store_path = os.path.join(script_dir, VECTOR_STORE_DIR)
+    chunked_path = args.input.expanduser().resolve()
+    store_path = args.output_dir.expanduser().resolve()
 
     # 1. Load chunked data
     if not os.path.exists(chunked_path):
@@ -44,7 +66,18 @@ def main():
 
     # 2. Load local embedding model
     print(f"\nLoading embedding model: {EMBEDDING_MODEL} ...")
-    encoder = SentenceTransformer(EMBEDDING_MODEL)
+    try:
+        encoder = SentenceTransformer(
+            EMBEDDING_MODEL,
+            cache_folder=MODEL_CACHE,
+            local_files_only=True,
+        )
+    except Exception as local_error:
+        print(f"  Local model unavailable, trying the configured model source: {local_error}")
+        encoder = SentenceTransformer(
+            EMBEDDING_MODEL,
+            cache_folder=MODEL_CACHE,
+        )
     dim = encoder.get_sentence_embedding_dimension()
     print(f"  Model dimension: {dim}")
 
@@ -66,7 +99,7 @@ def main():
 
     # 4. Write to ChromaDB
     os.makedirs(store_path, exist_ok=True)
-    db = chromadb.PersistentClient(path=store_path)
+    db = chromadb.PersistentClient(path=str(store_path))
 
     # Delete existing collection with the same name (ensure idempotence)
     try:
@@ -75,7 +108,10 @@ def main():
     except (ValueError, chromadb.errors.NotFoundError):
         pass
 
-    collection = db.create_collection(COLLECTION_NAME)
+    collection = db.create_collection(
+        COLLECTION_NAME,
+        metadata={"embedding_model": EMBEDDING_MODEL},
+    )
 
     # Prepare data
     ids = [f"agent_{c['agent_id']}_{c['section']}" for c in chunks]

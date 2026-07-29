@@ -1,0 +1,272 @@
+RAG Injection Debug Log
+============================================================
+
+=== Agent 0 | Step 1 | 21:53:05 ===
+Query (first 200): The Return of the Viral Email Political TV Ad Archive \u00bb PolAd Briefing by White House Press Secretary Robert Gibbs, 9/10/09 Want to Help COVID-19 Researchers? You Don\u2019t Have to Leave Your Li
+Raw memories: 7
+  [0] section=summary  dist=1.8104  text="In Kralendijk, Bonaire, my days start early, usually before sunrise. The quiet o..."
+  [1] section=demographic  dist=1.8579  text="[demographic] Life Stage → Maturity Level: Demonstrates practical maturity, shap..."
+  [2] section=lifestyle  dist=1.8707  text="[lifestyle] Travel → Experience: Limited travel; prefers to stay local, rarely v..."
+  [3] section=social_context  dist=1.9034  text="[social_context] Interests → Inspirational Themes: Draws inspiration from storie..."
+  [4] section=values  dist=1.9102  text="[values] PersonalGrowth → Resilience: Draws strength from routine and self-relia..."
+  [5] section=interests  dist=1.9148  text="[interests] Technology Interests → Usage: Uses reservation software daily; value..."
+  [6] section=career  dist=1.9208  text="[career] PositionGoal → Salesforce Administrator: No direct aspiration; prefers ..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 1 | Step 1 | 21:53:05 ===
+Query (first 200): Romney makes pitch, hoping to close deal : Elections : The Rocky Mountain News The Return of the Viral Email What California Has Done Right in Battling COVID-19 U.S. Army's Involvement in Motorsports 
+Raw memories: 7
+  [0] section=interests  dist=1.5987  text="[interests] Creative Interests → Goals: Optimize data organization and reporting..."
+  [1] section=summary  dist=1.7708  text="In northern Mauritius, in the small town of Goodlands, my days start early in a ..."
+  [2] section=values  dist=1.8080  text="[values] FinancialGoals → personal values: Efficiency, self-reliance, and pragma..."
+  [3] section=career  dist=1.8418  text="[career] Skills → General Skills: Meticulous auditing, financial documentation, ..."
+  [4] section=demographic  dist=1.8477  text="[demographic] Family → General Situation: She maintains practical, somewhat dist..."
+  [5] section=social_context  dist=1.9188  text="[social_context] Life Stage → Teenager: Recently transitioned from adolescence; ..."
+  [6] section=lifestyle  dist=1.9641  text="[lifestyle] Stress Management → general: Handles stress privately, focusing on c..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 2 | Step 1 | 21:53:05 ===
+Query (first 200): Facebook posts shared in at least three countries as scientists work to develop a COVID-19 vaccine claim to offer a legal way to refuse vaccination. Trump Votes For Death Penalty For Being Gay What We
+Raw memories: 6
+  [0] section=demographic  dist=1.5610  text="[demographic] Age → SuitableContent: Content relevant to seniors, focusing on ro..."
+  [1] section=summary  dist=1.6680  text="In Sagua de Tánamo, a quiet town in eastern Cuba, my days begin before sunrise. ..."
+  [2] section=social_context  dist=1.6696  text="[social_context] Community → Participation: Limited to routine volunteer work; a..."
+  [3] section=values  dist=1.6815  text="[values] Educational goals → CulturalIdentity: Deeply rooted in Cuban traditions..."
+  [4] section=interests  dist=1.7773  text="[interests] Culinary Preferences → BeveragePreferences: Strong, traditional Cuba..."
+  [5] section=lifestyle  dist=1.8789  text="[lifestyle] Habits → Personal Preferences: Prefers solitude, quiet mornings, and..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 7 | Step 1 | 21:53:05 ===
+Query (first 200): Clinton Campaign official arrested by FBI on child rape/trafficking charges How Parents Can Help Themselves and Their Children with COVID-19 Stress U.S. Army's Involvement in Motorsports What We Know 
+Raw memories: 7
+  [0] section=demographic  dist=1.3833  text="[demographic] Education → Proficiency: Completed secondary education; skilled in..."
+  [1] section=social_context  dist=1.4898  text="[social_context] Interests → Inspirational Themes: Stories of resilience, creati..."
+  [2] section=career  dist=1.5012  text="[career] FuturePlans → goals: Deepen expertise in early childhood education and ..."
+  [3] section=values  dist=1.5050  text="[values] Wellness → Philosophical Importance: Emphasizes emotional well-being, n..."
+  [4] section=summary  dist=1.5113  text="In Nassau, Bahamas, my days start early in my modest apartment, just a short wal..."
+  [5] section=lifestyle  dist=1.5667  text="[lifestyle] Sleep → environment: Quiet, cozy bedroom with soft lighting and a fa..."
+  [6] section=interests  dist=1.7284  text="[interests] Dietary Preferences → User Preferences: Prefers fresh, home-cooked B..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 5 | Step 1 | 21:53:05 ===
+Query (first 200): Facebook posts shared in at least three countries as scientists work to develop a COVID-19 vaccine claim to offer a legal way to refuse vaccination. The Obama administration left President Donald Trum
+Raw memories: 6
+  [0] section=summary  dist=1.4918  text="Here in the quiet suburb of Mitcham, I’ve spent most of my life among the same l..."
+  [1] section=demographic  dist=1.5599  text="[demographic] Geographical → Neighborhood: Resides in a quiet, established subur..."
+  [2] section=social_context  dist=1.5916  text="[social_context] Personal Interests → Technical Interests: Limited; prefers mech..."
+  [3] section=interests  dist=1.6353  text="[interests] Interests → Travel: Prefers local walks and short drives; avoids unf..."
+  [4] section=values  dist=1.6393  text="[values] Ethics → Guiding Principles: Upholds tradition, reliability, and self-s..."
+  [5] section=lifestyle  dist=1.7777  text="[lifestyle] Travel → Experience: Limited; prefers local outings, rarely ventures..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 4 | Step 1 | 21:53:06 ===
+Query (first 200): How to Clean Common Surfaces During the COVID-19 Outbreak How Parents Can Help Themselves and Their Children with COVID-19 Stress Interview with Sen John McCain Controversial Studies Find COVID-19 May
+Raw memories: 7
+  [0] section=summary  dist=1.5397  text="In Malé, Maldives, my days begin before sunrise, when the city is still quiet an..."
+  [1] section=demographic  dist=1.6686  text="[demographic] Personal → Interests: Enjoys quiet moments at local cafés, finds s..."
+  [2] section=lifestyle  dist=1.7081  text="[lifestyle] Daily Routine → DietaryHabits: Prefers simple home-cooked meals; enj..."
+  [3] section=interests  dist=1.7170  text="[interests] Interests → Storytelling: Shares real-life ethical dilemmas and cris..."
+  [4] section=values  dist=1.7248  text="[values] FinancialGoals → financial attitude: Prudent and disciplined; prioritiz..."
+  [5] section=social_context  dist=1.7740  text="[social_context] Personal Values → Privacy Orientation: Highly private; shares p..."
+  [6] section=career  dist=1.7783  text="[career] TechnologySkill → Preference for Cloud Services: Prefers secure, reliab..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 6 | Step 1 | 21:53:06 ===
+Query (first 200): Romney makes pitch, hoping to close deal : Elections : The Rocky Mountain News The Return of the Viral Email Donald Trump exaggerates when he says China has 'total control' over North Korea BREAKING: 
+Raw memories: 6
+  [0] section=demographic  dist=1.8088  text="[demographic] Parenting Experience → FirstTimeOrExperienced: Experienced; likely..."
+  [1] section=summary  dist=1.8283  text="In eastern Latvia, in the small town of Jēkabpils, my days follow a rhythm that’..."
+  [2] section=social_context  dist=1.9164  text="[social_context] language background → native language: Latvian; fluent, uses it..."
+  [3] section=interests  dist=1.9323  text="[interests] Culinary Preferences → culinaryPreferences: Prefers traditional Latv..."
+  [4] section=values  dist=1.9539  text="[values] Family values → PersonalAttributes: Values self-reliance, privacy, and ..."
+  [5] section=lifestyle  dist=1.9881  text="[lifestyle] Daily Routine → FitnessHabits: Prefers gentle walks around the neigh..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 3 | Step 1 | 21:53:06 ===
+Query (first 200): Romney makes pitch, hoping to close deal : Elections : The Rocky Mountain News Memory Lapse? Trump Seeks Distance From 'Advisor' With Past Ties to Mafia BREAKING: Leaked Picture Of Obama Being Dragged
+Raw memories: 6
+  [0] section=demographic  dist=1.5486  text="[demographic] Age → Youth: He is well past youth, reflecting on memories from ea..."
+  [1] section=summary  dist=1.5620  text="In Syria, in the town of Tall Rif‘at, my days begin before sunrise. I wake to th..."
+  [2] section=social_context  dist=1.6219  text="[social_context] Life Experiences → Variety: Life shaped by rural routines, war ..."
+  [3] section=interests  dist=1.7194  text="[interests] Children → Approaches: Guides with patience, leads by example, encou..."
+  [4] section=lifestyle  dist=1.7556  text="[lifestyle] Focus → establishing productive routine: Relies on early rising, gar..."
+  [5] section=values  dist=1.8415  text="[values] Priorities → Career: Work was a means of providing stability and dignit..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 8 | Step 1 | 21:53:06 ===
+Query (first 200): Who Benefits from President Trump\u2019s Child Care Proposals Briefing by White House Press Secretary Robert Gibbs, 9/10/09 What California Has Done Right in Battling COVID-19 How Parents Can Help The
+Raw memories: 6
+  [0] section=demographic  dist=1.6135  text="[demographic] Life Stage → Maturity Level: Shows maturity beyond his years, hand..."
+  [1] section=values  dist=1.6457  text="[values] PoliticalBeliefs → political identity: Prioritizes environmental respon..."
+  [2] section=summary  dist=1.7445  text="In Ngerulmud, Palau, my days start with the sound of waves and the scent of salt..."
+  [3] section=interests  dist=1.7454  text="[interests] Travel Interests → Destination Preferences: Coastal regions, mangrov..."
+  [4] section=lifestyle  dist=1.7513  text="[lifestyle] Stress Management → general: Goes for walks along the coast, talks w..."
+  [5] section=social_context  dist=1.7872  text="[social_context] Beliefs → Lifestyle Attitudes: Values simplicity, community con..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 9 | Step 1 | 21:53:06 ===
+Query (first 200): The Obama administration left President Donald Trump with a \u00d2stockpile with a cupboard that was bare.\u00d3 Clinton Campaign official arrested by FBI on child rape/trafficking charges What It\u20
+Raw memories: 7
+  [0] section=summary  dist=1.5407  text="In Pago Pago, American Samoa, my days start early, just before the sun heats up ..."
+  [1] section=demographic  dist=1.5602  text="[demographic] Age → LifeStage: Approaching retirement, focused on personal comfo..."
+  [2] section=social_context  dist=1.6039  text="[social_context] Personal Attitudes → Recovery Orientation: Focuses on self-pres..."
+  [3] section=values  dist=1.6419  text="[values] Wellness → Approach and Attitudes: Views wellness as personal comfort; ..."
+  [4] section=interests  dist=1.6542  text="[interests] Interests → Business: Small-scale hustling, finding ways to profit f..."
+  [5] section=career  dist=1.6792  text="[career] ProfessionalTraits → ServiceOriented: Pragmatic, prioritizes personal b..."
+  [6] section=lifestyle  dist=1.7583  text="[lifestyle] Travel → Budget: Prefers low-cost travel; spends minimally, seeks de..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 1 | Step 4 | 21:55:40 ===
+Query (first 200): How to Clean Common Surfaces During the COVID-19 Outbreak Viral publication says a video shows a \u00d2gay party in Italy few weeks before COVID-19.\u00d3 DONALD TRAIN NEWS: BREAKING: Rosa Parks\u2019
+Raw memories: 7
+  [0] section=summary  dist=1.4294  text="In northern Mauritius, in the small town of Goodlands, my days start early in a ..."
+  [1] section=interests  dist=1.4773  text="[interests] Creative Interests → Goals: Optimize data organization and reporting..."
+  [2] section=demographic  dist=1.6734  text="[demographic] Family → General Situation: She maintains practical, somewhat dist..."
+  [3] section=values  dist=1.6746  text="[values] FinancialGoals → personal values: Efficiency, self-reliance, and pragma..."
+  [4] section=social_context  dist=1.6769  text="[social_context] Life Stage → Teenager: Recently transitioned from adolescence; ..."
+  [5] section=lifestyle  dist=1.6903  text="[lifestyle] Stress Management → general: Handles stress privately, focusing on c..."
+  [6] section=career  dist=1.9025  text="[career] Skills → General Skills: Meticulous auditing, financial documentation, ..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 2 | Step 2 | 21:55:40 ===
+Query (first 200): Political TV Ad Archive \u00bb PolAd Who Benefits from President Trump\u2019s Child Care Proposals How Parents Can Help Themselves and Their Children with COVID-19 Stress Taking a moment to reflect on
+Raw memories: 6
+  [0] section=demographic  dist=1.4826  text="[demographic] Age → SuitableContent: Content relevant to seniors, focusing on ro..."
+  [1] section=summary  dist=1.6490  text="In Sagua de Tánamo, a quiet town in eastern Cuba, my days begin before sunrise. ..."
+  [2] section=social_context  dist=1.6591  text="[social_context] Community → Participation: Limited to routine volunteer work; a..."
+  [3] section=values  dist=1.7374  text="[values] Educational goals → CulturalIdentity: Deeply rooted in Cuban traditions..."
+  [4] section=interests  dist=1.7390  text="[interests] Culinary Preferences → BeveragePreferences: Strong, traditional Cuba..."
+  [5] section=lifestyle  dist=1.7636  text="[lifestyle] Habits → Personal Preferences: Prefers solitude, quiet mornings, and..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 0 | Step 1 | 21:55:40 ===
+Query (first 200): The Return of the Viral Email Covering Young Adults Under the Affordable Care Act: The Importance of Outreach and Medicaid Expansion Trump Votes For Death Penalty For Being Gay DONALD TRAIN NEWS: BREA
+Raw memories: 7
+  [0] section=interests  dist=1.5906  text="[interests] Technology Interests → Usage: Uses reservation software daily; value..."
+  [1] section=social_context  dist=1.6007  text="[social_context] Interests → Inspirational Themes: Draws inspiration from storie..."
+  [2] section=demographic  dist=1.6285  text="[demographic] Life Stage → Maturity Level: Demonstrates practical maturity, shap..."
+  [3] section=summary  dist=1.6362  text="In Kralendijk, Bonaire, my days start early, usually before sunrise. The quiet o..."
+  [4] section=career  dist=1.6620  text="[career] PositionGoal → Salesforce Administrator: No direct aspiration; prefers ..."
+  [5] section=values  dist=1.6729  text="[values] PersonalGrowth → Resilience: Draws strength from routine and self-relia..."
+  [6] section=lifestyle  dist=1.6776  text="[lifestyle] Travel → Experience: Limited travel; prefers to stay local, rarely v..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 5 | Step 4 | 21:55:40 ===
+Query (first 200): United Airlines Flight Attendant Slaps Crying Baby During Flight Romney makes pitch, hoping to close deal : Elections : The Rocky Mountain News Numbers in a photo about death tolls from COVID-19 show 
+Raw memories: 6
+  [0] section=demographic  dist=1.6688  text="[demographic] Geographical → Neighborhood: Resides in a quiet, established subur..."
+  [1] section=summary  dist=1.7463  text="Here in the quiet suburb of Mitcham, I’ve spent most of my life among the same l..."
+  [2] section=social_context  dist=1.7471  text="[social_context] Personal Interests → Technical Interests: Limited; prefers mech..."
+  [3] section=values  dist=1.8069  text="[values] Ethics → Guiding Principles: Upholds tradition, reliability, and self-s..."
+  [4] section=lifestyle  dist=1.8267  text="[lifestyle] Travel → Experience: Limited; prefers local outings, rarely ventures..."
+  [5] section=interests  dist=1.8521  text="[interests] Interests → Travel: Prefers local walks and short drives; avoids unf..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 6 | Step 3 | 21:55:40 ===
+Query (first 200): The Obama administration left President Donald Trump with a \u00d2stockpile with a cupboard that was bare.\u00d3 Snapchat is shutting down! Goodwill Industries International has fired all its employee
+Raw memories: 6
+  [0] section=summary  dist=1.5301  text="In eastern Latvia, in the small town of Jēkabpils, my days follow a rhythm that’..."
+  [1] section=demographic  dist=1.6731  text="[demographic] Parenting Experience → FirstTimeOrExperienced: Experienced; likely..."
+  [2] section=values  dist=1.7350  text="[values] Family values → PersonalAttributes: Values self-reliance, privacy, and ..."
+  [3] section=social_context  dist=1.7352  text="[social_context] language background → native language: Latvian; fluent, uses it..."
+  [4] section=interests  dist=1.7636  text="[interests] Culinary Preferences → culinaryPreferences: Prefers traditional Latv..."
+  [5] section=lifestyle  dist=1.8011  text="[lifestyle] Daily Routine → FitnessHabits: Prefers gentle walks around the neigh..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 9 | Step 3 | 21:55:40 ===
+Query (first 200): How to Clean Common Surfaces During the COVID-19 Outbreak Goodwill Industries International has fired all its employees because of the coronavirus pandemic. The Best Materials to Make a Homemade Face 
+Raw memories: 7
+  [0] section=interests  dist=1.5565  text="[interests] Interests → Business: Small-scale hustling, finding ways to profit f..."
+  [1] section=values  dist=1.5727  text="[values] Wellness → Approach and Attitudes: Views wellness as personal comfort; ..."
+  [2] section=career  dist=1.6081  text="[career] ProfessionalTraits → ServiceOriented: Pragmatic, prioritizes personal b..."
+  [3] section=demographic  dist=1.6097  text="[demographic] Age → LifeStage: Approaching retirement, focused on personal comfo..."
+  [4] section=social_context  dist=1.6532  text="[social_context] Personal Attitudes → Recovery Orientation: Focuses on self-pres..."
+  [5] section=summary  dist=1.6957  text="In Pago Pago, American Samoa, my days start early, just before the sun heats up ..."
+  [6] section=lifestyle  dist=1.7432  text="[lifestyle] Travel → Budget: Prefers low-cost travel; spends minimally, seeks de..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 8 | Step 2 | 21:55:40 ===
+Query (first 200): Briefing by White House Press Secretary Robert Gibbs, 9/10/09 Trump Votes For Death Penalty For Being Gay 'This Week' Transcript: Pelosi and Gates Bill Gates is plotting to use COVID-19 testing and a 
+Raw memories: 6
+  [0] section=demographic  dist=1.6651  text="[demographic] Life Stage → Maturity Level: Shows maturity beyond his years, hand..."
+  [1] section=values  dist=1.8349  text="[values] PoliticalBeliefs → political identity: Prioritizes environmental respon..."
+  [2] section=summary  dist=1.8535  text="In Ngerulmud, Palau, my days start with the sound of waves and the scent of salt..."
+  [3] section=interests  dist=1.8741  text="[interests] Travel Interests → Destination Preferences: Coastal regions, mangrov..."
+  [4] section=lifestyle  dist=1.9529  text="[lifestyle] Stress Management → general: Goes for walks along the coast, talks w..."
+  [5] section=social_context  dist=1.9678  text="[social_context] Beliefs → Lifestyle Attitudes: Values simplicity, community con..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 7 | Step 4 | 21:55:40 ===
+Query (first 200): It\u2019s Critical Parents Make Kids Follow Social Distancing Guidelines Who Benefits from President Trump\u2019s Child Care Proposals U.S. Speaker of the House Nancy Pelosi said she won\u00d5t pass n
+Raw memories: 7
+  [0] section=demographic  dist=1.3872  text="[demographic] Education → Proficiency: Completed secondary education; skilled in..."
+  [1] section=social_context  dist=1.5313  text="[social_context] Interests → Inspirational Themes: Stories of resilience, creati..."
+  [2] section=values  dist=1.5575  text="[values] Wellness → Philosophical Importance: Emphasizes emotional well-being, n..."
+  [3] section=summary  dist=1.5686  text="In Nassau, Bahamas, my days start early in my modest apartment, just a short wal..."
+  [4] section=interests  dist=1.5783  text="[interests] Dietary Preferences → User Preferences: Prefers fresh, home-cooked B..."
+  [5] section=lifestyle  dist=1.5981  text="[lifestyle] Sleep → environment: Quiet, cozy bedroom with soft lighting and a fa..."
+  [6] section=career  dist=1.6337  text="[career] FuturePlans → goals: Deepen expertise in early childhood education and ..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 3 | Step 2 | 21:55:40 ===
+Query (first 200): Whoopi Goldberg: Navy SEAL Widow was \u201cLooking for Attention\u201d Losing Ground Foreclosures in the Subprime Market and Their Cost to Homeowners Bill Gates is plotting to use COVID-19 testing and
+Raw memories: 6
+  [0] section=demographic  dist=1.5617  text="[demographic] Age → Youth: He is well past youth, reflecting on memories from ea..."
+  [1] section=summary  dist=1.6521  text="In Syria, in the town of Tall Rif‘at, my days begin before sunrise. I wake to th..."
+  [2] section=interests  dist=1.6522  text="[interests] Children → Approaches: Guides with patience, leads by example, encou..."
+  [3] section=social_context  dist=1.6600  text="[social_context] Life Experiences → Variety: Life shaped by rural routines, war ..."
+  [4] section=values  dist=1.6795  text="[values] Priorities → Career: Work was a means of providing stability and dignit..."
+  [5] section=lifestyle  dist=1.8700  text="[lifestyle] Focus → establishing productive routine: Relies on early rising, gar..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================
+
+=== Agent 4 | Step 4 | 21:55:40 ===
+Query (first 200): UPDATE: Hillary Clinton Leaves The Country As Mueller Indictment Is Announced Memory Lapse? Trump Seeks Distance From 'Advisor' With Past Ties to Mafia Viral publication says a video shows a \u00d2gay
+Raw memories: 7
+  [0] section=summary  dist=1.3279  text="In Malé, Maldives, my days begin before sunrise, when the city is still quiet an..."
+  [1] section=demographic  dist=1.3983  text="[demographic] Personal → Interests: Enjoys quiet moments at local cafés, finds s..."
+  [2] section=interests  dist=1.5688  text="[interests] Interests → Storytelling: Shares real-life ethical dilemmas and cris..."
+  [3] section=social_context  dist=1.5923  text="[social_context] Personal Values → Privacy Orientation: Highly private; shares p..."
+  [4] section=career  dist=1.5981  text="[career] TechnologySkill → Preference for Cloud Services: Prefers secure, reliab..."
+  [5] section=lifestyle  dist=1.6056  text="[lifestyle] Daily Routine → DietaryHabits: Prefers simple home-cooked meals; enj..."
+  [6] section=values  dist=1.6210  text="[values] FinancialGoals → financial attitude: Prudent and disciplined; prioritiz..."
+Selected (summary+top2): 3
+Injected: YES
+============================================================

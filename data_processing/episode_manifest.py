@@ -284,10 +284,22 @@ def audit_plan_artifacts(
     errors: List[str] = []
     warnings: List[str] = []
     for episode in plan.episodes:
-        required = {"features_csv", "labels_csv"}
+        if episode.dataset_name == "mgtab":
+            required = {
+                "edge_index_pt",
+                "edge_type_pt",
+                "edge_weight_pt",
+                "features_pt",
+                "labels_bot_pt",
+                "labels_stance_pt",
+                "splits_csv",
+                "adapter_manifest_json",
+            }
+        else:
+            required = {"features_csv", "labels_csv"}
         if episode.purpose in {"simulation_main", "simulation_scale"}:
             required.update({"profiles_csv", "event_targets_csv", "episode_manifest"})
-        else:
+        elif episode.dataset_name != "mgtab":
             required.add("splits_csv")
         missing_contract = sorted(required.difference(episode.artifacts))
         if missing_contract:
@@ -396,11 +408,24 @@ def build_recommended_dataset_plan(
                 "ground_truth_roles": False,
             },
             artifacts={
-                "features_csv": str(
-                    Path(mgtab_root) / "derived" / "node_features_26d.csv"
+                "edge_index_pt": str(Path(mgtab_root) / "edge_index.pt"),
+                "edge_type_pt": str(Path(mgtab_root) / "edge_type.pt"),
+                "edge_weight_pt": str(Path(mgtab_root) / "edge_weight.pt"),
+                "features_pt": str(Path(mgtab_root) / "features.pt"),
+                "labels_bot_pt": str(Path(mgtab_root) / "labels_bot.pt"),
+                "labels_stance_pt": str(Path(mgtab_root) / "labels_stance.pt"),
+                "splits_csv": str(
+                    Path(mgtab_root) / "derived" / "split_seed42.csv"
                 ),
-                "labels_csv": str(Path(mgtab_root) / "label.csv"),
-                "splits_csv": str(Path(mgtab_root) / "split.csv"),
+                "adapter_manifest_json": str(
+                    Path(mgtab_root)
+                    / "derived"
+                    / "adapter_manifest_seed42.json"
+                ),
+            },
+            generator_metadata={
+                "split_seed": "42",
+                "multiedge_policy": "coalesce_with_count",
             },
         ),
     ]

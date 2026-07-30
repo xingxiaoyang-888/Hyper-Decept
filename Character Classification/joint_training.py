@@ -253,6 +253,9 @@ def _normalize_label_contract(frame):
         result = result.rename(columns={"id": "user_id"})
     if "user_id" not in result.columns:
         raise ValueError("labels artifact must contain user_id or id")
+    result["user_id"] = result["user_id"].map(_normalise_identifier)
+    if result["user_id"].isna().any() or result["user_id"].duplicated().any():
+        raise ValueError("label user_id values must be non-null and unique")
     if "is_bad" not in result.columns:
         source = None
         for candidate in ("label", "user_type"):
@@ -1113,9 +1116,27 @@ def save_joint_checkpoint(
         raise ValueError("epoch must be non-negative")
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    # Dataset-specific lazy adapters that were not exercised in this fold are
+    # still ``UninitializedParameter`` objects.  Serialising those objects
+    # breaks PyTorch's default safe ``weights_only=True`` loader.  Omit only
+    # those untouched keys and record them explicitly; every trained tensor is
+    # preserved and a future loader can materialise the adapter before loading.
+    from torch.nn.parameter import UninitializedBuffer, UninitializedParameter
+
+    state = model.state_dict()
+    uninitialized_types = (UninitializedParameter, UninitializedBuffer)
+    omitted_keys = sorted(
+        name for name, value in state.items()
+        if isinstance(value, uninitialized_types)
+    )
+    serializable_state = {
+        name: value for name, value in state.items()
+        if name not in omitted_keys
+    }
     torch.save({
         "schema_version": "hyperdecept.joint-checkpoint.v1",
-        "model_state": model.state_dict(),
+        "model_state": serializable_state,
+        "uninitialized_model_state_keys": omitted_keys,
         "optimizer_state": optimizer.state_dict(),
         "loss_config": asdict(loss_config),
         "epoch": int(epoch),

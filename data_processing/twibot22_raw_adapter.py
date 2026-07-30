@@ -61,10 +61,13 @@ def _iter_json_records(path: Path) -> Iterator[dict]:
         import ijson
     except ImportError:
         ijson = None
-    with path.open("r", encoding="utf-8-sig") as handle:
-        if ijson is not None:
+    if ijson is not None:
+        # ijson consumes bytes.  Feeding it a text wrapper forces a costly
+        # encode/decode bridge for every block, which is material when the
+        # official TwiBot-22 tweet shards exceed 100 GB.
+        with path.open("rb") as handle:
             try:
-                first = ""
+                first = b""
                 while True:
                     char = handle.read(1)
                     if not char:
@@ -73,7 +76,7 @@ def _iter_json_records(path: Path) -> Iterator[dict]:
                         first = char
                         break
                 handle.seek(0)
-                if first == "[":
+                if first == b"[":
                     yield from ijson.items(handle, "item")
                 else:
                     for line in handle:
@@ -81,7 +84,8 @@ def _iter_json_records(path: Path) -> Iterator[dict]:
                             yield json.loads(line)
                 return
             except (ijson.common.JSONError, json.JSONDecodeError):
-                handle.seek(0)
+                pass
+    with path.open("r", encoding="utf-8-sig") as handle:
         decoder = json.JSONDecoder()
         text = handle.read()
         if text.lstrip().startswith("["):

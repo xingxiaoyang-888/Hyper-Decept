@@ -166,3 +166,6 @@ TwiBot-22/
 
 # Original MGTAB dataset (licensed research data; never commit to Git).
 MGTAB/
+
+# Locally materialized smoke bundles and licensed/generated profile inputs.
+output/p2_smoke_data/

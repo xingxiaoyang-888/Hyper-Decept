@@ -541,6 +541,7 @@ def build_hetero_data(
     db_path,
     threshold=0.7,
     post_embeddings=None,
+    twibot_bundle=None,
 ):
     try:
         import torch
@@ -565,6 +566,25 @@ def build_hetero_data(
             [src + dst, dst + src], dtype=torch.long
         )
         logger.info(f"  [similar] {len(cos_edges)} undirected edges → {len(src)*2} directed edges")
+
+    if twibot_bundle is not None:
+        bundle_core_ids = set(twibot_bundle.core_users["user_id"].astype(str))
+        if bundle_core_ids != set(user_map):
+            raise ValueError(
+                "materialized TwiBot bundle core IDs do not match feature rows"
+            )
+        _add_twibot_raw_bundle(
+            data, twibot_bundle, user_map, post_embeddings=post_embeddings
+        )
+        rev_user_map = {value: key for key, value in user_map.items()}
+        logger.info(
+            "  Materialized TwiBot-22 graph: core=%d, boundary=%d, text=%d, edge_types=%d",
+            len(user_ids),
+            data["boundary_user"].num_nodes if "boundary_user" in data.node_types else 0,
+            data["tweet"].num_nodes if "tweet" in data.node_types else 0,
+            len(data.edge_types),
+        )
+        return data, rev_user_map
 
     if os.path.isdir(db_path):
         from data_processing.twibot22_raw_adapter import TwiBot22RawAdapter

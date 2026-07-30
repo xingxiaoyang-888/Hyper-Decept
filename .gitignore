@@ -169,3 +169,4 @@ MGTAB/
 
 # Locally materialized smoke bundles and licensed/generated profile inputs.
 output/p2_smoke_data/
+output/p2_smoke_run/

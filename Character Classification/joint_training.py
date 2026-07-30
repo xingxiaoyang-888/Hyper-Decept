@@ -525,12 +525,21 @@ def load_episode_batch_from_manifest(
     post_embeddings_path = artifacts.get("post_embeddings")
     if post_embeddings_path:
         post_embeddings = load_post_embeddings(post_embeddings_path)
+    twibot_bundle = None
+    adapter_manifest_path = artifacts.get("adapter_manifest_json")
+    if manifest.dataset_name == "twibot22" and adapter_manifest_path:
+        from data_processing.twibot22_raw_adapter import load_materialized_bundle
+
+        twibot_bundle = load_materialized_bundle(
+            Path(adapter_manifest_path).resolve().parent
+        )
     graph, _ = build_hetero_data(
         features["user_id"].tolist(),
         numeric_features.to_numpy(dtype="float32"),
         str(manifest.source_path),
         threshold=similarity_threshold,
         post_embeddings=post_embeddings,
+        twibot_bundle=twibot_bundle,
     )
     return build_episode_batch(
         graph,

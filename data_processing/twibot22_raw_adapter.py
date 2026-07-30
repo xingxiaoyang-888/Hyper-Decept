@@ -9,7 +9,9 @@ edge semantics are silently invented.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import ast
 import csv
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -473,3 +475,118 @@ def load_core_ids(path: str) -> List[str]:
     if len(values) != len(set(values)):
         raise ValueError("core ID file contains duplicate IDs")
     return values
+
+
+def load_materialized_bundle(bundle_dir: str | Path) -> UnifiedDatasetBundle:
+    """Load a previously exported smoke bundle without rescanning raw shards.
+
+    ``prepare_p2_smoke_data twibot`` already records the bounded raw-adapter
+    result as CSV files plus an integrity manifest.  Training must consume
+    those exact artifacts; rereading all nine 100-GB-scale tweet shards would
+    be both wasteful and capable of drifting from the audited snapshot.
+    """
+    root = Path(bundle_dir).expanduser().resolve()
+    manifest_path = root / "adapter_manifest.json"
+    required = {
+        "core_users": root / "core_users.csv",
+        "boundary_users": root / "boundary_users.csv",
+        "labels": root / "labels.csv",
+        "follow_edges": root / "follow_edges.csv",
+        "actions": root / "actions.csv",
+        "posts": root / "posts.csv",
+    }
+    missing = [
+        str(path)
+        for path in [manifest_path, *required.values()]
+        if not path.is_file()
+    ]
+    if missing:
+        raise FileNotFoundError(f"materialized TwiBot bundle is incomplete: {missing}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("dataset_kind") != "twibot22_raw":
+        raise ValueError("adapter manifest is not a raw TwiBot-22 bundle")
+
+    declared_artifacts = manifest.get("artifacts") or {}
+    for name, path in required.items():
+        expected_sha256 = (declared_artifacts.get(name) or {}).get("sha256")
+        if not expected_sha256:
+            continue
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        if digest.hexdigest() != expected_sha256:
+            raise ValueError(f"materialized {name} SHA-256 mismatch")
+
+    frames = {
+        name: pd.read_csv(path, low_memory=False)
+        for name, path in required.items()
+    }
+    id_columns = {
+        "core_users": ("user_id",),
+        "boundary_users": ("user_id",),
+        "labels": ("user_id",),
+        "follow_edges": ("follower_id", "followee_id"),
+        "actions": (
+            "actor_id", "target_id", "content_node_id", "post_id", "source_id"
+        ),
+        "posts": (
+            "post_id", "author_id", "conversation_id", "in_reply_to_user_id",
+            "original_post_id",
+        ),
+    }
+    for name, columns in id_columns.items():
+        frame = frames[name]
+        for column in columns:
+            if column in frame.columns:
+                frame[column] = frame[column].map(_canonical_id)
+
+    def parse_list(value):
+        if isinstance(value, list):
+            return value
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return []
+        try:
+            parsed = ast.literal_eval(str(value))
+        except (SyntaxError, ValueError):
+            return [str(value)]
+        return parsed if isinstance(parsed, list) else [parsed]
+
+    if "evidence_ids" in frames["follow_edges"].columns:
+        frames["follow_edges"]["evidence_ids"] = frames["follow_edges"][
+            "evidence_ids"
+        ].map(parse_list)
+    if "reference_types" in frames["posts"].columns:
+        frames["posts"]["reference_types"] = frames["posts"][
+            "reference_types"
+        ].map(parse_list)
+
+    expected_counts = manifest.get("counts") or {}
+    for name in ("core_users", "boundary_users", "follow_edges", "actions"):
+        expected = expected_counts.get(name)
+        if expected is not None and int(expected) != len(frames[name]):
+            raise ValueError(
+                f"materialized {name} count mismatch: {len(frames[name])} != {expected}"
+            )
+    if frames["core_users"]["user_id"].duplicated().any():
+        raise ValueError("materialized core user IDs must be unique")
+
+    bundle = UnifiedDatasetBundle(
+        dataset_kind="twibot22_raw",
+        capabilities=TwiBot22RawAdapter.capabilities,
+        core_users=frames["core_users"],
+        boundary_users=frames["boundary_users"],
+        labels=frames["labels"],
+        follow_edges=frames["follow_edges"],
+        actions=frames["actions"],
+        warnings=list(manifest.get("warnings") or []),
+    )
+    bundle.posts = frames["posts"]
+    relations_path = root / "relations.csv"
+    bundle.relations = (
+        pd.read_csv(relations_path, low_memory=False)
+        if relations_path.is_file() else pd.DataFrame()
+    )
+    bundle.manifest_extra = dict(manifest.get("extra") or {})
+    bundle.materialized_manifest = manifest
+    return bundle

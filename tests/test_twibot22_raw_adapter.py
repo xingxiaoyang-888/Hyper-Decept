@@ -4,7 +4,10 @@ import sys
 
 import numpy as np
 
-from data_processing.twibot22_raw_adapter import TwiBot22RawAdapter
+from data_processing.twibot22_raw_adapter import (
+    TwiBot22RawAdapter,
+    load_materialized_bundle,
+)
 
 
 def _load_graph_builder():
@@ -103,4 +106,42 @@ def test_graph_builder_accepts_raw_directory_and_keeps_temporal_tweet_metadata(t
     assert data["tweet"].temporal is True
     assert set(data["tweet"].post_ids) == {"100", "200"}
     assert any(value is not None for value in data["tweet"].created_at)
+    assert ("user", "following", "boundary_user") in data.edge_types
+
+
+def test_materialized_bundle_avoids_raw_rescan_and_builds_same_graph(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    _write_raw_fixture(raw)
+    original = TwiBot22RawAdapter(str(raw), ["u1", "u2"]).load()
+    exported = tmp_path / "exported"
+    exported.mkdir()
+    for name, frame in (
+        ("core_users", original.core_users),
+        ("boundary_users", original.boundary_users),
+        ("labels", original.labels),
+        ("follow_edges", original.follow_edges),
+        ("actions", original.actions),
+        ("relations", original.relations),
+        ("posts", original.posts),
+    ):
+        frame.to_csv(exported / f"{name}.csv", index=False)
+    (exported / "adapter_manifest.json").write_text(
+        json.dumps(original.manifest()), encoding="utf-8"
+    )
+
+    materialized = load_materialized_bundle(exported)
+    assert set(materialized.core_users["user_id"]) == {"u1", "u2"}
+    assert materialized.follow_edges.iloc[0]["evidence_ids"]
+    graph_builder = _load_graph_builder()
+    data, reverse = graph_builder.build_hetero_data(
+        ["u1", "u2"],
+        np.ones((2, 2), dtype=np.float32),
+        str(raw),
+        threshold=1.1,
+        twibot_bundle=materialized,
+    )
+    assert reverse == {0: "u1", 1: "u2"}
+    assert data.dataset_kind == "twibot22_raw"
+    assert set(data["tweet"].post_ids) == {"100", "200"}
     assert ("user", "following", "boundary_user") in data.edge_types

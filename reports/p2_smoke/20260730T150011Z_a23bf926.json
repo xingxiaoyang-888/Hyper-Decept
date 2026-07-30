@@ -1,0 +1,266 @@
+{
+  "schema_version": "hyperdecept.p2-smoke-audit.v1",
+  "report_kind": "p2_three_source_smoke",
+  "status": "passed",
+  "warning": "Smoke/interface metrics are not paper results.",
+  "provenance": {
+    "git_commit": "a23bf926106c28641cd5e0cc5fa9cd283ad19963",
+    "git_branch": "main",
+    "git_dirty_at_start": false
+  },
+  "timing": {
+    "started_at_utc": "2026-07-30T15:00:11.058383+00:00",
+    "finished_at_utc": "2026-07-30T15:03:28.478002+00:00",
+    "duration_seconds": 197.42
+  },
+  "environment": {
+    "python": "3.11.15",
+    "platform": "macOS-26.2-arm64-arm-64bit",
+    "torch": "2.13.0",
+    "requested_device": "cpu",
+    "cuda_available": false,
+    "cuda_runtime": null,
+    "cudnn": null,
+    "gpu": null
+  },
+  "datasets": [
+    {
+      "episode_id": "real:twibot22:core1000:smoke",
+      "dataset_name": "twibot22",
+      "domain": "real",
+      "purpose": "real_primary",
+      "partition": "shared",
+      "split_level": "node",
+      "status": "ready",
+      "source_sha256": "d643abd68d7a5bdad54a0d1c39d48d238305a0a649a0735ec9689f04fd502c29",
+      "label_provenance": {
+        "bot": "annotated"
+      },
+      "capabilities": {
+        "external_neighbors": true,
+        "ground_truth_roles": false,
+        "raw_text": true,
+        "temporal": true
+      },
+      "attack_phases": [],
+      "input_artifacts": {
+        "adapter_manifest_json": {
+          "bytes": 7021,
+          "sha256": "d643abd68d7a5bdad54a0d1c39d48d238305a0a649a0735ec9689f04fd502c29"
+        },
+        "core_ids": {
+          "bytes": 15766,
+          "sha256": "cb8e5e81ecff1fb1f4b41afdc33e28713d6ece2147b5e7e4c52f6cf760da0305"
+        },
+        "features_csv": {
+          "bytes": 234788,
+          "sha256": "b3d392c95702d70f28134a4d306d9983a30a17aae479d3ef0785e901c837c018"
+        },
+        "labels_csv": {
+          "bytes": 32628,
+          "sha256": "b253863bfada70bd950eec2b4a29b2473d23094aa95c515ba2d0099f8dc53f7a"
+        },
+        "splits_csv": {
+          "bytes": 32628,
+          "sha256": "b253863bfada70bd950eec2b4a29b2473d23094aa95c515ba2d0099f8dc53f7a"
+        },
+        "episode_manifest": {
+          "bytes": 1469,
+          "sha256": "527f1a0dce2a16ad8d4ea694769bbe53573b2acc973f6603a449c81a04928726"
+        }
+      },
+      "adapter_artifacts": {
+        "actions": {
+          "sha256": "83fda9e5f9ee8d0be32507749baacb991481fe7eda1589cc23cc4248d363e447",
+          "bytes": 23655944,
+          "rows": 77896
+        },
+        "boundary_users": {
+          "sha256": "09fde991d995e50b81ff88e5b0ad548526fbe5e6eca65122a8550222186e787b",
+          "bytes": 831878,
+          "rows": 4850
+        },
+        "core_ids": {
+          "sha256": "cb8e5e81ecff1fb1f4b41afdc33e28713d6ece2147b5e7e4c52f6cf760da0305",
+          "bytes": 15766,
+          "rows": 1000
+        },
+        "core_users": {
+          "sha256": "524727df38cf0c8ef8832b54ca0ce7a1b4dbaa5f957c18fb03c6962054eb7c5d",
+          "bytes": 146143,
+          "rows": 1000
+        },
+        "features_csv": {
+          "sha256": "b3d392c95702d70f28134a4d306d9983a30a17aae479d3ef0785e901c837c018",
+          "bytes": 234788,
+          "rows": 1000
+        },
+        "follow_edges": {
+          "sha256": "27b5e08f02aa7d2e0a28fbf3f65e22697e9de8f34e65a8496747e2815c12392e",
+          "bytes": 535591,
+          "rows": 6596
+        },
+        "labels": {
+          "sha256": "b253863bfada70bd950eec2b4a29b2473d23094aa95c515ba2d0099f8dc53f7a",
+          "bytes": 32628,
+          "rows": 1000
+        },
+        "posts": {
+          "sha256": "c375a41e3fef57854d42cc762a3c3ee1cb7fe0d1ff1a68b568bb7dd198983772",
+          "bytes": 20853515,
+          "rows": 77891
+        },
+        "relations": {
+          "sha256": "238d760dc38ec9be3666da23b73af5665fcca923c98b449d2eb21c7a6e9210b4",
+          "bytes": 6007702,
+          "rows": 88223
+        }
+      },
+      "observed_users": 1000
+    },
+    {
+      "episode_id": "real:mgtab:full:seed42:smoke",
+      "dataset_name": "mgtab",
+      "domain": "real",
+      "purpose": "real_external",
+      "partition": "shared",
+      "split_level": "node",
+      "status": "ready",
+      "source_sha256": "ab4ef63c869b57afea8ff9f09ef088f5729e1213ad6cb355dfc282c8ff19bead",
+      "label_provenance": {
+        "bot": "annotated"
+      },
+      "capabilities": {
+        "ground_truth_roles": false,
+        "precomputed_text_embeddings": true,
+        "raw_text": false,
+        "temporal": false
+      },
+      "attack_phases": [],
+      "input_artifacts": {
+        "adapter_manifest_json": {
+          "bytes": 4578,
+          "sha256": "f7d38fd4f6a5a5d712f3e5911ab5b236f7b4921d48990631bfb8be43909c0fe8"
+        },
+        "edge_index_pt": {
+          "bytes": 27202488,
+          "sha256": "240f9115552a2a49bbebb3994df5b4a64b7155af29c7541be337e6368e84d79f"
+        },
+        "edge_type_pt": {
+          "bytes": 13601592,
+          "sha256": "b8500d7db72fe5168d9df0cc24af926065b664d5ea9cc3d93cee0f137b5d03b2"
+        },
+        "edge_weight_pt": {
+          "bytes": 6801144,
+          "sha256": "8ffa602fbd57c3313eed678af345ab4cd23761f81522979f26b023f013ea4160"
+        },
+        "features_pt": {
+          "bytes": 32147960,
+          "sha256": "183528ae5aa7539b604309ac4a05c7de53f5a769ce02e34e4149e52ad6cd4839"
+        },
+        "labels_bot_pt": {
+          "bytes": 82296,
+          "sha256": "99dedfd68f36d484746a5c6f10436fe6a6fc46595c6c9a8e6ee81d7f3365e145"
+        },
+        "labels_stance_pt": {
+          "bytes": 82296,
+          "sha256": "4f23fe3c137aa6dd75f7b44d66d4fd37a385b7787bd4ba93b51a0947d6065150"
+        },
+        "splits_csv": {
+          "bytes": 181671,
+          "sha256": "b17d12502719bc8a6ff9bc6a88210acfaf7bde57e2ae7e328578f4bb3729850b"
+        },
+        "episode_manifest": {
+          "bytes": 1608,
+          "sha256": "5ff06c5bc920c00ed3a116193135c8040cf6e6b1dbb528431a11bb12ce3d2c74"
+        }
+      },
+      "adapter_artifacts": {
+        "labels_csv": {
+          "sha256": "1fd790b3602b63ad2fa07bbef48eead784a1d1a75e440a8ff6ab59e9efa1818e",
+          "rows": 10199
+        },
+        "splits_csv": {
+          "sha256": "b17d12502719bc8a6ff9bc6a88210acfaf7bde57e2ae7e328578f4bb3729850b",
+          "rows": 10199
+        }
+      },
+      "observed_users": 10199
+    },
+    {
+      "episode_id": "sim:leader_amplifier:n500:s11:smoke",
+      "dataset_name": "deeppersona_oasis",
+      "domain": "synthetic",
+      "purpose": "simulation_main",
+      "partition": "pool",
+      "split_level": "scenario",
+      "status": "ready",
+      "scenario_id": "leader_amplifier",
+      "simulation_seed": 11,
+      "num_agents": 500,
+      "time_steps": 50,
+      "source_sha256": "5ff0e10408d05da70adabcfd723d1ac53ad1a051a95805efc45259ccebc50181",
+      "label_provenance": {
+        "bot": "generated",
+        "role": "generated",
+        "campaign": "generated"
+      },
+      "capabilities": {
+        "temporal": true,
+        "raw_text": true,
+        "ground_truth_roles": true,
+        "ground_truth_campaigns": true,
+        "next_action_targets": false
+      },
+      "attack_phases": [],
+      "input_artifacts": {
+        "episode_manifest": {
+          "bytes": 1878,
+          "sha256": "9a66ae0153ed418b69d63578a0f36565159b73c7f89b13cb53f49a6e7f08bd31"
+        },
+        "event_targets_csv": {
+          "bytes": 1898,
+          "sha256": "12be65b120aeaef9633ad65161c7016786880c40c42abc1dbf9db99de7f78081"
+        },
+        "features_csv": {
+          "bytes": 116919,
+          "sha256": "6264af4545d6a9f67597f49787e8c0f5db5dc032885d46df020c5b8ba80af114"
+        },
+        "labels_csv": {
+          "bytes": 11182,
+          "sha256": "d35aeaad030ded82d31fc4d0987eaf56b92a5cd2b42712eefcb1d36a15875a1c"
+        },
+        "profiles_csv": {
+          "bytes": 2822115,
+          "sha256": "aabf22e90842a51f479c87c0a83933e424b66cd9eeb822782447ad585baaf892"
+        }
+      },
+      "observed_users": 500
+    }
+  ],
+  "observed_counts": {
+    "twibot_users": 1000,
+    "twibot_train_labels": 587,
+    "twibot_validation_labels": 267,
+    "mgtab_users": 10199,
+    "mgtab_train_labels": 7139,
+    "mgtab_validation_labels": 2040,
+    "synthetic_users": 500,
+    "synthetic_bot_labels": 500,
+    "synthetic_role_labels": 500,
+    "synthetic_campaign_labels": 50,
+    "synthetic_action_labels": 0
+  },
+  "checkpoint_integrity": {
+    "included_in_git": false,
+    "bytes": 755034,
+    "sha256": "498f0da8624f0d970432f29a20f619799698b61a1f38bdf2996dfb15ae440117"
+  },
+  "verification": {
+    "forward": "passed",
+    "loss": "passed",
+    "backward": "passed",
+    "checkpoint_save": "passed",
+    "three_source_loading": "passed"
+  }
+}

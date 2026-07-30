@@ -24,6 +24,9 @@ outputs/
 # Keep the validated, aggregate-only source for the MGTAB audit report.
 !docs/mgtab_field_audit_artifact.json
 
+# Keep portable, aggregate-only P2 smoke audit reports (never raw run outputs).
+!reports/p2_smoke/*.json
+
 # Small, reproducibility-critical inputs for the independent-attack baseline.
 # Keep bulk datasets/results ignored, but allow these exact treatment files.
 !data/

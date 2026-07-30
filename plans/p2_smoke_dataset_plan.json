@@ -1,0 +1,187 @@
+{
+  "schema_version": "hyperdecept.dataset-plan.v1",
+  "plan_id": "p2-smoke-data-2026-07-29",
+  "strategy": {
+    "scope": "pre-training interface smoke only",
+    "real_smoke": "TwiBot-22 core1000 and full standard MGTAB",
+    "simulation_smoke": "2 scenarios x 1 seed x 500 agents",
+    "paper_metrics_allowed": false
+  },
+  "episodes": [
+    {
+      "episode_id": "real:twibot22:core1000:smoke",
+      "dataset_name": "twibot22",
+      "domain": "real",
+      "purpose": "real_primary",
+      "partition": "shared",
+      "split_level": "node",
+      "source_path": "../bundles/twibot22",
+      "identity_scope": "dataset",
+      "scenario_id": null,
+      "simulation_seed": null,
+      "num_agents": null,
+      "time_steps": null,
+      "attack_phases": [],
+      "label_provenance": {
+        "bot": "annotated"
+      },
+      "capabilities": {
+        "temporal": true,
+        "raw_text": true,
+        "external_neighbors": true,
+        "ground_truth_roles": false
+      },
+      "artifacts": {
+        "core_ids": "../bundles/twibot22/core_ids.txt",
+        "features_csv": "../bundles/twibot22/node_features_26d.csv",
+        "labels_csv": "../bundles/twibot22/labels.csv",
+        "splits_csv": "../bundles/twibot22/labels.csv",
+        "adapter_manifest_json": "../bundles/twibot22/adapter_manifest.json"
+      },
+      "generator_metadata": {
+        "smoke_only": "true",
+        "core_users": "1000",
+        "adapter": "twibot22_raw_adapter",
+        "source_digest_scope": "adapter_manifest"
+      },
+      "source_sha256": "012af3c526a612ce221aa44278c0664e659ee302c5ca1c8f0aaae8d63a45fc95",
+      "status": "ready",
+      "path_contract": "hyperdecept.manifest-relative.v1"
+    },
+    {
+      "episode_id": "real:mgtab:full:seed42:smoke",
+      "dataset_name": "mgtab",
+      "domain": "real",
+      "purpose": "real_external",
+      "partition": "shared",
+      "split_level": "node",
+      "source_path": "../bundles/mgtab",
+      "identity_scope": "dataset",
+      "scenario_id": null,
+      "simulation_seed": null,
+      "num_agents": null,
+      "time_steps": null,
+      "attack_phases": [],
+      "label_provenance": {
+        "bot": "annotated"
+      },
+      "capabilities": {
+        "temporal": false,
+        "raw_text": false,
+        "precomputed_text_embeddings": true,
+        "ground_truth_roles": false
+      },
+      "artifacts": {
+        "edge_index_pt": "../bundles/mgtab/edge_index.pt",
+        "edge_type_pt": "../bundles/mgtab/edge_type.pt",
+        "edge_weight_pt": "../bundles/mgtab/edge_weight.pt",
+        "features_pt": "../bundles/mgtab/features.pt",
+        "labels_bot_pt": "../bundles/mgtab/labels_bot.pt",
+        "labels_stance_pt": "../bundles/mgtab/labels_stance.pt",
+        "splits_csv": "../bundles/mgtab/derived/split_seed42.csv",
+        "adapter_manifest_json": "../bundles/mgtab/derived/adapter_manifest_seed42.json"
+      },
+      "generator_metadata": {
+        "smoke_only": "true",
+        "split_seed": "42",
+        "multiedge_policy": "coalesce_with_count",
+        "source_digest_scope": "six_official_pt_files"
+      },
+      "source_sha256": "ab4ef63c869b57afea8ff9f09ef088f5729e1213ad6cb355dfc282c8ff19bead",
+      "status": "ready",
+      "path_contract": "hyperdecept.manifest-relative.v1"
+    },
+    {
+      "episode_id": "sim:leader_amplifier:n500:s11:smoke",
+      "dataset_name": "deeppersona_oasis",
+      "domain": "synthetic",
+      "purpose": "simulation_main",
+      "partition": "pool",
+      "split_level": "scenario",
+      "source_path": "../bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.db",
+      "identity_scope": "episode",
+      "scenario_id": "leader_amplifier",
+      "simulation_seed": 11,
+      "num_agents": 500,
+      "time_steps": 50,
+      "attack_phases": [],
+      "label_provenance": {
+        "bot": "generated",
+        "role": "generated",
+        "campaign": "generated"
+      },
+      "capabilities": {
+        "temporal": true,
+        "raw_text": true,
+        "ground_truth_roles": true,
+        "ground_truth_campaigns": true,
+        "next_action_targets": false
+      },
+      "artifacts": {
+        "profiles_csv": "../bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.csv",
+        "features_csv": "../bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.features.csv",
+        "labels_csv": "../bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.labels.csv",
+        "event_targets_csv": "../bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.event_targets.csv",
+        "episode_manifest": "../bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.manifest.json"
+      },
+      "generator_metadata": {
+        "smoke_only": "true",
+        "activation_policy": "fixed_smoke_agent_ids_plus_zero_random_activation",
+        "forced_bad_leader_action": "true",
+        "db_integrity": "ok",
+        "temporal_supervision": "false",
+        "cutoff_time": "unavailable",
+        "future_trace_sha256": "unavailable"
+      },
+      "source_sha256": "5ff0e10408d05da70adabcfd723d1ac53ad1a051a95805efc45259ccebc50181",
+      "status": "ready",
+      "path_contract": "hyperdecept.manifest-relative.v1"
+    },
+    {
+      "episode_id": "sim:independent_attack:n500:s11:smoke",
+      "dataset_name": "deeppersona_oasis",
+      "domain": "synthetic",
+      "purpose": "simulation_main",
+      "partition": "pool",
+      "split_level": "scenario",
+      "source_path": "../bundles/synthetic/independent/n500/seed_11/seed_11.db",
+      "identity_scope": "episode",
+      "scenario_id": "independent_attack",
+      "simulation_seed": 11,
+      "num_agents": 500,
+      "time_steps": 50,
+      "attack_phases": [],
+      "label_provenance": {
+        "bot": "generated",
+        "role": "generated",
+        "campaign": "generated"
+      },
+      "capabilities": {
+        "temporal": true,
+        "raw_text": true,
+        "ground_truth_roles": true,
+        "ground_truth_campaigns": true,
+        "next_action_targets": false
+      },
+      "artifacts": {
+        "profiles_csv": "../bundles/synthetic/independent/n500/seed_11/seed_11.csv",
+        "features_csv": "../bundles/synthetic/independent/n500/seed_11/seed_11.features.csv",
+        "labels_csv": "../bundles/synthetic/independent/n500/seed_11/seed_11.labels.csv",
+        "event_targets_csv": "../bundles/synthetic/independent/n500/seed_11/seed_11.event_targets.csv",
+        "episode_manifest": "../bundles/synthetic/independent/n500/seed_11/seed_11.manifest.json"
+      },
+      "generator_metadata": {
+        "smoke_only": "true",
+        "activation_policy": "fixed_smoke_agent_ids_plus_zero_random_activation",
+        "forced_bad_leader_action": "false",
+        "db_integrity": "ok",
+        "temporal_supervision": "false",
+        "cutoff_time": "unavailable",
+        "future_trace_sha256": "unavailable"
+      },
+      "source_sha256": "2cac80b5392d567427f973de825e3e01a7538a6be2faaec5d7d7905a3453dcf7",
+      "status": "ready",
+      "path_contract": "hyperdecept.manifest-relative.v1"
+    }
+  ]
+}

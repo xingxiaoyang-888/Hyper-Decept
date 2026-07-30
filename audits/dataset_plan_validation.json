@@ -1,0 +1,14 @@
+{
+  "episodes": 4,
+  "real_episodes": 2,
+  "synthetic_episodes": 2,
+  "synthetic_agent_instances": 1000,
+  "main_scenarios": [
+    "independent_attack",
+    "leader_amplifier"
+  ],
+  "scale_sizes": [],
+  "artifact_contract_valid": true,
+  "errors": [],
+  "warnings": []
+}

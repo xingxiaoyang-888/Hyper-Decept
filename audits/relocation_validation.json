@@ -1,0 +1,148 @@
+{
+  "summary": {
+    "episodes": 4,
+    "real_episodes": 2,
+    "synthetic_episodes": 2,
+    "synthetic_agent_instances": 1000,
+    "main_scenarios": [
+      "independent_attack",
+      "leader_amplifier"
+    ],
+    "scale_sizes": []
+  },
+  "artifact_contract_valid": true,
+  "errors": [],
+  "warnings": [],
+  "all_paths_exist": true,
+  "all_paths_within_relocated_root": true,
+  "episodes": [
+    {
+      "episode_id": "real:twibot22:core1000:smoke",
+      "paths": {
+        "source": {
+          "relative_path": "bundles/twibot22",
+          "exists": true
+        },
+        "core_ids": {
+          "relative_path": "bundles/twibot22/core_ids.txt",
+          "exists": true
+        },
+        "features_csv": {
+          "relative_path": "bundles/twibot22/node_features_26d.csv",
+          "exists": true
+        },
+        "labels_csv": {
+          "relative_path": "bundles/twibot22/labels.csv",
+          "exists": true
+        },
+        "splits_csv": {
+          "relative_path": "bundles/twibot22/labels.csv",
+          "exists": true
+        },
+        "adapter_manifest_json": {
+          "relative_path": "bundles/twibot22/adapter_manifest.json",
+          "exists": true
+        }
+      }
+    },
+    {
+      "episode_id": "real:mgtab:full:seed42:smoke",
+      "paths": {
+        "source": {
+          "relative_path": "bundles/mgtab",
+          "exists": true
+        },
+        "edge_index_pt": {
+          "relative_path": "bundles/mgtab/edge_index.pt",
+          "exists": true
+        },
+        "edge_type_pt": {
+          "relative_path": "bundles/mgtab/edge_type.pt",
+          "exists": true
+        },
+        "edge_weight_pt": {
+          "relative_path": "bundles/mgtab/edge_weight.pt",
+          "exists": true
+        },
+        "features_pt": {
+          "relative_path": "bundles/mgtab/features.pt",
+          "exists": true
+        },
+        "labels_bot_pt": {
+          "relative_path": "bundles/mgtab/labels_bot.pt",
+          "exists": true
+        },
+        "labels_stance_pt": {
+          "relative_path": "bundles/mgtab/labels_stance.pt",
+          "exists": true
+        },
+        "splits_csv": {
+          "relative_path": "bundles/mgtab/derived/split_seed42.csv",
+          "exists": true
+        },
+        "adapter_manifest_json": {
+          "relative_path": "bundles/mgtab/derived/adapter_manifest_seed42.json",
+          "exists": true
+        }
+      }
+    },
+    {
+      "episode_id": "sim:leader_amplifier:n500:s11:smoke",
+      "paths": {
+        "source": {
+          "relative_path": "bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.db",
+          "exists": true
+        },
+        "profiles_csv": {
+          "relative_path": "bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.csv",
+          "exists": true
+        },
+        "features_csv": {
+          "relative_path": "bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.features.csv",
+          "exists": true
+        },
+        "labels_csv": {
+          "relative_path": "bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.labels.csv",
+          "exists": true
+        },
+        "event_targets_csv": {
+          "relative_path": "bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.event_targets.csv",
+          "exists": true
+        },
+        "episode_manifest": {
+          "relative_path": "bundles/synthetic/leader_amplifier/n500/seed_11/seed_11.manifest.json",
+          "exists": true
+        }
+      }
+    },
+    {
+      "episode_id": "sim:independent_attack:n500:s11:smoke",
+      "paths": {
+        "source": {
+          "relative_path": "bundles/synthetic/independent/n500/seed_11/seed_11.db",
+          "exists": true
+        },
+        "profiles_csv": {
+          "relative_path": "bundles/synthetic/independent/n500/seed_11/seed_11.csv",
+          "exists": true
+        },
+        "features_csv": {
+          "relative_path": "bundles/synthetic/independent/n500/seed_11/seed_11.features.csv",
+          "exists": true
+        },
+        "labels_csv": {
+          "relative_path": "bundles/synthetic/independent/n500/seed_11/seed_11.labels.csv",
+          "exists": true
+        },
+        "event_targets_csv": {
+          "relative_path": "bundles/synthetic/independent/n500/seed_11/seed_11.event_targets.csv",
+          "exists": true
+        },
+        "episode_manifest": {
+          "relative_path": "bundles/synthetic/independent/n500/seed_11/seed_11.manifest.json",
+          "exists": true
+        }
+      }
+    }
+  ]
+}

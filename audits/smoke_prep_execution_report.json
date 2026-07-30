@@ -1,0 +1,82 @@
+{
+  "code_commit": "09427a1f6f7ac642b3e0221c06d8b68db9bbc2ce",
+  "scope": "P2 smoke data preparation only; no formal training executed",
+  "raw_data_uploaded": false,
+  "raw_audit_reuse": {
+    "twibot22": {
+      "previously_hashed_files_matching": 14,
+      "hash_mismatches": [],
+      "newly_recorded_ancillary_files": [
+        "hashtag.json",
+        "list.json"
+      ],
+      "full_audit_rerun": false
+    },
+    "mgtab": {
+      "hashed_files": 6,
+      "all_match_previous_audit": true,
+      "full_audit_rerun": false
+    }
+  },
+  "bundles": {
+    "twibot22": {
+      "core_users": 1000,
+      "size_bytes": 52320221,
+      "size_human": "49.90 MiB",
+      "smoke_only_psychology_placeholders": true
+    },
+    "mgtab": {
+      "users": 10199,
+      "size_bytes": 80735051,
+      "size_human": "76.99 MiB",
+      "split_seed": 42,
+      "multiedge_policy": "coalesce_with_count"
+    },
+    "synthetic": {
+      "episodes": 2,
+      "size_bytes": 13234237,
+      "size_human": "12.62 MiB"
+    }
+  },
+  "synthetic_episodes": [
+    {
+      "scenario": "leader_amplifier",
+      "agents": 500,
+      "seed": 11,
+      "time_steps": 50
+    },
+    {
+      "scenario": "independent_attack",
+      "agents": 500,
+      "seed": 11,
+      "time_steps": 50
+    }
+  ],
+  "dataset_plan_validation": {
+    "episodes": 4,
+    "real_episodes": 2,
+    "synthetic_episodes": 2,
+    "synthetic_agent_instances": 1000,
+    "main_scenarios": [
+      "independent_attack",
+      "leader_amplifier"
+    ],
+    "scale_sizes": [],
+    "artifact_contract_valid": true,
+    "errors": [],
+    "warnings": []
+  },
+  "relocation_validation": {
+    "artifact_contract_valid": true,
+    "errors": [],
+    "warnings": [],
+    "all_paths_exist": true,
+    "all_paths_within_relocated_root": true
+  },
+  "code_validation": {
+    "pytest": "194 passed, 25 warnings in 7.75s",
+    "compileall": "passed",
+    "git_diff_check": "passed"
+  },
+  "implementation_note": "Current prepare_p2_smoke_data plan reads MGTAB derived files from bundles/mgtab/derived; root-level required files are retained and portable in-bundle compatibility copies are included."
+}

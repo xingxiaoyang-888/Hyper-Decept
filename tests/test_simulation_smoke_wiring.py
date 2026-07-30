@@ -57,6 +57,7 @@ def test_inference_manager_uses_declared_endpoint(monkeypatch):
 
 def test_p2_smoke_runner_declares_three_sources_and_separate_validation():
     source = (ROOT / "scripts" / "run_p2_smoke.py").read_text(encoding="utf-8")
+    assert 'import json' in source
     assert '--twibot-manifest' in source
     assert '--mgtab-manifest' in source
     assert '--simulation-manifest' in source

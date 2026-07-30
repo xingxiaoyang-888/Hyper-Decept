@@ -97,3 +97,44 @@ def test_p2_report_rejects_naive_datetimes(tmp_path):
         assert "timezone-aware" in str(error)
     else:
         raise AssertionError("naive datetimes must be rejected")
+
+
+def test_p2_report_hashes_manifest_relative_artifacts(tmp_path):
+    bundle = tmp_path / "portable"
+    data = bundle / "data"
+    data.mkdir(parents=True)
+    artifact = data / "labels.csv"
+    artifact.write_text("user_id,label\nu1,1\n", encoding="utf-8")
+    adapter = data / "adapter.json"
+    adapter.write_text(json.dumps({
+        "artifacts": {
+            "labels": {"sha256": _sha("d"), "rows": 1}
+        }
+    }), encoding="utf-8")
+    manifest = bundle / "episode.manifest.json"
+    manifest.write_text(json.dumps({
+        "episode_id": "portable",
+        "dataset_name": "twibot22",
+        "domain": "real",
+        "artifacts": {
+            "labels_csv": "data/labels.csv",
+            "adapter_manifest_json": "data/adapter.json",
+        },
+    }), encoding="utf-8")
+    checkpoint = bundle / "checkpoint.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    started = datetime(2026, 7, 30, 8, 0, tzinfo=timezone.utc)
+
+    report = build_p2_smoke_report(
+        summary={"status": "passed", "checkpoint": str(checkpoint)},
+        manifest_paths=[manifest],
+        started_at=started,
+        finished_at=started + timedelta(seconds=1),
+        provenance={},
+        environment={},
+    )
+
+    artifacts = report["datasets"][0]["input_artifacts"]
+    assert artifacts["labels_csv"]["bytes"] == artifact.stat().st_size
+    assert len(artifacts["labels_csv"]["sha256"]) == 64
+    assert report["datasets"][0]["adapter_artifacts"]["labels"]["rows"] == 1

@@ -414,9 +414,7 @@ def prepare_plan(args: argparse.Namespace) -> Path:
         path = manifest_path.expanduser().resolve()
         if not path.is_file():
             raise FileNotFoundError(path)
-        simulation_episodes.append(EpisodeManifest.from_dict(
-            json.loads(path.read_text(encoding="utf-8"))
-        ))
+        simulation_episodes.append(EpisodeManifest.read(path))
 
     plan = DatasetPlan(
         plan_id="p2-smoke-data-2026-07-29",
@@ -435,7 +433,7 @@ def prepare_plan(args: argparse.Namespace) -> Path:
     for episode in real_episodes:
         name = f"{episode.dataset_name}.episode.manifest.json"
         path = output_path.parent / name
-        _write_json(path, episode.to_dict())
+        episode.write(path)
         real_manifest_paths[episode.dataset_name] = str(path)
     print(json.dumps({
         "plan": str(output_path),

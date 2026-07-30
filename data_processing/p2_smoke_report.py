@@ -16,6 +16,13 @@ import torch
 SCHEMA_VERSION = "hyperdecept.p2-smoke-audit.v1"
 
 
+def _manifest_owned_path(value: Any, manifest_path: Path) -> Path:
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = manifest_path.parent / path
+    return path.resolve()
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -79,7 +86,7 @@ def _artifact_digests(manifest: Mapping[str, Any], manifest_path: Path) -> dict:
                     if declaration.get(key) is not None:
                         record[key] = declaration[key]
             if path_value:
-                path = Path(str(path_value)).expanduser()
+                path = _manifest_owned_path(path_value, manifest_path)
                 if path.is_file():
                     record.setdefault("bytes", path.stat().st_size)
                     record.setdefault("sha256", sha256_file(path))
@@ -92,12 +99,14 @@ def _artifact_digests(manifest: Mapping[str, Any], manifest_path: Path) -> dict:
     return result
 
 
-def _adapter_artifacts(manifest: Mapping[str, Any]) -> dict:
+def _adapter_artifacts(
+    manifest: Mapping[str, Any], manifest_path: Path
+) -> dict:
     artifacts = manifest.get("artifacts") or {}
     adapter_path = artifacts.get("adapter_manifest_json")
     if not adapter_path:
         return {}
-    path = Path(str(adapter_path)).expanduser()
+    path = _manifest_owned_path(adapter_path, manifest_path)
     if not path.is_file():
         return {}
     adapter = json.loads(path.read_text(encoding="utf-8"))
@@ -123,6 +132,7 @@ def _dataset_record(manifest_path: Path) -> dict[str, Any]:
         "partition",
         "split_level",
         "status",
+        "path_contract",
         "scenario_id",
         "simulation_seed",
         "num_agents",
@@ -134,7 +144,7 @@ def _dataset_record(manifest_path: Path) -> dict[str, Any]:
     )
     record = {key: manifest.get(key) for key in keys if manifest.get(key) is not None}
     record["input_artifacts"] = _artifact_digests(manifest, manifest_path)
-    adapter = _adapter_artifacts(manifest)
+    adapter = _adapter_artifacts(manifest, manifest_path)
     if adapter:
         record["adapter_artifacts"] = adapter
     return record

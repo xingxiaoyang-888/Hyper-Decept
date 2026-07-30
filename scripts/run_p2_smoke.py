@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 import sys
 
@@ -41,7 +40,7 @@ from joint_training import (  # noqa: E402
 
 
 def _read_manifest(path: Path) -> EpisodeManifest:
-    return EpisodeManifest.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    return EpisodeManifest.read(path)
 
 
 def main() -> None:

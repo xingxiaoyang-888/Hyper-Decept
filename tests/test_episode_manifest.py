@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -49,6 +51,157 @@ def test_plan_round_trip_is_stable(tmp_path):
     path = plan.write(tmp_path / "plan.json")
     restored = DatasetPlan.read(path)
     assert restored.to_dict() == plan.to_dict()
+
+
+def test_episode_manifest_write_uses_owner_relative_paths(tmp_path):
+    bundle = tmp_path / "bundle"
+    data = bundle / "data"
+    data.mkdir(parents=True)
+    source = data / "episode.db"
+    features = data / "features.csv"
+    labels = data / "labels.csv"
+    source.write_bytes(b"sqlite")
+    features.write_text("user_id,follower_count\nu1,1\n", encoding="utf-8")
+    labels.write_text("user_id,is_bad\nu1,0\n", encoding="utf-8")
+    manifest = EpisodeManifest(
+        episode_id="portable-real",
+        dataset_name="portable",
+        domain="real",
+        purpose="real_primary",
+        partition="shared",
+        split_level="node",
+        source_path=str(source),
+        identity_scope="dataset",
+        artifacts={
+            "features_csv": str(features),
+            "labels_csv": str(labels),
+        },
+    )
+
+    manifest_path = manifest.write(bundle / "episode.manifest.json")
+    serialized = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert serialized["source_path"] == "data/episode.db"
+    assert serialized["artifacts"]["features_csv"] == "data/features.csv"
+    assert serialized["path_contract"] == "hyperdecept.manifest-relative.v1"
+    assert not Path(serialized["source_path"]).is_absolute()
+
+
+def test_episode_manifest_remains_valid_after_bundle_move(tmp_path):
+    original = tmp_path / "original"
+    data = original / "data"
+    data.mkdir(parents=True)
+    source = data / "episode.db"
+    features = data / "features.csv"
+    labels = data / "labels.csv"
+    source.write_bytes(b"sqlite")
+    features.write_text("user_id,follower_count\nu1,1\n", encoding="utf-8")
+    labels.write_text("user_id,is_bad\nu1,0\n", encoding="utf-8")
+    EpisodeManifest(
+        episode_id="movable-real",
+        dataset_name="portable",
+        domain="real",
+        purpose="real_primary",
+        partition="shared",
+        split_level="node",
+        source_path=str(source),
+        identity_scope="dataset",
+        artifacts={
+            "features_csv": str(features),
+            "labels_csv": str(labels),
+        },
+    ).write(original / "episode.manifest.json")
+
+    moved = tmp_path / "server" / "bundle"
+    shutil.copytree(original, moved)
+    restored = EpisodeManifest.read(moved / "episode.manifest.json")
+
+    assert Path(restored.source_path) == moved / "data" / "episode.db"
+    assert Path(restored.artifacts["features_csv"]) == moved / "data" / "features.csv"
+    assert Path(restored.artifacts["labels_csv"]).is_file()
+
+
+def test_episode_manifest_read_keeps_legacy_absolute_paths(tmp_path):
+    source = tmp_path / "legacy.db"
+    features = tmp_path / "legacy.features.csv"
+    labels = tmp_path / "legacy.labels.csv"
+    payload = {
+        "episode_id": "legacy-real",
+        "dataset_name": "legacy",
+        "domain": "real",
+        "purpose": "real_primary",
+        "partition": "shared",
+        "split_level": "node",
+        "source_path": str(source),
+        "identity_scope": "dataset",
+        "artifacts": {
+            "features_csv": str(features),
+            "labels_csv": str(labels),
+        },
+    }
+    manifest_path = tmp_path / "legacy.manifest.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = EpisodeManifest.read(manifest_path)
+
+    assert restored.source_path == str(source.resolve())
+    assert restored.artifacts["features_csv"] == str(features.resolve())
+
+
+def test_episode_manifest_rejects_unknown_path_contract(tmp_path):
+    payload = {
+        "episode_id": "future-contract",
+        "dataset_name": "portable",
+        "domain": "real",
+        "purpose": "real_primary",
+        "partition": "shared",
+        "split_level": "node",
+        "source_path": "data/source.db",
+        "identity_scope": "dataset",
+        "path_contract": "hyperdecept.manifest-relative.v999",
+    }
+    manifest_path = tmp_path / "future.manifest.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported path_contract"):
+        EpisodeManifest.read(manifest_path)
+
+
+def test_dataset_plan_resolves_relative_paths_from_plan_directory(tmp_path):
+    bundle = tmp_path / "portable-plan"
+    data = bundle / "data"
+    data.mkdir(parents=True)
+    source = data / "source.db"
+    features = data / "features.csv"
+    labels = data / "labels.csv"
+    for path in (source, features, labels):
+        path.write_text("test", encoding="utf-8")
+    plan = DatasetPlan(
+        plan_id="portable-plan",
+        episodes=(EpisodeManifest(
+            episode_id="portable-plan-real",
+            dataset_name="portable",
+            domain="real",
+            purpose="real_primary",
+            partition="shared",
+            split_level="node",
+            source_path=str(source),
+            identity_scope="dataset",
+            artifacts={
+                "features_csv": str(features),
+                "labels_csv": str(labels),
+                "splits_csv": str(labels),
+            },
+        ),),
+    )
+
+    plan_path = plan.write(bundle / "dataset-plan.json")
+    serialized = json.loads(plan_path.read_text(encoding="utf-8"))
+    restored = DatasetPlan.read(plan_path)
+
+    assert serialized["episodes"][0]["source_path"] == "data/source.db"
+    assert Path(restored.episodes[0].source_path) == source
+    assert audit_plan_artifacts(restored, require_files=True).valid
 
 
 def test_complete_blueprint_includes_optional_external_benchmarks(tmp_path):

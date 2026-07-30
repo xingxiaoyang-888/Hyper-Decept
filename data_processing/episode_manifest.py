@@ -13,11 +13,13 @@ import argparse
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
 SCHEMA_VERSION = "hyperdecept.dataset-plan.v1"
+PATH_CONTRACT = "hyperdecept.manifest-relative.v1"
 DOMAINS = {"real", "synthetic"}
 PURPOSES = {
     "real_primary",
@@ -37,6 +39,28 @@ DEFAULT_ATTACK_PHASES = (
     "adaptive_evasion",
     "aftermath",
 )
+
+
+def _resolve_manifest_path(value: str, base_dir: Optional[Path]) -> str:
+    """Resolve a declared local path against the manifest that owns it."""
+    path = Path(str(value)).expanduser()
+    if base_dir is not None and not path.is_absolute():
+        path = base_dir / path
+    return str(path.resolve()) if base_dir is not None else str(path)
+
+
+def _portable_manifest_path(value: str, base_dir: Path) -> str:
+    """Serialize a local path relative to its manifest when possible."""
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = path.resolve()
+    try:
+        return Path(os.path.relpath(path, start=base_dir)).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            "manifest paths must share a filesystem volume with the manifest; "
+            f"cannot relativize {path} against {base_dir}"
+        ) from exc
 
 
 def _clean_identifier(value: str, field_name: str) -> str:
@@ -88,6 +112,7 @@ class EpisodeManifest:
     generator_metadata: Mapping[str, str] = field(default_factory=dict)
     source_sha256: Optional[str] = None
     status: str = "planned"
+    path_contract: str = PATH_CONTRACT
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -108,6 +133,8 @@ class EpisodeManifest:
             raise ValueError("identity_scope must be 'dataset' or 'episode'")
         if self.status not in {"planned", "ready", "failed"}:
             raise ValueError("status must be planned, ready, or failed")
+        if self.path_contract != PATH_CONTRACT:
+            raise ValueError(f"unsupported path_contract: {self.path_contract}")
         if not str(self.source_path).strip():
             raise ValueError("source_path must not be empty")
         invalid_provenance = set(self.label_provenance.values()).difference(
@@ -145,20 +172,64 @@ class EpisodeManifest:
         if self.status == "ready" and not self.source_sha256:
             raise ValueError("ready episodes require source_sha256")
 
-    def to_dict(self) -> dict:
+    def to_dict(self, *, base_dir: Optional[str | Path] = None) -> dict:
         value = asdict(self)
         value["attack_phases"] = list(self.attack_phases)
         value["label_provenance"] = dict(self.label_provenance)
         value["capabilities"] = dict(self.capabilities)
         value["artifacts"] = dict(self.artifacts)
         value["generator_metadata"] = dict(self.generator_metadata)
+        if base_dir is not None:
+            owner = Path(base_dir).expanduser().resolve()
+            value["source_path"] = _portable_manifest_path(
+                self.source_path, owner
+            )
+            value["artifacts"] = {
+                name: _portable_manifest_path(path, owner)
+                for name, path in self.artifacts.items()
+            }
         return value
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, object]) -> "EpisodeManifest":
+    def from_dict(
+        cls,
+        value: Mapping[str, object],
+        *,
+        base_dir: Optional[str | Path] = None,
+    ) -> "EpisodeManifest":
         data = dict(value)
         data["attack_phases"] = tuple(data.get("attack_phases") or ())
+        if base_dir is not None:
+            owner = Path(base_dir).expanduser().resolve()
+            data["source_path"] = _resolve_manifest_path(
+                str(data["source_path"]), owner
+            )
+            data["artifacts"] = {
+                str(name): _resolve_manifest_path(str(path), owner)
+                for name, path in dict(data.get("artifacts") or {}).items()
+            }
         return cls(**data)
+
+    def write(self, path: str | Path) -> Path:
+        """Write a relocatable standalone manifest."""
+        target = Path(path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(
+                self.to_dict(base_dir=target.parent),
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        return target
+
+    @classmethod
+    def read(cls, path: str | Path) -> "EpisodeManifest":
+        """Read paths relative to the directory containing the manifest."""
+        source = Path(path).expanduser().resolve()
+        with source.open("r", encoding="utf-8-sig") as handle:
+            return cls.from_dict(json.load(handle), base_dir=source.parent)
 
 
 @dataclass(frozen=True)
@@ -198,39 +269,51 @@ class DatasetPlan:
                 f"{duplicate_signatures}"
             )
 
-    def to_dict(self) -> dict:
+    def to_dict(self, *, base_dir: Optional[str | Path] = None) -> dict:
         return {
             "schema_version": self.schema_version,
             "plan_id": self.plan_id,
             "strategy": dict(self.strategy),
-            "episodes": [episode.to_dict() for episode in self.episodes],
+            "episodes": [
+                episode.to_dict(base_dir=base_dir) for episode in self.episodes
+            ],
         }
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, object]) -> "DatasetPlan":
+    def from_dict(
+        cls,
+        value: Mapping[str, object],
+        *,
+        base_dir: Optional[str | Path] = None,
+    ) -> "DatasetPlan":
         return cls(
             schema_version=str(value.get("schema_version", "")),
             plan_id=str(value["plan_id"]),
             strategy=dict(value.get("strategy") or {}),
             episodes=tuple(
-                EpisodeManifest.from_dict(item)
+                EpisodeManifest.from_dict(item, base_dir=base_dir)
                 for item in value.get("episodes", [])
             ),
         )
 
     def write(self, path: str | Path) -> Path:
-        target = Path(path)
+        target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
-            json.dumps(self.to_dict(), ensure_ascii=False, indent=2) + "\n",
+            json.dumps(
+                self.to_dict(base_dir=target.parent),
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
             encoding="utf-8",
         )
         return target
 
     @classmethod
     def read(cls, path: str | Path) -> "DatasetPlan":
-        with Path(path).open("r", encoding="utf-8-sig") as handle:
-            return cls.from_dict(json.load(handle))
+        source = Path(path).expanduser().resolve()
+        with source.open("r", encoding="utf-8-sig") as handle:
+            return cls.from_dict(json.load(handle), base_dir=source.parent)
 
     def summary(self) -> dict:
         synthetic = [episode for episode in self.episodes if episode.domain == "synthetic"]

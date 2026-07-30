@@ -212,10 +212,7 @@ def main() -> None:
         source_sha256=_sha256(db),
         status="ready",
     )
-    manifest_path.write_text(
-        json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    manifest.write(manifest_path)
     print(json.dumps({
         "manifest": str(manifest_path),
         "users": user_count,

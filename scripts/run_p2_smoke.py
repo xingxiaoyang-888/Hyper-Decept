@@ -7,6 +7,7 @@ metrics. It performs one TwiBot/simulation step and one MGTAB/simulation step.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -22,6 +23,12 @@ for value in (str(ROOT), str(CHARACTER_DIR)):
         sys.path.insert(0, value)
 
 from data_processing.episode_manifest import EpisodeManifest  # noqa: E402
+from data_processing.p2_smoke_report import (  # noqa: E402
+    build_p2_smoke_report,
+    collect_git_provenance,
+    collect_runtime_environment,
+    write_p2_smoke_report,
+)
 from joint_training import (  # noqa: E402
     DomainAlternatingTrainer,
     DomainAwareLorentzHGT,
@@ -43,9 +50,12 @@ def main() -> None:
     parser.add_argument("--mgtab-manifest", required=True, type=Path)
     parser.add_argument("--simulation-manifest", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--report-dir", type=Path, default=ROOT / "reports/p2_smoke")
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
+    started_at = datetime.now(timezone.utc)
+    provenance = collect_git_provenance(ROOT)
     twibot_path = args.twibot_manifest.expanduser().resolve()
     mgtab_path = args.mgtab_manifest.expanduser().resolve()
     simulation_path = args.simulation_manifest.expanduser().resolve()
@@ -109,6 +119,8 @@ def main() -> None:
         dropout=0.0,
     )
     device = torch.device(args.device)
+    if device.type == "cuda" and torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats(device)
     model.to(device)
     twibot_train.to(device)
     mgtab_train.to(device)
@@ -176,6 +188,23 @@ def main() -> None:
         "checkpoint_bytes": checkpoint_path.stat().st_size,
     }
     summary_path = output_dir / "p2_smoke_summary.json"
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    finished_at = datetime.now(timezone.utc)
+    report = build_p2_smoke_report(
+        summary=summary,
+        manifest_paths=(twibot_path, mgtab_path, simulation_path),
+        started_at=started_at,
+        finished_at=finished_at,
+        provenance=provenance,
+        environment=collect_runtime_environment(device),
+    )
+    report_paths = write_p2_smoke_report(
+        report, args.report_dir.expanduser().resolve()
+    )
+    summary["portable_audit_reports"] = [str(path) for path in report_paths]
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

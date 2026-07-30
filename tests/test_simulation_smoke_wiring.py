@@ -60,9 +60,11 @@ def test_p2_smoke_runner_declares_three_sources_and_separate_validation():
     assert '--twibot-manifest' in source
     assert '--mgtab-manifest' in source
     assert '--simulation-manifest' in source
+    assert '--report-dir' in source
     assert 'node_split="train"' in source
     assert 'node_split="validation"' in source
     assert 'trainer.train_step(twibot_train, synthetic_batch)' in source
     assert 'trainer.train_step(mgtab_train, synthetic_batch)' in source
     assert 'evaluate_bot_batch(\n            model, twibot_validation' in source
     assert 'evaluate_bot_batch(\n            model, mgtab_validation' in source
+    assert 'build_p2_smoke_report(' in source

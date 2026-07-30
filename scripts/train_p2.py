@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from copy import deepcopy
+from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -30,6 +32,7 @@ from data_processing.episode_manifest import (  # noqa: E402
     DatasetPlan,
     EpisodeManifest,
     audit_episode_splits,
+    audit_plan_artifacts,
     training_protocol_assignments,
 )
 from joint_training import (  # noqa: E402
@@ -58,16 +61,29 @@ def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    # Keep repeated paper runs comparable across CPU/GPU workers. The caller
+    # can still choose a different seed for an independent replicate.
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
 
-def _action_vocabulary(plan: DatasetPlan) -> dict[str, int]:
-    """Build one deterministic action vocabulary from declared artifacts."""
+def _action_vocabulary(
+    plan: DatasetPlan,
+    assignments: Mapping[str, str],
+) -> dict[str, int]:
+    """Build action classes from training episodes only.
+
+    Validation/test action values remain masked when they are unseen, avoiding
+    using held-out labels to determine the model output space.
+    """
     import pandas as pd
 
     actions: set[str] = set()
     for episode in plan.episodes:
+        if episode.domain != "synthetic" or assignments[episode.episode_id] != "train":
+            continue
         path = episode.artifacts.get("event_targets_csv")
         if not path:
             continue
@@ -103,21 +119,29 @@ def load_protocol_batches(
     assignments: Mapping[str, str],
     *,
     split: str,
+    domain: str | None = None,
     role_vocabulary: Mapping[str, int],
     action_vocabulary: Mapping[str, int],
     feature_columns: Sequence[str] = DEFAULT_FEATURE_COLUMNS,
     similarity_threshold: float = 0.7,
 ) -> list[EpisodeBatch]:
     """Load batches assigned to one protocol split without directory scanning."""
+    if domain not in {None, "real", "synthetic"}:
+        raise ValueError("domain must be None, real, or synthetic")
     batches: list[EpisodeBatch] = []
     for episode in plan.episodes:
+        if domain is not None and episode.domain != domain:
+            continue
         assignment = assignments[episode.episode_id]
         if episode.domain == "real":
-            # ``shared`` real episodes expose their declared train/val/test
-            # node partitions; synthetic assignments refer to whole episodes.
-            if assignment != "shared":
+            # Shared real datasets expose their declared node partitions.
+            # External real datasets are assigned to test as whole datasets,
+            # but still use their declared test node partition when present.
+            if assignment not in {"shared", "test"}:
                 continue
-            node_split = split
+            if assignment == "test" and split != "test":
+                continue
+            node_split = "test" if assignment == "test" else split
         elif assignment != split:
             continue
         else:
@@ -162,6 +186,41 @@ def _evaluate(
     return _mean_metrics(rows)
 
 
+def _evaluate_details(
+    model: DomainAwareLorentzHGT,
+    batches: Sequence[EpisodeBatch],
+    device: torch.device,
+) -> dict:
+    """Return macro, sample-weighted, and per-episode evaluation metrics."""
+    by_episode = {
+        batch.episode_id: evaluate_bot_batch(model, batch, device=device)
+        for batch in batches
+    }
+    macro = _mean_metrics(by_episode.values())
+    weighted_totals: dict[str, float] = defaultdict(float)
+    weighted_counts: dict[str, float] = defaultdict(float)
+    for row in by_episode.values():
+        weight = float(row.get("count", 0.0))
+        for key, value in row.items():
+            if key == "count":
+                continue
+            value = float(value)
+            if key == "count" or not np.isfinite(value) or weight <= 0:
+                continue
+            weighted_totals[key] += value * weight
+            weighted_counts[key] += weight
+    weighted = {
+        key: weighted_totals[key] / weighted_counts[key]
+        for key in sorted(weighted_totals)
+        if weighted_counts[key]
+    }
+    return {
+        "macro": macro,
+        "sample_weighted_episode_mean": weighted,
+        "by_episode": by_episode,
+    }
+
+
 def run_training(
     *,
     plan: DatasetPlan,
@@ -180,6 +239,13 @@ def run_training(
     max_steps: int | None = None,
 ) -> dict:
     """Train one declared P2 fold and persist auditable outputs."""
+    if protocol_id != "P2_multisource_real":
+        raise ValueError(
+            "train_p2 currently implements P2_multisource_real only; "
+            "P1 external holdout requires an explicit external-adapter "
+            "pretraining protocol and must not use randomly initialized "
+            "test-only input adapters"
+        )
     if epochs <= 0:
         raise ValueError("epochs must be positive")
     if max_steps is not None and max_steps <= 0:
@@ -194,14 +260,18 @@ def run_training(
     )
     split_audit = audit_episode_splits(plan, assignments)
     split_audit.raise_for_errors()
-    action_vocabulary = _action_vocabulary(plan)
+    artifact_audit = audit_plan_artifacts(plan, require_files=True)
+    artifact_audit.raise_for_errors()
+    action_vocabulary = _action_vocabulary(plan, assignments)
     train_real = load_protocol_batches(
-        plan, assignments, split="train", role_vocabulary=ROLE_VOCABULARY,
+        plan, assignments, split="train", domain="real",
+        role_vocabulary=ROLE_VOCABULARY,
         action_vocabulary=action_vocabulary,
         similarity_threshold=similarity_threshold,
     )
     train_synthetic = load_protocol_batches(
-        plan, assignments, split="train", role_vocabulary=ROLE_VOCABULARY,
+        plan, assignments, split="train", domain="synthetic",
+        role_vocabulary=ROLE_VOCABULARY,
         action_vocabulary=action_vocabulary,
         similarity_threshold=similarity_threshold,
     )
@@ -216,8 +286,37 @@ def run_training(
         similarity_threshold=similarity_threshold,
     )
     all_batches = [*train_real, *train_synthetic, *validation, *test]
-    metadata = merge_heterogeneous_metadata(batch.graph for batch in all_batches)
-    dataset_domains = tuple(sorted({batch.dataset_name for batch in all_batches}))
+    # Build the architecture from training graphs only. Test-only edge/node
+    # types must not alter the model after the fold is fixed.
+    metadata = merge_heterogeneous_metadata(
+        batch.graph for batch in [*train_real, *train_synthetic]
+    )
+    train_dataset_names = {
+        batch.dataset_name for batch in [*train_real, *train_synthetic]
+    }
+    unseen_eval_datasets = sorted({
+        batch.dataset_name for batch in [*validation, *test]
+        if batch.dataset_name not in train_dataset_names
+    })
+    if unseen_eval_datasets:
+        raise ValueError(
+            "evaluation contains datasets without a trained input adapter: "
+            f"{unseen_eval_datasets}; add an explicit adapter-training protocol "
+            "before reporting external-dataset metrics"
+        )
+    train_node_types, train_edge_types = metadata
+    train_node_types = set(train_node_types)
+    train_edge_types = {tuple(value) for value in train_edge_types}
+    for batch in [*validation, *test]:
+        node_types, edge_types = batch.graph.metadata()
+        if not set(node_types).issubset(train_node_types) or not {
+            tuple(value) for value in edge_types
+        }.issubset(train_edge_types):
+            raise ValueError(
+                f"evaluation graph schema is not covered by training schema: "
+                f"{batch.episode_id}"
+            )
+    dataset_domains = tuple(sorted(train_dataset_names))
     model = DomainAwareLorentzHGT(
         hidden_dim=hidden_dim,
         num_heads=num_heads,
@@ -229,7 +328,7 @@ def run_training(
         dataset_domains=dataset_domains,
         dropout=dropout,
     ).to(torch_device)
-    for batch in all_batches:
+    for batch in [*train_real, *train_synthetic]:
         model(batch.graph, domain=batch.domain, dataset_name=batch.dataset_name)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     trainer = DomainAlternatingTrainer(
@@ -241,23 +340,43 @@ def run_training(
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     history: list[dict] = []
+    best_epoch = 0
+    best_validation_score = float("-inf")
+    best_model_state = None
+    best_optimizer_state = None
     for epoch in range(epochs):
         train_metrics = trainer.train_epoch(
             train_real, train_synthetic, max_steps=max_steps
         )
-        validation_metrics = _evaluate(model, validation, torch_device)
+        validation_details = _evaluate_details(model, validation, torch_device)
+        validation_metrics = validation_details["macro"]
         history.append({
             "epoch": epoch + 1,
             "train": train_metrics,
             "validation": validation_metrics,
+            "validation_weighted": validation_details["sample_weighted_episode_mean"],
+            "validation_by_episode": validation_details["by_episode"],
         })
-    test_metrics = _evaluate(model, test, torch_device)
+        validation_score = validation_metrics.get("auprc", float("nan"))
+        if not np.isfinite(validation_score):
+            validation_score = validation_metrics.get("balanced_accuracy", float("nan"))
+        if np.isfinite(validation_score) and validation_score > best_validation_score:
+            best_epoch = epoch + 1
+            best_validation_score = float(validation_score)
+            best_model_state = deepcopy(model.state_dict())
+            best_optimizer_state = deepcopy(optimizer.state_dict())
+    if best_model_state is None:
+        raise RuntimeError("validation produced no finite model-selection metric")
+    model.load_state_dict(best_model_state)
+    optimizer.load_state_dict(best_optimizer_state)
+    test_details = _evaluate_details(model, test, torch_device)
+    test_metrics = test_details["macro"]
     checkpoint = save_joint_checkpoint(
         output_dir / "checkpoint.pt",
         model=model,
         optimizer=optimizer,
         loss_config=trainer.config,
-        epoch=trainer.epoch,
+        epoch=best_epoch,
         plan_id=plan.plan_id,
         fold_id=held_out_scenario,
         metrics=test_metrics,
@@ -272,8 +391,12 @@ def run_training(
         "held_out_scenario": held_out_scenario,
         "seed": seed,
         "epochs": epochs,
+        "best_epoch": best_epoch,
+        "selection_metric": "validation_auprc_or_balanced_accuracy",
+        "best_validation_score": best_validation_score,
         "device": str(torch_device),
         "dataset_domains": list(dataset_domains),
+        "train_dataset_domains": sorted(train_dataset_names),
         "action_vocabulary": action_vocabulary,
         "train_real_batches": len(train_real),
         "train_synthetic_batches": len(train_synthetic),
@@ -281,6 +404,8 @@ def run_training(
         "test_batches": len(test),
         "history": history,
         "test": test_metrics,
+        "test_weighted": test_details["sample_weighted_episode_mean"],
+        "test_by_episode": test_details["by_episode"],
         "checkpoint": str(checkpoint),
     }
     (output_dir / "metrics.json").write_text(
@@ -299,6 +424,7 @@ def run_training(
         "dropout": dropout,
         "learning_rate": learning_rate,
         "max_steps": max_steps,
+        "loss_config": asdict(trainer.config),
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     plan.write(output_dir / "data_plan.json")
     return result

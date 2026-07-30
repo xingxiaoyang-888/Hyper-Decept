@@ -928,7 +928,12 @@ class SocialAgent:
         )
 
         # ===== [probability pre-check] bad_leader: 60% do_nothing =====
-        if self.user_info.user_type == "bad_leader" and random.random() < 0.6:
+        force_bad_leader = os.getenv("OASIS_SMOKE_FORCE_BAD_LEADER_ACTION") == "1"
+        if (
+            self.user_info.user_type == "bad_leader"
+            and not force_bad_leader
+            and random.random() < 0.6
+        ):
             agent_log.info(
                 f"Agent {self.agent_id} (bad_leader) do_nothing by 60% probability"
             )

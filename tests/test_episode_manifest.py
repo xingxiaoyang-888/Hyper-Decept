@@ -100,11 +100,14 @@ def test_real_training_protocols_separate_holdout_from_multisource_use(tmp_path)
         "features_pt",
         "labels_bot_pt",
         "labels_stance_pt",
+        "splits_csv",
+        "adapter_manifest_json",
     }
-    assert not {"features_csv", "labels_csv", "splits_csv"}.intersection(
-        mgtab.artifacts
+    assert mgtab.generator_metadata["split_seed"] == "42"
+    assert mgtab.generator_metadata["multiedge_policy"] == (
+        "coalesce_with_count"
     )
-    assert all(path.endswith(".pt") for path in mgtab.artifacts.values())
+    assert not {"features_csv", "labels_csv"}.intersection(mgtab.artifacts)
     assert p1[mgtab_id] == "test"
     assert p2[mgtab_id] == "shared"
 

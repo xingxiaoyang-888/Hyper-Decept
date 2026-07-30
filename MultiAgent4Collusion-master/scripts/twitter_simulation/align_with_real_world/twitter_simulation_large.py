@@ -295,12 +295,26 @@ async def running(
     detection: bool = False,
     activation_scale: float = 1.0,
     force_all_agents_active: bool = False,
+    force_agent_ids: list[int] | None = None,
+    force_bad_leader_action: bool = False,
+    deep_persona_chunks_path: str | None = None,
     model_configs: dict[str, Any] | None = None,
     inference_configs: dict[str, Any] | None = None,
     defense_configs: dict[str, Any] | None = None,
     action_space_file_path: str = None,
     prompt_dir: str = str(Path(__file__).resolve().parent),
 ) -> None:
+    force_agent_id_set = {int(value) for value in (force_agent_ids or [])}
+    os.environ["OASIS_SMOKE_FORCE_BAD_LEADER_ACTION"] = (
+        "1" if force_bad_leader_action else "0"
+    )
+    if deep_persona_chunks_path is not None:
+        chunks_path = Path(deep_persona_chunks_path).expanduser().resolve()
+        if not chunks_path.is_file():
+            raise FileNotFoundError(
+                f"DeepPersona chunks do not exist: {chunks_path}"
+            )
+        os.environ["DEEP_PERSONA_CHUNKS_PATH"] = str(chunks_path)
     db_path = DEFAULT_DB_PATH if db_path is None else db_path
     csv_path = DEFAULT_CSV_PATH if csv_path is None else csv_path
     if os.path.exists(db_path):
@@ -484,7 +498,7 @@ async def running(
                 threshold = agent.user_info.profile["other_info"]["active_threshold"][
                     int(simulation_time_hour % 24)
                 ]
-                if force_all_agents_active or agent_ac_prob < min(
+                if force_all_agents_active or node_id in force_agent_id_set or agent_ac_prob < min(
                     1.0, threshold * activation_scale
                 ):
                     tasks.append(agent.perform_action_by_llm())

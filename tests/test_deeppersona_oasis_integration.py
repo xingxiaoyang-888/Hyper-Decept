@@ -41,15 +41,18 @@ def test_example_config_paths_do_not_depend_on_launch_directory():
     assert Path(resolved["db_path"]).parent == FRAMEWORK_ROOT / "our_twitter_sim"
 
 
-def _load_profiles():
-    with (DEEPPERSONA_ROOT / "deeppersonal_agents.json").open(
-        "r", encoding="utf-8"
-    ) as handle:
-        return json.load(handle)
+def _profiles(count=5):
+    return [
+        {"Summary": f"Agent {index} follows economic and social policy news."}
+        for index in range(count)
+    ]
 
 
-def test_persona_adapter_populates_prompt_and_recommender_fields():
-    profiles = _load_profiles()
+def test_persona_adapter_populates_prompt_and_recommender_fields(monkeypatch):
+    profiles = _profiles()
+    monkeypatch.setattr(persona_adapter, "NUM_BAD_LEADER", 1)
+    monkeypatch.setattr(persona_adapter, "NUM_BAD_MEMBER", 1)
+    monkeypatch.setattr(persona_adapter, "NUM_BAD", 1)
     frame = persona_adapter.build_agent_dataframe(
         profiles,
         tweet_pool={"good": [], "bad": []},
@@ -58,11 +61,20 @@ def test_persona_adapter_populates_prompt_and_recommender_fields():
     assert len(frame) == len(profiles)
     assert frame["user_char"].str.strip().ne("").all()
     assert frame["description"].equals(frame["user_char"])
-    assert set(frame["user_type"]) == {"good", "bad_leader", "bad_member"}
+    assert set(frame["user_type"]) == {
+        "good", "bad", "bad_leader", "bad_member"
+    }
 
 
 def test_runtime_persona_retrieval_is_agent_scoped_and_includes_summary():
-    index = rag_engine.load_vector_store()
+    profiles = _profiles()
+    chunks = [
+        {"agent_id": index, "section": "summary", "text": profile["Summary"]}
+        for index, profile in enumerate(profiles)
+    ]
+    index = rag_engine.PersonaIndex(chunks_by_agent={
+        item["agent_id"]: [item] for item in chunks
+    })
     memories = rag_engine.get_agent_specific_memory(
         collection=index,
         agent_id=0,
@@ -70,14 +82,17 @@ def test_runtime_persona_retrieval_is_agent_scoped_and_includes_summary():
         top_k=3,
     )
 
-    assert len(index.chunks_by_agent) == len(_load_profiles())
+    assert len(index.chunks_by_agent) == len(profiles)
     assert memories
     assert all(memory["agent_id"] == 0 for memory in memories)
     assert any(memory["section"] == "summary" for memory in memories)
 
 
-def test_oasis_creates_agents_with_deeppersona_profiles(tmp_path):
-    profiles = _load_profiles()
+def test_oasis_creates_agents_with_deeppersona_profiles(tmp_path, monkeypatch):
+    profiles = _profiles()
+    monkeypatch.setattr(persona_adapter, "NUM_BAD_LEADER", 1)
+    monkeypatch.setattr(persona_adapter, "NUM_BAD_MEMBER", 1)
+    monkeypatch.setattr(persona_adapter, "NUM_BAD", 1)
     frame = persona_adapter.build_agent_dataframe(
         profiles,
         tweet_pool={"good": [], "bad": []},

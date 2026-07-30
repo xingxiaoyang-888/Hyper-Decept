@@ -9,6 +9,7 @@ each graph remains an auditable episode and the optimizer alternates domains.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
 from itertools import cycle
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
@@ -252,6 +253,9 @@ def _normalize_label_contract(frame):
         result = result.rename(columns={"id": "user_id"})
     if "user_id" not in result.columns:
         raise ValueError("labels artifact must contain user_id or id")
+    result["user_id"] = result["user_id"].map(_normalise_identifier)
+    if result["user_id"].isna().any() or result["user_id"].duplicated().any():
+        raise ValueError("label user_id values must be non-null and unique")
     if "is_bad" not in result.columns:
         source = None
         for candidate in ("label", "user_type"):
@@ -300,10 +304,23 @@ def load_episode_batch_from_manifest(
     from graph_builder import build_hetero_data, load_post_embeddings
 
     artifacts = dict(getattr(manifest, "artifacts", {}))
+    # MGTAB is an anonymous tensor bundle, not a 26-column CSV/SQLite export.
+    # Dispatch before the generic path so its directory is not mistaken for a
+    # raw TwiBot-22 directory by ``build_hetero_data``.
     if manifest.dataset_name == "mgtab":
         from data_processing.mgtab_adapter import MGTABAdapter
 
-        required = {
+        generator_metadata = dict(
+            getattr(manifest, "generator_metadata", {}) or {}
+        )
+        try:
+            split_seed = int(generator_metadata.get("split_seed", 42))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("MGTAB split_seed must be an integer") from exc
+        multiedge_policy = generator_metadata.get(
+            "multiedge_policy", "coalesce_with_count"
+        )
+        required_tensors = {
             "edge_index_pt",
             "edge_type_pt",
             "edge_weight_pt",
@@ -311,22 +328,92 @@ def load_episode_batch_from_manifest(
             "labels_bot_pt",
             "labels_stance_pt",
         }
-        missing = sorted(required.difference(artifacts))
-        if missing:
-            raise ValueError(f"episode manifest missing artifacts: {missing}")
         if not Path(manifest.source_path).is_dir():
             raise FileNotFoundError(
                 f"MGTAB tensor bundle does not exist: {manifest.source_path}"
             )
-        for name in sorted(required):
+        if not set(artifacts).intersection(required_tensors):
+            artifacts.update({
+                name: str(Path(manifest.source_path) / filename)
+                for name, filename in {
+                    "edge_index_pt": "edge_index.pt",
+                    "edge_type_pt": "edge_type.pt",
+                    "edge_weight_pt": "edge_weight.pt",
+                    "features_pt": "features.pt",
+                    "labels_bot_pt": "labels_bot.pt",
+                    "labels_stance_pt": "labels_stance.pt",
+                }.items()
+            })
+        missing = sorted(required_tensors.difference(artifacts))
+        if missing:
+            raise ValueError(f"episode manifest missing artifacts: {missing}")
+        for name in sorted(required_tensors):
             if not Path(artifacts[name]).is_file():
                 raise FileNotFoundError(
                     f"MGTAB artifact does not exist: {name}={artifacts[name]}"
                 )
 
         graph, labels, adapter_manifest = MGTABAdapter(
-            manifest.source_path
+            manifest.source_path,
+            split_seed=split_seed,
+            multiedge_policy=multiedge_policy,
         ).load()
+
+        # A persisted split takes precedence over the deterministic generated
+        # split.  Require full, one-to-one coverage so a stale split cannot
+        # silently move or drop anonymous nodes.
+        splits_path = artifacts.get("splits_csv")
+        if splits_path:
+            if not Path(splits_path).is_file():
+                raise FileNotFoundError(
+                    f"MGTAB split artifact does not exist: {splits_path}"
+                )
+            splits = pd.read_csv(splits_path, low_memory=False)
+            if "user_id" not in splits.columns and "id" in splits.columns:
+                splits = splits.rename(columns={"id": "user_id"})
+            split_column = (
+                "data_split" if "data_split" in splits.columns else "split"
+            )
+            if "user_id" not in splits.columns or split_column not in splits.columns:
+                raise ValueError(
+                    "MGTAB split artifact must contain user_id/id and "
+                    "split/data_split"
+                )
+            splits = splits[["user_id", split_column]].copy()
+            splits["user_id"] = splits["user_id"].map(_normalise_identifier)
+            splits["data_split"] = (
+                splits[split_column].fillna("").astype(str).str.lower()
+                .replace({"val": "validation", "dev": "validation"})
+            )
+            if splits["user_id"].isna().any() or splits["user_id"].duplicated().any():
+                raise ValueError("MGTAB split user IDs must be non-null and unique")
+            if not set(splits["data_split"]).issubset(
+                {"train", "validation", "test"}
+            ):
+                raise ValueError("MGTAB split contains an unsupported partition")
+            expected_ids = set(labels["user_id"])
+            split_ids = set(splits["user_id"])
+            if split_ids != expected_ids:
+                raise ValueError(
+                    "MGTAB split must cover every anonymous node exactly once"
+                )
+            labels = labels.drop(columns=["data_split"]).merge(
+                splits[["user_id", "data_split"]],
+                on="user_id",
+                how="left",
+                validate="one_to_one",
+            )
+            adapter_manifest["split_source"] = "declared_csv"
+            adapter_manifest["split_file"] = str(Path(splits_path))
+            adapter_manifest["split_file_sha256"] = hashlib.sha256(
+                Path(splits_path).read_bytes()
+            ).hexdigest()
+            adapter_manifest["split_counts"] = {
+                key: int(value)
+                for key, value in labels["data_split"].value_counts().items()
+            }
+        else:
+            adapter_manifest["split_source"] = "adapter_generated"
         if node_split is not None:
             requested_split = str(node_split).lower()
             requested_split = {
@@ -1083,9 +1170,27 @@ def save_joint_checkpoint(
         raise ValueError("epoch must be non-negative")
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    # Dataset-specific lazy adapters that were not exercised in this fold are
+    # still ``UninitializedParameter`` objects.  Serialising those objects
+    # breaks PyTorch's default safe ``weights_only=True`` loader.  Omit only
+    # those untouched keys and record them explicitly; every trained tensor is
+    # preserved and a future loader can materialise the adapter before loading.
+    from torch.nn.parameter import UninitializedBuffer, UninitializedParameter
+
+    state = model.state_dict()
+    uninitialized_types = (UninitializedParameter, UninitializedBuffer)
+    omitted_keys = sorted(
+        name for name, value in state.items()
+        if isinstance(value, uninitialized_types)
+    )
+    serializable_state = {
+        name: value for name, value in state.items()
+        if name not in omitted_keys
+    }
     torch.save({
         "schema_version": "hyperdecept.joint-checkpoint.v1",
-        "model_state": model.state_dict(),
+        "model_state": serializable_state,
+        "uninitialized_model_state_keys": omitted_keys,
         "optimizer_state": optimizer.state_dict(),
         "loss_config": asdict(loss_config),
         "epoch": int(epoch),

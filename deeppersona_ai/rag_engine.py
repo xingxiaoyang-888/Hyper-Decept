@@ -10,6 +10,7 @@ it is not a prerequisite for the simulation to start.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,8 @@ def load_vector_store(chunks_path: str | Path | None = None) -> PersonaIndex:
     integration, although the returned object is an in-memory lexical index.
     """
 
-    path = Path(chunks_path) if chunks_path else DEFAULT_CHUNKS_PATH
+    configured_path = os.getenv("DEEP_PERSONA_CHUNKS_PATH")
+    path = Path(chunks_path or configured_path or DEFAULT_CHUNKS_PATH)
     if not path.is_file():
         raise FileNotFoundError(
             f"DeepPersona chunks not found: {path}. "

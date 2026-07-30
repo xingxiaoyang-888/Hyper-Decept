@@ -4,6 +4,7 @@ Generate simulation input CSV from deeppersonal_agents.json
 import json
 import os
 import random
+import argparse
 import pandas as pd
 from datetime import datetime
 
@@ -162,22 +163,57 @@ def build_agent_dataframe(profiles, tweet_pool):
     return pd.DataFrame(rows)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate a reproducible OASIS population CSV from DeepPersona profiles."
+    )
+    parser.add_argument("--profiles", default=DEEPERSONAL_PATH)
+    parser.add_argument("--output", default=OUTPUT_CSV)
+    parser.add_argument("--num-agents", type=int)
+    parser.add_argument("--num-bad-leader", type=int, default=NUM_BAD_LEADER)
+    parser.add_argument("--num-bad-member", type=int, default=NUM_BAD_MEMBER)
+    parser.add_argument("--num-bad", type=int, default=NUM_BAD)
+    parser.add_argument("--seed", type=int, default=RANDOM_SEED)
+    return parser.parse_args()
+
+
 def main():
-    if not os.path.exists(DEEPERSONAL_PATH):
+    args = parse_args()
+    global NUM_BAD_LEADER, NUM_BAD_MEMBER, NUM_BAD
+    NUM_BAD_LEADER = args.num_bad_leader
+    NUM_BAD_MEMBER = args.num_bad_member
+    NUM_BAD = args.num_bad
+    random.seed(args.seed)
+    if min(NUM_BAD_LEADER, NUM_BAD_MEMBER, NUM_BAD) < 0:
+        raise ValueError("bad-agent counts must be non-negative")
+    if not os.path.exists(args.profiles):
         raise FileNotFoundError(
-            f"Deep persona file not found: {DEEPERSONAL_PATH}"
+            f"Deep persona file not found: {args.profiles}"
         )
-    with open(DEEPERSONAL_PATH, "r", encoding="utf-8") as f:
+    with open(args.profiles, "r", encoding="utf-8") as f:
         profiles = json.load(f)
+    if args.num_agents is not None:
+        if args.num_agents <= 0:
+            raise ValueError("num-agents must be positive")
+        if len(profiles) < args.num_agents:
+            raise ValueError(
+                f"requested {args.num_agents} agents but only {len(profiles)} profiles exist"
+            )
+        # Preserve an already-sized, explicitly indexed population so the
+        # CSV row/agent IDs stay aligned with DeepPersona RAG chunks.  Only a
+        # larger source pool needs deterministic sampling.
+        if len(profiles) > args.num_agents:
+            profiles = random.sample(profiles, args.num_agents)
     validate_profiles(profiles)
     print(f"Loaded {len(profiles)} deep persona profiles")
 
     tweet_pool = load_tweet_pool()
     df = build_agent_dataframe(profiles, tweet_pool)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8")
+    output_csv = os.path.abspath(args.output)
+    os.makedirs(os.path.dirname(output_csv), exist_ok=True)
+    df.to_csv(output_csv, index=False, encoding="utf-8")
 
-    print(f"\nCSV generated: {OUTPUT_CSV}")
+    print(f"\nCSV generated: {output_csv}")
     print(f"  Total agents: {len(df)}")
     print(f"  Distribution: {dict(df['user_type'].value_counts())}")
     print(f"  Columns: {list(df.columns)}")

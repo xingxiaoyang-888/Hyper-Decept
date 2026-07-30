@@ -292,6 +292,8 @@ def audit_plan_artifacts(
                 "features_pt",
                 "labels_bot_pt",
                 "labels_stance_pt",
+                "splits_csv",
+                "adapter_manifest_json",
             }
         else:
             required = {"features_csv", "labels_csv"}
@@ -411,9 +413,19 @@ def build_recommended_dataset_plan(
                 "edge_weight_pt": str(Path(mgtab_root) / "edge_weight.pt"),
                 "features_pt": str(Path(mgtab_root) / "features.pt"),
                 "labels_bot_pt": str(Path(mgtab_root) / "labels_bot.pt"),
-                "labels_stance_pt": str(
-                    Path(mgtab_root) / "labels_stance.pt"
+                "labels_stance_pt": str(Path(mgtab_root) / "labels_stance.pt"),
+                "splits_csv": str(
+                    Path(mgtab_root) / "derived" / "split_seed42.csv"
                 ),
+                "adapter_manifest_json": str(
+                    Path(mgtab_root)
+                    / "derived"
+                    / "adapter_manifest_seed42.json"
+                ),
+            },
+            generator_metadata={
+                "split_seed": "42",
+                "multiedge_policy": "coalesce_with_count",
             },
         ),
     ]

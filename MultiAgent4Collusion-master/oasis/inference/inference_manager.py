@@ -147,24 +147,41 @@ class InferencerManager:
     #             except Exception as e:
     #                 logger.error(f"Failed to initialize thread for port {port}: {e}")
     def _initialize_threads(self, server_url, model_type, model_path, stop_tokens):
-        """Initialize inference threads（已修改为智谱API）"""
-        # 强制使用智谱API，忽略原来的端口配置
-        try:
-            # 智谱固定地址
-            zhipu_url = "https://open.bigmodel.cn/api/paas/v4/"
-            shared_memory = SharedMemory()
+        """Initialize one inference worker for every declared server port.
 
-            thread = InferenceThread(
-                model_path=model_path,
-                server_url=zhipu_url,  # 强制智谱地址
-                stop_tokens=stop_tokens,
-                model_type=model_type,
-                temperature=0.0,
-                shared_memory=shared_memory,
-            )
-            self.threads[443] = thread  # 用443标记
-        except Exception as e:
-            logger.error(f"Failed to initialize zhipu thread: {e}")
+        The YAML endpoint is part of the experiment contract.  Do not replace
+        it with a hard-coded provider: local Ollama, vLLM and authorised remote
+        OpenAI-compatible endpoints must all follow the same configuration
+        path.
+        """
+        for url_config in server_url:
+            host = url_config["host"]
+            scheme = url_config.get("scheme", "http")
+            api_prefix = str(url_config.get("api_prefix", "/v1"))
+            if not api_prefix.startswith("/"):
+                api_prefix = f"/{api_prefix}"
+            for port in url_config["ports"]:
+                try:
+                    endpoint = f"{scheme}://{host}:{port}{api_prefix}"
+                    shared_memory = SharedMemory()
+                    thread = InferenceThread(
+                        model_path=model_path,
+                        server_url=endpoint,
+                        stop_tokens=stop_tokens,
+                        model_type=model_type,
+                        temperature=0.0,
+                        shared_memory=shared_memory,
+                    )
+                    self.threads[port] = thread
+                except Exception as exc:
+                    logger.error(
+                        "Failed to initialize inference thread %s:%s: %s",
+                        host,
+                        port,
+                        exc,
+                    )
+        if not self.threads:
+            raise RuntimeError("No inference workers could be initialized")
 
     async def _find_available_thread(
         self, agent_id: int

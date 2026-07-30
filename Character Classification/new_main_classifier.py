@@ -33,7 +33,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
-import xgboost as xgb
 from sklearn.base import clone
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_predict
@@ -186,6 +185,7 @@ def run_classifier(
     run_visualizer=True,
     whitebox=False,
     whitebox_top_k=15,
+    features_only=False,
 ):
     os.makedirs(save_dir, exist_ok=True)
 
@@ -269,6 +269,25 @@ def run_classifier(
     node_feat_path = os.path.join(save_dir, "node_features.csv")
     df_final.to_csv(node_feat_path, index=False, encoding="utf-8")
     logger.info("  Node features saved: %s", node_feat_path)
+
+    if features_only:
+        logger.info("Feature-only preparation requested; skipping classifier metrics.")
+        return {
+            "save_dir": save_dir,
+            "edge_path": edge_path,
+            "node_feature_path": node_feat_path,
+        }
+
+    # XGBoost is only required for the downstream classifier.  Keeping this
+    # import lazy lets data-preparation-only runs work on machines that do not
+    # have the native OpenMP runtime required by XGBoost.
+    global xgb
+    try:
+        import xgboost as xgb
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            "XGBoost and its native runtime are required unless --features-only is used."
+        ) from exc
 
     print("\n" + "-" * 50)
     print("Classification")
@@ -538,6 +557,10 @@ def parse_args():
                         help="Enable M1 white-box explainability outputs.")
     parser.add_argument("--whitebox-top-k", type=int, default=15,
                         help="Top-K feature contributions per packet (default 15).")
+    parser.add_argument(
+        "--features-only", action="store_true",
+        help="Prepare graph/node features without fitting or reporting a classifier.",
+    )
     return parser.parse_args()
 
 
@@ -562,6 +585,7 @@ def main():
         psychology_mode=args.psychology_mode,
         max_tweets_per_user=args.max_tweets_per_user,
         visualizer=not args.no_visualizer,
+        features_only=args.features_only,
     )
     return run_classifier(
         db_file=db_file,
@@ -573,6 +597,7 @@ def main():
         run_visualizer=not args.no_visualizer,
         whitebox=args.whitebox,
         whitebox_top_k=args.whitebox_top_k,
+        features_only=args.features_only,
     )
 
 

@@ -113,7 +113,7 @@ def prepare_twibot(args: argparse.Namespace) -> Path:
     copied_core_ids = output_dir / "core_ids.txt"
     copied_core_ids.write_text("".join(f"{value}\n" for value in core_ids), encoding="utf-8")
     artifacts["core_ids"] = {
-        "path": str(copied_core_ids),
+        "path": copied_core_ids.name if formal else str(copied_core_ids),
         "rows": len(core_ids),
         "bytes": copied_core_ids.stat().st_size,
         "sha256": _sha256(copied_core_ids),
@@ -129,7 +129,8 @@ def prepare_twibot(args: argparse.Namespace) -> Path:
             "hyperdecept.manifest-relative.v1" if formal else "absolute.v1"
         ),
         "status": "ready",
-        "source_path": str(root),
+        "source_path": "." if formal else str(root),
+        "raw_source_name": root.name,
         "core_ids_source": "core_ids.txt" if formal else str(core_path),
         "core_id_count": len(core_ids),
         "core_ids_sha256": _sha256(core_path),

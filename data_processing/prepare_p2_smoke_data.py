@@ -9,6 +9,7 @@ through :class:`TwiBot22RawAdapter`; MGTAB is exported through
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import math
@@ -62,14 +63,19 @@ def _write_json(path: Path, value: dict) -> None:
 def _write_frames(
     output_dir: Path,
     frames: Iterable[tuple[str, pd.DataFrame]],
+    *,
+    relative_paths: bool = False,
 ) -> dict:
     artifacts = {}
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, frame in frames:
         path = output_dir / f"{name}.csv"
-        frame.to_csv(path, index=False)
+        # QUOTE_ALL is deliberate.  TwiBot text contains bare carriage returns;
+        # pandas' minimal quoting only considers the configured line terminator
+        # and can otherwise emit a CSV that standard readers split mid-record.
+        frame.to_csv(path, index=False, quoting=csv.QUOTE_ALL, lineterminator="\n")
         artifacts[name] = {
-            "path": str(path.resolve()),
+            "path": path.name if relative_paths else str(path.resolve()),
             "rows": int(len(frame)),
             "columns": list(frame.columns),
             "bytes": path.stat().st_size,
@@ -102,7 +108,8 @@ def prepare_twibot(args: argparse.Namespace) -> Path:
         ("relations", bundle.relations),
         ("posts", bundle.posts),
     ]
-    artifacts = _write_frames(output_dir, frames)
+    formal = args.contract_mode == "formal"
+    artifacts = _write_frames(output_dir, frames, relative_paths=formal)
     copied_core_ids = output_dir / "core_ids.txt"
     copied_core_ids.write_text("".join(f"{value}\n" for value in core_ids), encoding="utf-8")
     artifacts["core_ids"] = {
@@ -114,10 +121,16 @@ def prepare_twibot(args: argparse.Namespace) -> Path:
 
     manifest = bundle.manifest()
     manifest.update({
-        "schema_version": "hyperdecept.twibot22-smoke.v1",
+        "schema_version": (
+            "hyperdecept.twibot22-materialized.v1"
+            if formal else "hyperdecept.twibot22-smoke.v1"
+        ),
+        "path_contract": (
+            "hyperdecept.manifest-relative.v1" if formal else "absolute.v1"
+        ),
         "status": "ready",
         "source_path": str(root),
-        "core_ids_source": str(core_path),
+        "core_ids_source": "core_ids.txt" if formal else str(core_path),
         "core_id_count": len(core_ids),
         "core_ids_sha256": _sha256(core_path),
         "artifacts": artifacts,
@@ -455,6 +468,10 @@ def _parser() -> argparse.ArgumentParser:
     twibot.add_argument("--output-dir", required=True, type=Path)
     twibot.add_argument("--expected-core-count", type=int, default=1000)
     twibot.add_argument("--edge-chunksize", type=int, default=250_000)
+    twibot.add_argument(
+        "--contract-mode", choices=("smoke", "formal"), default="smoke",
+        help="formal emits portable paths and a non-smoke schema contract",
+    )
     twibot.set_defaults(handler=prepare_twibot)
 
     mgtab = subparsers.add_parser("mgtab", help="prepare the full MGTAB bundle")

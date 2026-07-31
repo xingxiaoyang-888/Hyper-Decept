@@ -1,5 +1,6 @@
 import pandas as pd
 
+from data_processing.prepare_p2_smoke_data import _write_frames
 from data_processing.prepare_twibot22_formal_features import (
     BEHAVIOR_COLUMNS,
     build_behavior_features,
@@ -39,3 +40,17 @@ def test_behavior_features_have_exact_contract_and_observed_values():
     assert result.loc[0, "Like_Ratio"] == 1 / 3
     assert result.loc[0, "URL_Ratio"] == 0.5
     assert result.loc[1].eq(0).all()
+
+
+def test_materialized_csv_quotes_bare_carriage_returns(tmp_path):
+    original = pd.DataFrame({
+        "user_id": ["u1", "u2"],
+        "bio": ["first line\rsecond line", "ordinary"],
+    })
+    artifacts = _write_frames(
+        tmp_path, [("core_users", original)], relative_paths=True,
+    )
+    restored = pd.read_csv(tmp_path / "core_users.csv")
+    assert restored.to_dict("records") == original.to_dict("records")
+    assert artifacts["core_users"]["path"] == "core_users.csv"
+    assert artifacts["core_users"]["rows"] == 2

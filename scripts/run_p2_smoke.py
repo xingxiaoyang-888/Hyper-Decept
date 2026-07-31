@@ -44,6 +44,21 @@ def _read_manifest(path: Path) -> EpisodeManifest:
     return EpisodeManifest.read(path)
 
 
+def _initialize_cuda_memory_tracking(device: torch.device) -> None:
+    """Initialize the selected CUDA context before resetting peak statistics."""
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return
+    device_index = (
+        device.index if device.index is not None else torch.cuda.current_device()
+    )
+    torch.cuda.set_device(device_index)
+    # Some driver/runtime combinations reject peak-stat resets until a context
+    # has completed its first allocation. Reset immediately after this probe so
+    # it does not contribute to the measured Smoke peak.
+    torch.empty(0, device=device)
+    torch.cuda.reset_peak_memory_stats(device_index)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--twibot-manifest", required=True, type=Path)
@@ -119,8 +134,7 @@ def main() -> None:
         dropout=0.0,
     )
     device = torch.device(args.device)
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats(device)
+    _initialize_cuda_memory_tracking(device)
     model.to(device)
     twibot_train.to(device)
     mgtab_train.to(device)

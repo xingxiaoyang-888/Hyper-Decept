@@ -69,3 +69,36 @@ def test_p2_smoke_runner_declares_three_sources_and_separate_validation():
     assert 'evaluate_bot_batch(\n            model, twibot_validation' in source
     assert 'evaluate_bot_batch(\n            model, mgtab_validation' in source
     assert 'build_p2_smoke_report(' in source
+
+
+def test_p2_smoke_initializes_cuda_before_resetting_peak_stats(monkeypatch):
+    module = _load_module(
+        "p2_smoke_cuda_init",
+        ROOT / "scripts/run_p2_smoke.py",
+    )
+    calls = []
+
+    monkeypatch.setattr(module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        module.torch.cuda,
+        "set_device",
+        lambda device: calls.append(("set_device", device)),
+    )
+    monkeypatch.setattr(
+        module.torch,
+        "empty",
+        lambda size, *, device: calls.append(("empty", size, str(device))),
+    )
+    monkeypatch.setattr(
+        module.torch.cuda,
+        "reset_peak_memory_stats",
+        lambda device: calls.append(("reset", device)),
+    )
+
+    module._initialize_cuda_memory_tracking(module.torch.device("cuda:0"))
+
+    assert calls == [
+        ("set_device", 0),
+        ("empty", 0, "cuda:0"),
+        ("reset", 0),
+    ]

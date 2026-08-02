@@ -51,6 +51,7 @@ class SharedMemory:
     Busy: bool = False
     Working: bool = False
     last_active: float = field(default_factory=time.time)  # Record last active time
+    timeout_warned: bool = False
 
 
 class PortManager:
@@ -87,13 +88,20 @@ class InferencerManager:
         server_url: List[Dict],
         port_ranges: Optional[Dict[Tuple[int, int], List[int]]] = None,
         timeout: int = 300,  # Timeout in seconds
+        parallel_per_endpoint: int = 1,
+        max_tokens: int | None = None,
     ):
         self.channel = channel
-        self.threads: Dict[int, InferenceThread] = {}
+        self.threads: Dict[object, InferenceThread] = {}
         self.lock = asyncio.Lock()  # Use asyncio.Lock for async synchronization
         self.stop_event = asyncio.Event()
         self.count = 0
         self.timeout = timeout
+        if parallel_per_endpoint <= 0:
+            raise ValueError("parallel_per_endpoint must be positive")
+        self.parallel_per_endpoint = int(parallel_per_endpoint)
+        self.max_tokens = max_tokens
+        self.workers_by_port: Dict[int, List[object]] = defaultdict(list)
 
         # Default configuration: all agents can access all ports
         if port_ranges is None:
@@ -147,13 +155,17 @@ class InferencerManager:
     #             except Exception as e:
     #                 logger.error(f"Failed to initialize thread for port {port}: {e}")
     def _initialize_threads(self, server_url, model_type, model_path, stop_tokens):
-        """Initialize one inference worker for every declared server port.
+        """Initialize configurable independent slots for every endpoint.
 
         The YAML endpoint is part of the experiment contract.  Do not replace
         it with a hard-coded provider: local Ollama, vLLM and authorised remote
         OpenAI-compatible endpoints must all follow the same configuration
         path.
         """
+        if not hasattr(self, "workers_by_port"):
+            self.workers_by_port = defaultdict(list)
+        default_parallel = int(getattr(self, "parallel_per_endpoint", 1))
+        default_max_tokens = getattr(self, "max_tokens", None)
         for url_config in server_url:
             host = url_config["host"]
             scheme = url_config.get("scheme", "http")
@@ -161,55 +173,72 @@ class InferencerManager:
             if not api_prefix.startswith("/"):
                 api_prefix = f"/{api_prefix}"
             for port in url_config["ports"]:
-                try:
-                    endpoint = f"{scheme}://{host}:{port}{api_prefix}"
-                    shared_memory = SharedMemory()
-                    thread = InferenceThread(
-                        model_path=model_path,
-                        server_url=endpoint,
-                        stop_tokens=stop_tokens,
-                        model_type=model_type,
-                        temperature=0.0,
-                        shared_memory=shared_memory,
-                    )
-                    self.threads[port] = thread
-                except Exception as exc:
-                    logger.error(
-                        "Failed to initialize inference thread %s:%s: %s",
-                        host,
-                        port,
-                        exc,
-                    )
+                slots = int(url_config.get("parallel", default_parallel))
+                if slots <= 0:
+                    raise ValueError("endpoint parallel slots must be positive")
+                for slot in range(slots):
+                    try:
+                        endpoint = f"{scheme}://{host}:{port}{api_prefix}"
+                        shared_memory = SharedMemory()
+                        thread = InferenceThread(
+                            model_path=model_path,
+                            server_url=endpoint,
+                            stop_tokens=stop_tokens,
+                            model_type=model_type,
+                            temperature=0.0,
+                            shared_memory=shared_memory,
+                            max_tokens=url_config.get("max_tokens", default_max_tokens),
+                        )
+                        worker_id = port if slots == 1 else f"{host}:{port}#{slot}"
+                        self.threads[worker_id] = thread
+                        self.workers_by_port[port].append(worker_id)
+                    except Exception as exc:
+                        logger.error(
+                            "Failed to initialize inference slot %s:%s#%s: %s",
+                            host,
+                            port,
+                            slot,
+                            exc,
+                        )
         if not self.threads:
             raise RuntimeError("No inference workers could be initialized")
 
     async def _find_available_thread(
         self, agent_id: int
-    ) -> Tuple[Optional[InferenceThread], Optional[int]]:
+    ) -> Tuple[Optional[InferenceThread], Optional[object]]:
         """Find an available thread for the given agent_id"""
         available_ports = self.port_manager.get_ports_for_agent(agent_id)
         current_time = time.time()
 
         for port in available_ports:
-            thread = self.threads.get(port)
-            if thread is None:
-                continue
+            for worker_id in self.workers_by_port.get(port, [port]):
+                thread = self.threads.get(worker_id)
+                if thread is None:
+                    continue
 
-            async with self.lock:
-                if not thread.shared_memory.Busy or (
-                    current_time - thread.shared_memory.last_active > self.timeout
-                ):
-                    if thread.shared_memory.Busy:
-                        thread.shared_memory = SharedMemory()
-                        logger.warning(f"Reset thread on port {port} due to timeout")
-
-                    return thread, port
+                async with self.lock:
+                    if not thread.shared_memory.Busy:
+                        return thread, worker_id
+                    if (
+                        current_time - thread.shared_memory.last_active > self.timeout
+                        and not thread.shared_memory.timeout_warned
+                    ):
+                        # The underlying request is synchronous and cannot be safely
+                        # cancelled. Reusing this slot would let the stale response
+                        # overwrite a newer request, so keep it quarantined until it
+                        # completes or the HTTP client times out.
+                        thread.shared_memory.timeout_warned = True
+                        logger.warning(
+                            "Inference slot %s exceeded %ss and remains quarantined",
+                            worker_id,
+                            self.timeout,
+                        )
 
         return None, None
 
     async def _process_completed_tasks(self):
         """Process completed inference tasks"""
-        for port, thread in self.threads.items():
+        for worker_id, thread in self.threads.items():
             async with self.lock:
                 if thread.shared_memory.Done:
                     try:
@@ -223,10 +252,12 @@ class InferencerManager:
 
                         # Update metrics
                         self.metrics["successful_requests"] += 1
-                        logger.debug(f"Processed completed task on port {port}")
+                        logger.debug(f"Processed completed task on {worker_id}")
 
                     except Exception as e:
-                        logger.error(f"Error sending response for port {port}: {e}")
+                        logger.error(
+                            f"Error sending response for inference slot {worker_id}: {e}"
+                        )
                         self.metrics["failed_requests"] += 1
                     finally:
                         # Reset thread state
@@ -247,7 +278,7 @@ class InferencerManager:
         agent_id = int(message[2])
         start_time = time.time()
 
-        available_thread, port = await self._find_available_thread(agent_id)
+        available_thread, worker_id = await self._find_available_thread(agent_id)
 
         if available_thread:
             async with self.lock:
@@ -268,12 +299,19 @@ class InferencerManager:
                         + processing_time
                     ) / self.count
 
-                    logger.info(
-                        f"Assigned message {self.count} to port {port} for agent {agent_id}"
+                    logger.debug(
+                        "Assigned message %s to %s for agent %s",
+                        self.count,
+                        worker_id,
+                        agent_id,
                     )
-
-                    # Start the inference in a separate thread
-                    asyncio.create_task(self._run_inference(available_thread, message))
+                    if self.count % 1000 == 0:
+                        logger.info(
+                            "Inference progress: assigned=%s completed=%s failed=%s",
+                            self.count,
+                            self.metrics["successful_requests"],
+                            self.metrics["failed_requests"],
+                        )
 
                 except Exception as e:
                     logger.error(f"Error processing request for agent {agent_id}: {e}")
@@ -284,30 +322,10 @@ class InferencerManager:
             # No available threads; requeue the message
             await self.channel.receive_queue.put(message)
 
-    async def _run_inference(
-        self, thread: InferenceThread, message: Tuple[str, str, str]
-    ):
-        """Run inference in a separate thread and update shared_memory"""
-        try:
-            await asyncio.get_event_loop().run_in_executor(
-                self.executor,
-                thread.run,  # Assuming `run` is a blocking method
-            )
-            async with self.lock:
-                thread.shared_memory.Done = True
-        except Exception as e:
-            logger.error(f"Inference error on thread {thread.server_url}: {e}")
-            async with self.lock:
-                thread.shared_memory.Done = True
-                thread.shared_memory.Response = f"Error: {e}"
-        finally:
-            thread.shared_memory.Busy = False
-            thread.shared_memory.last_active = time.time()
-
     async def run(self):
         """Main run loop"""
         # Start all inference threads
-        for port, thread in self.threads.items():
+        for _, thread in self.threads.items():
             # Start each thread in the ThreadPoolExecutor
             asyncio.get_event_loop().run_in_executor(self.executor, thread.run)
 

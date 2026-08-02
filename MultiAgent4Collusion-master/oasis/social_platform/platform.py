@@ -136,6 +136,19 @@ class Platform:
         self.task_blackboard = task_blackboard
         self.tweet_stats = tweet_stats
 
+    def snapshot(self, output_path: str | Path) -> Path:
+        """Create a transaction-consistent SQLite snapshot of the live platform."""
+        target = Path(output_path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self.db.commit()
+        with sqlite3.connect(target) as destination:
+            self.db.backup(destination)
+            integrity = destination.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            target.unlink(missing_ok=True)
+            raise RuntimeError(f"snapshot integrity check failed: {integrity}")
+        return target
+
     async def running(self):
         while True:
             message_id, data, _ = await self.channel.receive_from()

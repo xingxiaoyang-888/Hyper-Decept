@@ -48,6 +48,7 @@ class InferenceThread:
         model_type: str = "llama-3",
         temperature: float = 0.5,
         shared_memory: SharedMemory = None,
+        max_tokens: int | None = None,
     ):
         self.alive = True
         self.count = 0
@@ -86,12 +87,16 @@ class InferenceThread:
             model_config = {
                 "temperature": temperature,
             }
+            if max_tokens is not None:
+                if max_tokens <= 0:
+                    raise ValueError("max_tokens must be positive")
+                model_config["max_tokens"] = int(max_tokens)
             if is_local:
                 # Ollama thinking models otherwise spend most of the local
                 # smoke-test runtime producing reasoning tokens.
                 model_config.update({
                     "reasoning_effort": "none",
-                    "max_tokens": 768,
+                    "max_tokens": int(max_tokens or 768),
                     "response_format": {"type": "json_object"},
                 })
             self.model_backend: BaseModelBackend = ModelFactory.create(
@@ -142,7 +147,7 @@ class InferenceThread:
                     self.shared_memory.Response = "No response."
                 self.shared_memory.Done = True
                 self.count += 1
-                thread_log.info(
+                thread_log.debug(
                     f"Thread {self.server_url}: {self.count} finished.")
 
             sleep(0.01)

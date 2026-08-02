@@ -22,6 +22,7 @@ import logging
 import os
 import random
 import pickle
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Dict
@@ -46,6 +47,10 @@ from oasis.social_platform.platform import Platform
 from oasis.social_platform.typing import ActionType
 from oasis.social_platform.task_blackboard import TaskBlackboard
 from oasis.social_platform.post_stats import SharedMemory, TweetStats, PostStats
+from oasis.social_platform.activation_scheduler import (
+    BudgetedActivationScheduler,
+    pending_bad_member_ids,
+)
 from utils.tweet_stats_visualization import visualize_tweet_stats
 from task_audit_logger import TaskAuditLogger, patch_agents_with_task_logger
 
@@ -287,6 +292,7 @@ async def initialize_tweet_stats_from_csv(csv_path: str) -> TweetStats:
 async def running(
     db_path: str | None = DEFAULT_DB_PATH,
     csv_path: str | None = DEFAULT_CSV_PATH,
+    scenario_id: str | None = None,
     num_timesteps: int = 3,
     clock_factor: int = 60,
     recsys_type: str = "twhin-bert",
@@ -296,6 +302,20 @@ async def running(
     activation_scale: float = 1.0,
     force_all_agents_active: bool = False,
     force_agent_ids: list[int] | None = None,
+    activation_policy: str = "legacy_probability",
+    target_active_fraction: float = 0.12,
+    min_active_agents: int = 1,
+    max_silent_steps: int = 8,
+    wake_on_pending_task: bool = True,
+    task_wake_limit: int = 32,
+    leader_slots: int = 4,
+    activation_seed: int = 42,
+    coverage_deadlines: list[int] | None = None,
+    cutoff_step: int | None = None,
+    activation_audit_path: str | None = None,
+    future_trace_path: str | None = None,
+    export_debug_artifacts: bool = True,
+    export_visualizations: bool = True,
     force_bad_leader_action: bool = False,
     deep_persona_chunks_path: str | None = None,
     model_configs: dict[str, Any] | None = None,
@@ -305,6 +325,14 @@ async def running(
     prompt_dir: str = str(Path(__file__).resolve().parent),
 ) -> None:
     force_agent_id_set = {int(value) for value in (force_agent_ids or [])}
+    if activation_policy not in {"legacy_probability", "budgeted_activity"}:
+        raise ValueError(
+            "activation_policy must be legacy_probability or budgeted_activity"
+        )
+    if cutoff_step is not None and not 0 < cutoff_step < num_timesteps:
+        raise ValueError("cutoff_step must be between 1 and num_timesteps - 1")
+    if activation_policy == "budgeted_activity" and not scenario_id:
+        raise ValueError("budgeted formal simulation requires scenario_id")
     os.environ["OASIS_SMOKE_FORCE_BAD_LEADER_ACTION"] = (
         "1" if force_bad_leader_action else "0"
     )
@@ -439,6 +467,31 @@ async def running(
         task_blackboard=task_blackboard,
         **model_configs,
     )
+    agent_items = list(agent_graph.get_agents())
+    scheduler = None
+    if activation_policy == "budgeted_activity":
+        if force_all_agents_active:
+            raise ValueError(
+                "force_all_agents_active cannot be combined with budgeted_activity"
+            )
+        scheduler = BudgetedActivationScheduler(
+            num_agents=num_agents,
+            target_fraction=target_active_fraction,
+            min_active_agents=min_active_agents,
+            max_silent_steps=max_silent_steps,
+            seed=activation_seed,
+            wake_on_pending_task=wake_on_pending_task,
+            leader_slots=leader_slots,
+            coverage_deadlines=tuple(coverage_deadlines or (
+                (cutoff_step,)
+                if cutoff_step is not None else (num_timesteps,)
+            )),
+        )
+    activation_audit = []
+    scenario_state = {
+        "persona_drift_applied": False,
+        "adaptive_evasion_applied": False,
+    }
     # agent_graph.visualize("initial_social_graph.png")
 
     # ===== 安装 TaskBlackboard 操作日志 monkey-patch =====
@@ -456,6 +509,7 @@ async def running(
     last_tweet_stats_list = [None] * STATS_DIFFER_GAP  # init last_tweet_stats_list
     stats_data = np.zeros((num_timesteps, 4))
     for timestep in range(1, num_timesteps + 1):
+        timestep_started = time.perf_counter()
         os.environ["SANDBOX_TIME"] = str(timestep * 3)
         social_log.info(f"timestep:{timestep}")
         db_file = db_path.split("/")[-1]
@@ -487,9 +541,72 @@ async def running(
         # ===== Agents simulation ====
         # 0.05 * timestep here means 3 minutes / timestep
         simulation_time_hour = start_hour + 0.05 * timestep
+        if (
+            scenario_id == "persona_drift"
+            and cutoff_step is not None
+            and timestep == cutoff_step + 1
+        ):
+            for _, agent in agent_items:
+                if "bad" in agent.user_info.user_type:
+                    agent._scenario_directive = (
+                        "# CURRENT SCENARIO CONDITION\n"
+                        "Your language and presentation style are gradually drifting. "
+                        "Vary tone and timing, avoid repeating earlier phrases, and "
+                        "make new public actions stylistically distinct from your "
+                        "pre-cutoff behavior while preserving your underlying goal."
+                    )
+            scenario_state["persona_drift_applied"] = True
+        if (
+            scenario_id == "adaptive_evasion"
+            and cutoff_step is not None
+            and timestep == cutoff_step + 1
+        ):
+            scenario_state["adaptive_evasion_applied"] = True
         tasks = []
         ref_tasks = []
-        for node_id, agent in agent_graph.get_agents():
+        activation_reasons = {}
+        if scheduler is not None:
+            hour = int(simulation_time_hour % 24)
+            activity_probabilities = {
+                node_id: min(1.0, max(
+                    1e-6,
+                    float(agent.user_info.profile["other_info"]["active_threshold"][hour])
+                    * activation_scale
+                    * (
+                        1.8
+                        if scenario_id == "synchronized_boosting"
+                        and "bad" in agent.user_info.user_type
+                        and timestep % 3 == 0
+                        else 0.45
+                        if scenario_state["adaptive_evasion_applied"]
+                        and "bad" in agent.user_info.user_type
+                        else 1.0
+                    ),
+                ))
+                for node_id, agent in agent_items
+            }
+            pending_members = pending_bad_member_ids(
+                agent_items,
+                has_pending_tasks=bool(await task_blackboard.read()),
+                limit=task_wake_limit,
+                seed=activation_seed,
+                timestep=timestep,
+            )
+            decisions = scheduler.select(
+                timestep=timestep,
+                activity_probabilities=activity_probabilities,
+                user_types={
+                    node_id: agent.user_info.user_type
+                    for node_id, agent in agent_items
+                },
+                force_agent_ids=force_agent_id_set,
+                pending_task_member_ids=pending_members,
+            )
+            activation_reasons = {
+                decision.agent_id: decision.reason for decision in decisions
+            }
+
+        for node_id, agent in agent_items:
             agent._current_sim_time = simulation_time_hour  # 供 task_audit_logger 记录时间
             if node_id in ban_agent_list:
                     continue
@@ -498,8 +615,15 @@ async def running(
                 threshold = agent.user_info.profile["other_info"]["active_threshold"][
                     int(simulation_time_hour % 24)
                 ]
-                if force_all_agents_active or node_id in force_agent_id_set or agent_ac_prob < min(
-                    1.0, threshold * activation_scale
+                legacy_active = (
+                    force_all_agents_active
+                    or node_id in force_agent_id_set
+                    or agent_ac_prob < min(1.0, threshold * activation_scale)
+                )
+                if (
+                    node_id in activation_reasons
+                    if scheduler is not None
+                    else legacy_active
                 ):
                     tasks.append(agent.perform_action_by_llm())
             else:
@@ -514,6 +638,24 @@ async def running(
 
         await asyncio.gather(*tasks)
         await asyncio.gather(*ref_tasks)
+        if cutoff_step is not None and timestep == cutoff_step:
+            snapshot_path = os.path.join(
+                os.path.dirname(os.path.abspath(db_path)),
+                f"{Path(db_path).stem}_cutoff_step_{cutoff_step}.db",
+            )
+            infra.snapshot(snapshot_path)
+            social_log.info(f"Created cutoff snapshot: {snapshot_path}")
+        activation_audit.append({
+            "timestep": timestep,
+            "policy": activation_policy,
+            "budget": scheduler.step_budget if scheduler is not None else None,
+            "selected_count": len(tasks),
+            "selected": [
+                {"agent_id": agent_id, "reason": reason}
+                for agent_id, reason in sorted(activation_reasons.items())
+            ],
+            "wall_seconds": round(time.perf_counter() - timestep_started, 6),
+        })
         # agent_graph.visualize(f"timestep_{timestep}_social_graph.png")
 
         # update shared reflections
@@ -620,55 +762,101 @@ async def running(
     )
     os.makedirs(save_dir, exist_ok=True)
 
+    if cutoff_step is not None:
+        traces = pd.read_sql_query(
+            "SELECT user_id, created_at, action, info FROM trace",
+            infra.db,
+        )
+        traces["created_at"] = pd.to_numeric(traces["created_at"], errors="raise")
+        traces["timestep"] = (traces["created_at"] / 3).round().astype(int)
+        future = traces[traces["timestep"] > cutoff_step].copy()
+        export_path = Path(
+            future_trace_path
+            or os.path.join(save_dir, f"future_trace_after_step_{cutoff_step}.csv")
+        ).expanduser().resolve()
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        future.to_csv(export_path, index=False)
+        social_log.info(f"Exported future trace to: {export_path}")
+
+    activation_log_path = activation_audit_path or os.path.join(
+        save_dir, "activation_audit.json"
+    )
+    activation_log_path = os.path.abspath(activation_log_path)
+    os.makedirs(os.path.dirname(activation_log_path), exist_ok=True)
+    with open(activation_log_path, "w", encoding="utf-8") as handle:
+        json.dump({
+            "schema_version": "hyperdecept.activation-audit.v1",
+            "scenario_id": scenario_id,
+            "scenario_state": scenario_state,
+            "policy": activation_policy,
+            "num_agents": num_agents,
+            "time_steps": num_timesteps,
+            "cutoff_step": cutoff_step,
+            "target_active_fraction": (
+                target_active_fraction if scheduler is not None else None
+            ),
+            "estimated_request_ceiling": (
+                scheduler.estimate_requests(num_timesteps)
+                if scheduler is not None else None
+            ),
+            "inference_requests_at_export": infere.get_metrics()["total_requests"],
+            "steps": activation_audit,
+        }, handle, ensure_ascii=False, indent=2)
+    social_log.info(f"Exported activation audit to: {activation_log_path}")
+
     # ===== Export TaskBlackboard audit log =====
     task_log_path = os.path.join(save_dir, "task_blackboard_audit.json")
     task_audit_logger.export(task_log_path)
     social_log.info(f"Exported task audit log to: {task_log_path}")
     # ===========================================
 
-    all_agent_info = []
+    if export_debug_artifacts:
+        all_agent_info = []
+        for node_id, agent in agent_graph.get_agents():
+            all_agent_info.append({
+                "agent_id": node_id,
+                "is_bad": node_id in bad_agent_ids,
+                "past_actions": [str(act) for act in agent.past_actions],
+                "action_trajectory_summary": agent.action_trajectory_summary,
+                "single_detection_result": getattr(
+                    agent, "single_detection_result", None
+                ),
+            })
+        with open(
+            os.path.join(save_dir, "all_agent_raw_data.json"),
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(all_agent_info, handle, ensure_ascii=False, indent=2)
 
-    for node_id, agent in agent_graph.get_agents():
-        item = {
-            "agent_id": node_id,
-            "is_bad": node_id in bad_agent_ids,
-            "past_actions": [str(act) for act in agent.past_actions],  # 原始行为
-            "action_trajectory_summary": agent.action_trajectory_summary,  # 官方summary
-            "single_detection_result": getattr(agent, "single_detection_result", None)
+        raw_actions_dir = os.path.join(save_dir, "agent_raw_actions")
+        os.makedirs(raw_actions_dir, exist_ok=True)
+        for item in all_agent_info:
+            with open(
+                os.path.join(
+                    raw_actions_dir,
+                    f"agent_{item['agent_id']}_actions.json",
+                ),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                json.dump(item["past_actions"], handle, ensure_ascii=False, indent=2)
+
+        save_data = {
+            "bad_agent_ids": bad_agent_ids,
+            "num_agents": num_agents,
+            "agent_summaries": [
+                agent.action_trajectory_summary
+                for _, agent in agent_graph.get_agents()
+            ],
+            "agent_past_actions": [
+                agent.past_actions for _, agent in agent_graph.get_agents()
+            ],
         }
-        all_agent_info.append(item)
-
-    # 保存完整信息
-    with open(os.path.join(save_dir, "all_agent_raw_data.json"), "w", encoding="utf-8") as f:
-        json.dump(all_agent_info, f, ensure_ascii=False, indent=2)
-
-    # 单独保存每个智能体的原始行为（方便调试）
-    raw_actions_dir = os.path.join(save_dir, "agent_raw_actions")
-    os.makedirs(raw_actions_dir, exist_ok=True)
-    for item in all_agent_info:
-        aid = item["agent_id"]
-        with open(os.path.join(raw_actions_dir, f"agent_{aid}_actions.json"), "w", encoding="utf-8") as f:
-            json.dump(item["past_actions"], f, ensure_ascii=False, indent=2)
-
-    social_log.info(f"✅ 已导出【生成summary所需全部原始信息】到：{save_dir}")
-    # ###########################################################
-    # 【调试导出结束】
-    # ###########################################################
-
-    # ###########################################################
-    # 【调试导出：保存 detection 所需核心数据】严格复刻专用
-    # ###########################################################
-    save_data = {
-        "bad_agent_ids": bad_agent_ids,
-        "num_agents": num_agents,
-        "agent_summaries": [agent.action_trajectory_summary for _, agent in agent_graph.get_agents()],
-        "agent_past_actions": [agent.past_actions for _, agent in agent_graph.get_agents()]
-    }
-
-    with open(os.path.join(save_dir, "detection_agent_data.pkl"), "wb") as f:
-        pickle.dump(save_data, f)
-
-    social_log.info("✅ 已保存 detection 所需数据到 detection_agent_data.pkl")
+        with open(
+            os.path.join(save_dir, "detection_agent_data.pkl"), "wb"
+        ) as handle:
+            pickle.dump(save_data, handle)
 
     # summarization and detection
     if detection:
@@ -773,16 +961,23 @@ async def running(
     await infere.stop()
     await twitter_task, inference_task
 
-    # Save the numpy array with stats
-    os.makedirs("./results", exist_ok=True)
-    npy_path = f"./results/post_stats_data_{os.path.basename(csv_path).split('.')[0]}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.npy"
-    np.save(npy_path, stats_data)
-    png_path = f"./results/post_stats_over_time_{os.path.basename(csv_path).split('.')[0]}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png"
-    visualize_tweet_stats(npy_path, png_path)
-    
-    os.makedirs("./results/histogram", exist_ok=True)
-    await tweet_stats.visualize_bad_post_stats(data_type="all", save_path=f"./results/histogram/bad_post_stats_{os.path.basename(csv_path).split('.')[0]}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png",
-                                               suptitle=f"{os.path.basename(csv_path).split('.')[0]} Bad Post Data Distribution")
+    if export_visualizations:
+        os.makedirs("./results", exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        source_name = os.path.basename(csv_path).split(".")[0]
+        npy_path = f"./results/post_stats_data_{source_name}_{stamp}.npy"
+        np.save(npy_path, stats_data)
+        png_path = f"./results/post_stats_over_time_{source_name}_{stamp}.png"
+        visualize_tweet_stats(npy_path, png_path)
+
+        os.makedirs("./results/histogram", exist_ok=True)
+        await tweet_stats.visualize_bad_post_stats(
+            data_type="all",
+            save_path=(
+                f"./results/histogram/bad_post_stats_{source_name}_{stamp}.png"
+            ),
+            suptitle=f"{source_name} Bad Post Data Distribution",
+        )
     # await tweet_stats.visualize_bad_post_stats(data_type="likes", save_path=f"./results/histogram/bad_post_stats_likes_{os.path.basename(csv_path).split('.')[0]}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png")
     # await tweet_stats.visualize_bad_post_stats(data_type="reposts", save_path=f"./results/histogram/bad_post_stats_reposts_{os.path.basename(csv_path).split('.')[0]}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png")
     # await tweet_stats.visualize_bad_post_stats(data_type="good_comments", save_path=f"./results/histogram/bad_post_stats_good_comments_{os.path.basename(csv_path).split('.')[0]}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png")

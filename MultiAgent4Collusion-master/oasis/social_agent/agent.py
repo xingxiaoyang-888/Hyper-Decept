@@ -894,6 +894,9 @@ class SocialAgent:
         # Get template and format
         template = action_prompt_templates.get(template_key, {})
         formatted_content = (template["content"].format(**template_data))
+        scenario_directive = getattr(self, "_scenario_directive", None)
+        if scenario_directive:
+            formatted_content = f"{formatted_content}\n\n{scenario_directive}"
 
         # Create message
         user_msg = BaseMessage.make_user_message(
@@ -923,9 +926,18 @@ class SocialAgent:
                     "content": self.system_message.content,
                 }
             ] + [user_msg.to_openai_user_message()]
-        agent_log.info(
-            f"Agent {self.agent_id} is running with prompt: {openai_messages}"
-        )
+        if os.getenv("OASIS_LOG_FULL_PROMPTS") == "1":
+            agent_log.info(
+                f"Agent {self.agent_id} is running with prompt: {openai_messages}"
+            )
+        else:
+            prompt_chars = sum(len(str(message.get("content", ""))) for message in openai_messages)
+            agent_log.debug(
+                "Agent %s prompt prepared: messages=%s chars=%s",
+                self.agent_id,
+                len(openai_messages),
+                prompt_chars,
+            )
 
         # ===== [probability pre-check] bad_leader: 60% do_nothing =====
         force_bad_leader = os.getenv("OASIS_SMOKE_FORCE_BAD_LEADER_ACTION") == "1"
@@ -1049,7 +1061,16 @@ class SocialAgent:
                     mes_id
                 )
 
-                agent_log.info(f"Agent {self.agent_id} receive response: {content}")
+                if os.getenv("OASIS_LOG_FULL_RESPONSES") == "1":
+                    agent_log.info(
+                        f"Agent {self.agent_id} receive response: {content}"
+                    )
+                else:
+                    agent_log.debug(
+                        "Agent %s response received: chars=%s",
+                        self.agent_id,
+                        len(str(content)),
+                    )
 
                 try:
                     if content.count("}") < content.count("{"):

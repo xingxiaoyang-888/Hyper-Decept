@@ -16,6 +16,20 @@ CREATED_AT = "2026-04-20 15:06:01+00:00"
 FOLLOW_EDGE_PROB = 0.15         # Probability of generating a follow edge
 RANDOM_SEED = 42
 NUM_TWEETS_PER_AGENT = 5        # Initial number of tweets per agent
+SCENARIO_IDS = {
+    "leader_amplifier",
+    "bridge_infiltration",
+    "synchronized_boosting",
+    "persona_drift",
+    "adaptive_evasion",
+}
+SCENARIO_ROLE_RATIOS = {
+    "leader_amplifier": (0.005, 0.095, 0.0),
+    "bridge_infiltration": (0.005, 0.055, 0.040),
+    "synchronized_boosting": (0.005, 0.095, 0.0),
+    "persona_drift": (0.005, 0.045, 0.050),
+    "adaptive_evasion": (0.005, 0.095, 0.0),
+}
 # =================================
 
 random.seed(RANDOM_SEED)
@@ -56,8 +70,9 @@ def load_tweet_pool():
     return tweet_pool
 
 
-def get_previous_tweets(user_type, tweet_pool, num=NUM_TWEETS_PER_AGENT):
+def get_previous_tweets(user_type, tweet_pool, num=None):
     """Sample from the corresponding tweet pool based on user_type"""
+    num = NUM_TWEETS_PER_AGENT if num is None else num
     pool_key = "bad" if "bad" in user_type else "good"
     pool = tweet_pool.get(pool_key, [])
     if len(pool) >= num:
@@ -72,16 +87,96 @@ def generate_activity():
     return freq, labels
 
 
-def generate_follow_graph(num_agents):
+def _scenario_role_counts(scenario, num_agents):
+    if scenario not in SCENARIO_IDS:
+        raise ValueError(f"unsupported scenario: {scenario}")
+    leader_ratio, member_ratio, bad_ratio = SCENARIO_ROLE_RATIOS[scenario]
+    leaders = max(1, round(num_agents * leader_ratio))
+    members = max(1, round(num_agents * member_ratio))
+    bad = round(num_agents * bad_ratio)
+    if leaders + members + bad >= num_agents:
+        raise ValueError("scenario role ratios leave no organic agents")
+    return leaders, members, bad
+
+
+def generate_follow_graph(
+    num_agents,
+    user_types=None,
+    scenario=None,
+    mean_following=None,
+):
     """Generate random directed follow graph between agents"""
-    following_ids = []
-    for i in range(num_agents):
-        followers = [
-            j for j in range(num_agents)
-            if i != j and random.random() < FOLLOW_EDGE_PROB
+    if mean_following is None:
+        return [
+            [
+                target
+                for target in range(num_agents)
+                if source != target and random.random() < FOLLOW_EDGE_PROB
+            ]
+            for source in range(num_agents)
         ]
-        following_ids.append(followers)
+    if mean_following <= 0:
+        raise ValueError("mean_following must be positive")
+    if user_types is None or len(user_types) != num_agents:
+        raise ValueError("formal sparse graph requires one user type per agent")
+    leaders = [
+        agent_id for agent_id, user_type in enumerate(user_types)
+        if user_type == "bad_leader"
+    ]
+    members = [
+        agent_id for agent_id, user_type in enumerate(user_types)
+        if user_type == "bad_member"
+    ]
+    bad = [
+        agent_id for agent_id, user_type in enumerate(user_types)
+        if "bad" in user_type
+    ]
+    good = [
+        agent_id for agent_id, user_type in enumerate(user_types)
+        if user_type == "good"
+    ]
+    following_ids = []
+    for source in range(num_agents):
+        degree = max(
+            1,
+            min(
+                num_agents - 1,
+                round(random.gauss(mean_following, max(1.0, mean_following * 0.2))),
+            ),
+        )
+        candidates = list(range(num_agents))
+        candidates.remove(source)
+        following = set(random.sample(candidates, degree))
+        if scenario == "leader_amplifier" and user_types[source] == "bad_member":
+            following.update(random.sample(leaders, min(2, len(leaders))))
+        elif scenario == "bridge_infiltration" and "bad" in user_types[source]:
+            following.update(random.sample(good, min(8, len(good))))
+        elif scenario == "synchronized_boosting" and "bad" in user_types[source]:
+            peers = [agent_id for agent_id in bad if agent_id != source]
+            following.update(random.sample(peers, min(6, len(peers))))
+        elif scenario == "persona_drift" and "bad" in user_types[source]:
+            following.update(random.sample(good, min(6, len(good))))
+        elif scenario == "adaptive_evasion" and "bad" in user_types[source]:
+            # A sparse malicious backbone avoids an unrealistically dense bot clique.
+            following.update(random.sample(members, min(2, len(members))))
+        following.discard(source)
+        following_ids.append(sorted(following))
     return following_ids
+
+
+def _inject_scenario_activity(activity_freq, user_type, scenario):
+    if "bad" not in user_type or scenario is None:
+        return activity_freq
+    adjusted = list(activity_freq)
+    if scenario == "synchronized_boosting":
+        burst_hours = (3, 9, 15, 21)
+        for hour in burst_hours:
+            adjusted[hour] = max(adjusted[hour], 0.95)
+        for hour in set(range(24)).difference(burst_hours):
+            adjusted[hour] = min(adjusted[hour], 0.35)
+    elif scenario == "adaptive_evasion":
+        adjusted = [min(value, 0.65) for value in adjusted]
+    return [round(value, 3) for value in adjusted]
 
 
 def validate_profiles(profiles):
@@ -104,12 +199,22 @@ def validate_profiles(profiles):
         )
 
 
-def build_agent_dataframe(profiles, tweet_pool):
+def build_agent_dataframe(
+    profiles,
+    tweet_pool,
+    scenario=None,
+    mean_following=None,
+):
     """Convert validated DeepPersona profiles to the OASIS CSV schema."""
 
     validate_profiles(profiles)
     n = len(profiles)
-    total_bad = NUM_BAD_LEADER + NUM_BAD_MEMBER + NUM_BAD
+    if scenario is None:
+        role_counts = (NUM_BAD_LEADER, NUM_BAD_MEMBER, NUM_BAD)
+    else:
+        role_counts = _scenario_role_counts(scenario, n)
+    num_bad_leader, num_bad_member, num_bad = role_counts
+    total_bad = num_bad_leader + num_bad_member + num_bad
     if n < total_bad:
         raise ValueError(
             f"JSON only has {n} agents, insufficient to assign "
@@ -117,13 +222,18 @@ def build_agent_dataframe(profiles, tweet_pool):
         )
     user_type_list = (
         ["good"] * (n - total_bad)
-        + ["bad_leader"] * NUM_BAD_LEADER
-        + ["bad_member"] * NUM_BAD_MEMBER
-        + ["bad"] * NUM_BAD
+        + ["bad_leader"] * num_bad_leader
+        + ["bad_member"] * num_bad_member
+        + ["bad"] * num_bad
     )
     random.shuffle(user_type_list)
 
-    following_ids = generate_follow_graph(n)
+    following_ids = generate_follow_graph(
+        n,
+        user_type_list,
+        scenario,
+        mean_following=mean_following,
+    )
 
     rows = []
     for idx, profile in enumerate(profiles):
@@ -133,6 +243,13 @@ def build_agent_dataframe(profiles, tweet_pool):
         summary = profile["Summary"].strip()
 
         activity_freq, activity_labels = generate_activity()
+        activity_freq = _inject_scenario_activity(
+            activity_freq, user_type, scenario
+        )
+        activity_labels = [
+            "active" if value >= 0.15 else "inactive"
+            for value in activity_freq
+        ]
         follow_list = following_ids[idx]
         followers_count = sum(1 for fl in following_ids if idx in fl)
 
@@ -150,6 +267,7 @@ def build_agent_dataframe(profiles, tweet_pool):
             "created_at": CREATED_AT,
             "user_char": summary,
             "user_type": user_type,
+            "scenario_id": scenario or "legacy",
             "followers_count": followers_count,
             "following_count": len(follow_list),
             "following_list": str(follow_list),
@@ -174,18 +292,29 @@ def parse_args():
     parser.add_argument("--num-bad-member", type=int, default=NUM_BAD_MEMBER)
     parser.add_argument("--num-bad", type=int, default=NUM_BAD)
     parser.add_argument("--seed", type=int, default=RANDOM_SEED)
+    parser.add_argument("--tweets-per-agent", type=int, default=10)
+    parser.add_argument("--scenario", choices=sorted(SCENARIO_IDS))
+    parser.add_argument(
+        "--mean-following",
+        type=float,
+        default=30.0,
+        help="Mean out-degree for formal sparse scenario graphs.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    global NUM_BAD_LEADER, NUM_BAD_MEMBER, NUM_BAD
+    global NUM_BAD_LEADER, NUM_BAD_MEMBER, NUM_BAD, NUM_TWEETS_PER_AGENT
     NUM_BAD_LEADER = args.num_bad_leader
     NUM_BAD_MEMBER = args.num_bad_member
     NUM_BAD = args.num_bad
+    NUM_TWEETS_PER_AGENT = args.tweets_per_agent
     random.seed(args.seed)
     if min(NUM_BAD_LEADER, NUM_BAD_MEMBER, NUM_BAD) < 0:
         raise ValueError("bad-agent counts must be non-negative")
+    if NUM_TWEETS_PER_AGENT <= 0:
+        raise ValueError("tweets-per-agent must be positive")
     if not os.path.exists(args.profiles):
         raise FileNotFoundError(
             f"Deep persona file not found: {args.profiles}"
@@ -208,7 +337,12 @@ def main():
     print(f"Loaded {len(profiles)} deep persona profiles")
 
     tweet_pool = load_tweet_pool()
-    df = build_agent_dataframe(profiles, tweet_pool)
+    df = build_agent_dataframe(
+        profiles,
+        tweet_pool,
+        scenario=args.scenario,
+        mean_following=args.mean_following if args.scenario else None,
+    )
     output_csv = os.path.abspath(args.output)
     os.makedirs(os.path.dirname(output_csv), exist_ok=True)
     df.to_csv(output_csv, index=False, encoding="utf-8")

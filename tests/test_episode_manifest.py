@@ -33,14 +33,20 @@ def _recommended(tmp_path):
     )
 
 
-def test_recommended_plan_uses_incomplete_factorial_design(tmp_path):
+def test_recommended_plan_uses_two_day_main_design(tmp_path):
     plan = _recommended(tmp_path)
     summary = plan.summary()
-    assert summary["episodes"] == 40
+    assert summary["episodes"] == 22
     assert summary["real_episodes"] == 2
-    assert summary["synthetic_episodes"] == 38
-    assert summary["synthetic_agent_instances"] == 79_000
-    assert summary["scale_sizes"] == [500, 1000, 5000]
+    assert summary["synthetic_episodes"] == 20
+    assert summary["synthetic_agent_instances"] == 40_000
+    assert summary["scale_sizes"] == []
+    assert plan.strategy["time_steps"] == 30
+    assert plan.strategy["cutoff_step"] == 18
+    assert plan.strategy["target_active_fraction"] == 0.075
+    assert plan.strategy["synthetic_request_ceiling"] == 90_000
+    main = [episode for episode in plan.episodes if episode.purpose == "simulation_main"]
+    assert all(episode.cutoff_step == 18 for episode in main)
     artifact_report = audit_plan_artifacts(plan)
     assert artifact_report.valid
     assert artifact_report.warnings
@@ -213,7 +219,7 @@ def test_complete_blueprint_includes_optional_external_benchmarks(tmp_path):
         botsim_root=tmp_path / "botsim-24",
         scenarios=SCENARIOS,
     )
-    assert plan.summary()["episodes"] == 42
+    assert plan.summary()["episodes"] == 24
     datasets = {episode.dataset_name for episode in plan.episodes}
     assert {"twibot22", "mgtab", "fox8-23", "botsim-24"}.issubset(datasets)
     botsim = next(

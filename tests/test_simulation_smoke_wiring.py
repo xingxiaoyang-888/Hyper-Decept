@@ -1,4 +1,5 @@
 import importlib.util
+import asyncio
 import json
 from pathlib import Path
 import sys
@@ -53,6 +54,63 @@ def test_inference_manager_uses_declared_endpoint(monkeypatch):
     )
     assert endpoints == ["http://127.0.0.1:11434/v1"]
     assert set(manager.threads) == {11434}
+
+
+def test_inference_manager_supports_multiple_slots_per_endpoint(monkeypatch):
+    module = _load_module(
+        "parallel_inference_manager",
+        ROOT / "MultiAgent4Collusion-master/oasis/inference/inference_manager.py",
+    )
+    endpoints = []
+
+    class FakeThread:
+        def __init__(self, *, server_url, **kwargs):
+            endpoints.append(server_url)
+
+    monkeypatch.setattr(module, "InferenceThread", FakeThread)
+    manager = object.__new__(module.InferencerManager)
+    manager.threads = {}
+    manager.parallel_per_endpoint = 1
+    manager.max_tokens = 128
+    manager.workers_by_port = module.defaultdict(list)
+    manager._initialize_threads(
+        [{"host": "127.0.0.1", "ports": [11434], "parallel": 4}],
+        "qwen",
+        "openai",
+        [],
+    )
+    assert endpoints == ["http://127.0.0.1:11434/v1"] * 4
+    assert len(manager.threads) == 4
+    assert len(manager.workers_by_port[11434]) == 4
+
+
+def test_busy_timed_out_inference_slot_is_not_reused(monkeypatch):
+    module = _load_module(
+        "timeout_safe_inference_manager",
+        ROOT / "MultiAgent4Collusion-master/oasis/inference/inference_manager.py",
+    )
+    memory = module.SharedMemory(Busy=True, last_active=0)
+    thread = type("FakeThread", (), {"shared_memory": memory})()
+    manager = object.__new__(module.InferencerManager)
+    manager.threads = {8000: thread}
+    manager.workers_by_port = module.defaultdict(list, {8000: [8000]})
+    manager.port_manager = type(
+        "FakePortManager",
+        (),
+        {"get_ports_for_agent": lambda self, agent_id: [8000]},
+    )()
+    manager.lock = asyncio.Lock()
+    manager.timeout = 1
+    monkeypatch.setattr(module.time, "time", lambda: 10.0)
+
+    selected_thread, worker_id = asyncio.run(
+        manager._find_available_thread(agent_id=7)
+    )
+
+    assert selected_thread is None
+    assert worker_id is None
+    assert thread.shared_memory is memory
+    assert memory.timeout_warned is True
 
 
 def test_p2_smoke_runner_declares_three_sources_and_separate_validation():

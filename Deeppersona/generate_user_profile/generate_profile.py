@@ -323,7 +323,12 @@ def append_profile_to_json(file_path: str, profile: Dict, use_timestamp: bool = 
         print(f"Error appending profile to JSON: {e}")
         return file_path
 
-def generate_single_profile(template: Dict = None, profile_index: int = 0, attribute_count: int = 200) -> Dict:
+def generate_single_profile(
+    template: Dict = None,
+    profile_index: int = 0,
+    attribute_count: int = 200,
+    output_dir: str = None,
+) -> Dict:
     """Generates a complete user profile based on a given template and count.
     
     Args:
@@ -345,15 +350,15 @@ def generate_single_profile(template: Dict = None, profile_index: int = 0, attri
         
         user_profile = gen_profile()
         selected_paths = get_selected_attributes(user_profile, attribute_count)
-        correct_output_dir = os.path.join(get_project_root(), "output")
+        correct_output_dir = output_dir or os.path.join(
+            get_project_root(), "output"
+        )
         save_results(user_profile, selected_paths, correct_output_dir)
-        copy_files_from_source_to_target()
     except Exception as e:
         print(f"Error executing select_attributes functions: {e}")
         return {}
 
-    project_root = get_project_root()
-    output_dir = os.path.join(project_root, "output")
+    output_dir = output_dir or os.path.join(get_project_root(), "output")
     base_info_path = os.path.join(output_dir, 'user_profile.json')
     
     with open(base_info_path, 'r', encoding='utf-8') as f:

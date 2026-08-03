@@ -21,17 +21,26 @@ GEONAMES_USERNAME = "demo"  # Replace with your GeoNames username
 GEONAMES_API_BASE = "http://api.geonames.org"
 
 # OpenAI API Configuration
-OPENAI_API_KEY = "sk-f3d444bb591441fca18999f790c0ce21"
+OPENAI_API_KEY = (
+    os.getenv("DEEPSEEK_API_KEY", "").strip()
+    or os.getenv("OPENAI_API_KEY", "").strip()
+)
 
 # GPT model version to use
-GPT_MODEL = "deepseek-chat"
+GPT_MODEL = os.getenv("DEEPPERSONA_MODEL", "deepseek-chat")
 
 # Proxy Configuration
-os.environ['https_proxy'] = ''
-os.environ['http_proxy'] = ''
+API_BASE_URL = os.getenv(
+    "DEEPPERSONA_API_BASE_URL",
+    "https://api.deepseek.com/v1",
+)
 
 # Initialize OpenAI client with DeepSeek API base URL
-client = OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.deepseek.com/v1")
+client = OpenAI(
+    api_key=OPENAI_API_KEY or "missing-api-key",
+    base_url=API_BASE_URL,
+)
+API_CALL_COUNT = 0
 
 def get_completion(messages: List[Dict[str, str]], model: str = GPT_MODEL, temperature: float = 0.2, max_retries: int = 3) -> Optional[str]:
     """Call OpenAI GPT API to get response with retry mechanism
@@ -46,13 +55,21 @@ def get_completion(messages: List[Dict[str, str]], model: str = GPT_MODEL, tempe
         Optional[str]: Text response from API. Returns None if request fails
     """
     import time
+    global API_CALL_COUNT
+
+    if not OPENAI_API_KEY:
+        raise EnvironmentError(
+            "DEEPSEEK_API_KEY or OPENAI_API_KEY must be set"
+        )
     
     for attempt in range(max_retries):
         try:
+            API_CALL_COUNT += 1
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
-                temperature=temperature
+                temperature=temperature,
+                max_tokens=int(os.getenv("DEEPPERSONA_MAX_TOKENS", "4096")),
             )
             return response.choices[0].message.content
         except Exception as e:

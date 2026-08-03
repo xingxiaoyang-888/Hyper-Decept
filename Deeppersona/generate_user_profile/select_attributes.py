@@ -19,21 +19,21 @@ import time
 ATTRIBUTE_SELECTION_CACHE = None
 
 # 导入项目配置
-from config import client, GPT_MODEL, parse_json_response
+from config import (
+    GPT_MODEL,
+    client,
+    get_completion as configured_get_completion,
+    parse_json_response,
+)
 
 # 定义get_completion函数
 def get_completion(messages, model=GPT_MODEL, temperature=0.7):
     """使用OpenAI API生成文本完成"""
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        logger.error(f"Error calling OpenAI API: {e}")
-        return None
+    return configured_get_completion(
+        messages,
+        model=model,
+        temperature=temperature,
+    )
 
 # 导入based_data模块中的函数
 from based_data import (
@@ -731,9 +731,70 @@ class AttributeSelector:
                     all_paths.extend(paths)
                     category_paths[category] = paths
             
-            # 使用传入的target_count参数，不再随机选择
-            
-            # 如果有向量数据库，使用向量搜索
+            # DeepSeek exposes chat completion but no compatible embedding
+            # endpoint. The previous fallback silently returned no attributes,
+            # which produced shallow profiles. Formal runs use an explicit,
+            # auditable hierarchy-aware local selector instead.
+            selection_mode = os.getenv(
+                "DEEPPERSONA_ATTRIBUTE_SELECTION",
+                "local_hierarchical",
+            ).strip().lower()
+            if selection_mode == "local_hierarchical":
+                allocations = {}
+                total_paths = max(1, len(all_paths))
+                for category, paths in category_paths.items():
+                    allocations[category] = max(
+                        1, int(target_count * len(paths) / total_paths)
+                    )
+                while sum(allocations.values()) < target_count:
+                    category = max(
+                        category_paths,
+                        key=lambda value: (
+                            len(category_paths[value]) - allocations[value],
+                            value,
+                        ),
+                    )
+                    allocations[category] += 1
+                while sum(allocations.values()) > target_count:
+                    candidates = [
+                        value for value, count in allocations.items()
+                        if count > 1
+                    ]
+                    if not candidates:
+                        break
+                    category = max(candidates, key=allocations.get)
+                    allocations[category] -= 1
+
+                selected_paths = []
+                for category, paths in category_paths.items():
+                    count = min(allocations[category], len(paths))
+                    ordered = sorted(paths, key=lambda value: len(value.split(".")))
+                    third = max(1, len(ordered) // 3)
+                    shallow = ordered[:third]
+                    middle = ordered[third:2 * third] or ordered
+                    deep = ordered[2 * third:] or ordered
+                    chosen = []
+                    for population, ratio in ((deep, 0.5), (middle, 0.3)):
+                        available = [value for value in population if value not in chosen]
+                        chosen.extend(random.sample(
+                            available,
+                            min(int(count * ratio), len(available)),
+                        ))
+                    remaining = [value for value in ordered if value not in chosen]
+                    chosen.extend(random.sample(
+                        remaining,
+                        min(count - len(chosen), len(remaining)),
+                    ))
+                    selected_paths.extend(chosen)
+                if len(selected_paths) > target_count:
+                    selected_paths = random.sample(selected_paths, target_count)
+                logger.info(
+                    "Selected %s attributes with local hierarchy-aware sampling",
+                    len(selected_paths),
+                )
+                return selected_paths
+
+            # Optional legacy embedding path for compatible providers.
             if self.embeddings_data and self.user_profile:
                 # 创建用户配置文件的嵌入向量
                 profile_embedding = self._create_profile_embedding(self.user_profile)

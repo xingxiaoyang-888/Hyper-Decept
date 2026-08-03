@@ -62,6 +62,13 @@ def calibrate(
     environment = os.environ.copy()
     environment["OASIS_FORMAL_MODE"] = "1"
     environment["OASIS_LOG_FULL_PROMPTS"] = "0"
+    # The upstream OASIS package is a repository-local package rather than an
+    # installed distribution. Make the subprocess independent of the caller's
+    # current working directory.
+    simulation_root = simulation_script.parents[3]
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(simulation_root), environment.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
     started = time.perf_counter()
     with log_path.open("w", encoding="utf-8") as log_handle:
         result = subprocess.run(
@@ -75,6 +82,7 @@ def calibrate(
             stderr=subprocess.STDOUT,
             check=False,
             env=environment,
+            cwd=simulation_root,
         )
     elapsed = time.perf_counter() - started
     log_text = log_path.read_text(encoding="utf-8", errors="replace")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +13,16 @@ import time
 
 
 SCHEMA_VERSION = "hyperdecept.formal-simulation-run.v1"
+
+
+def _simulation_runtime(simulation_script: Path) -> tuple[Path, dict[str, str]]:
+    """Return the upstream repository cwd and import environment."""
+    simulation_root = simulation_script.expanduser().resolve().parents[3]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(simulation_root), environment.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
+    return simulation_root, environment
 
 
 def _utc_now() -> str:
@@ -71,6 +82,7 @@ def run_plan(
         }
     state_path.parent.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
+    simulation_root, environment = _simulation_runtime(simulation_script)
 
     completed_this_run = 0
     run_started = time.monotonic()
@@ -122,6 +134,8 @@ def run_plan(
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 check=False,
+                cwd=simulation_root,
+                env=environment,
             )
         elapsed = round(time.perf_counter() - started, 3)
         status = "completed" if result.returncode == 0 else "failed"

@@ -36,6 +36,7 @@ def calibrate(
     config_path = config_path.expanduser().resolve()
     simulation_script = simulation_script.expanduser().resolve()
     output_dir = output_dir.expanduser().resolve()
+    python_executable = str(Path(python_executable).expanduser().resolve())
     output_dir.mkdir(parents=True, exist_ok=True)
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     calibration = json.loads(json.dumps(config))

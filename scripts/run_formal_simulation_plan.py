@@ -60,6 +60,7 @@ def run_plan(
     simulation_script = simulation_script.expanduser().resolve()
     state_path = state_path.expanduser().resolve()
     log_dir = log_dir.expanduser().resolve()
+    python_executable = str(Path(python_executable).expanduser().resolve())
     if not simulation_script.is_file():
         raise FileNotFoundError(simulation_script)
     if max_episodes is not None and max_episodes <= 0:

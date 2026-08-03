@@ -62,6 +62,38 @@ def _set_nested(target: dict, dotted_path: str, value) -> None:
     current[parts[-1]] = value
 
 
+def _flatten_response(value, prefix: str = "") -> dict:
+    """Normalize either dotted-key or nested JSON without inventing values."""
+    flattened = {}
+    if isinstance(value, dict):
+        for key, item in value.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if isinstance(item, dict):
+                flattened.update(_flatten_response(item, path))
+            else:
+                flattened[path] = item
+    return flattened
+
+
+def _expected_values(payload: dict, expected_paths: list[str]) -> dict:
+    flattened = _flatten_response(payload)
+    values = {}
+    for expected in expected_paths:
+        if expected in payload:
+            values[expected] = payload[expected]
+            continue
+        if expected in flattened:
+            values[expected] = flattened[expected]
+            continue
+        suffix_matches = [
+            value for key, value in flattened.items()
+            if key.endswith(f".{expected}")
+        ]
+        if len(suffix_matches) == 1:
+            values[expected] = suffix_matches[0]
+    return values
+
+
 def _generate_dp_profile(
     *,
     agent_id: int,
@@ -73,7 +105,15 @@ def _generate_dp_profile(
     from select_attributes import generate_user_profile, get_selected_attributes
 
     config.API_CALL_COUNT = 0
-    base_info = generate_user_profile()
+    anchor_error = None
+    for _ in range(3):
+        try:
+            base_info = generate_user_profile()
+            break
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            anchor_error = exc
+    else:
+        raise ValueError(f"DeepPersona anchor generation failed: {anchor_error}")
     selected_paths = get_selected_attributes(base_info, attribute_count)
     if len(selected_paths) != attribute_count:
         raise ValueError(
@@ -104,15 +144,29 @@ def _generate_dp_profile(
             + "\n\nFill these attribute paths (one value per key):\n"
             + "\n".join(f"- {path}" for path in batch)
         )
-        response = config.get_completion(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
-        )
-        values = config.parse_json_response(response, {})
-        missing = [path for path in batch if path not in values]
+        values = {}
+        missing = list(batch)
+        for batch_attempt in range(3):
+            retry_prompt = user_prompt
+            if batch_attempt:
+                retry_prompt += (
+                    "\n\nYour previous response omitted or malformed these paths. "
+                    "Return valid JSON containing every path exactly once:\n"
+                    + "\n".join(f"- {path}" for path in missing)
+                )
+            response = config.get_completion(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": retry_prompt},
+                ],
+                temperature=0.4,
+            )
+            parsed = config.parse_json_response(response, {})
+            if isinstance(parsed, dict):
+                values.update(_expected_values(parsed, batch))
+            missing = [path for path in batch if path not in values]
+            if not missing:
+                break
         if missing:
             raise ValueError(
                 f"attribute batch omitted {len(missing)} paths: {missing[:3]}"

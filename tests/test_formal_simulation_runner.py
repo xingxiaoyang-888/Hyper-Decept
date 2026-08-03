@@ -65,3 +65,27 @@ def test_runner_dry_run_never_executes_simulation(tmp_path):
     )
     assert state["summary"]["dry_run"] == 1
     assert state["summary"]["completed"] == 0
+
+
+def test_runner_stops_before_starting_after_deadline(tmp_path, monkeypatch):
+    configs = []
+    for index in range(2):
+        config = tmp_path / f"episode_{index}.yaml"
+        config.write_text("simulation: {}\n", encoding="utf-8")
+        configs.append(config)
+    simulation = tmp_path / "simulation.py"
+    simulation.write_text("print('ran')\n", encoding="utf-8")
+    monotonic_values = iter((0.0, 0.0, 61.0))
+    monkeypatch.setattr(
+        "scripts.run_formal_simulation_plan.time.monotonic",
+        lambda: next(monotonic_values),
+    )
+    state = run_plan(
+        plan_path=_plan(tmp_path, configs),
+        simulation_script=simulation,
+        state_path=tmp_path / "state.json",
+        log_dir=tmp_path / "logs",
+        deadline_minutes=1,
+    )
+    assert state["summary"]["completed"] == 1
+    assert state["summary"]["remaining"] == 1

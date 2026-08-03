@@ -90,6 +90,8 @@ class InferencerManager:
         timeout: int = 300,  # Timeout in seconds
         parallel_per_endpoint: int = 1,
         max_tokens: int | None = None,
+        dispatch_interval: float = 0.05,
+        completion_poll_interval: float = 0.05,
     ):
         self.channel = channel
         self.threads: Dict[object, InferenceThread] = {}
@@ -101,6 +103,10 @@ class InferencerManager:
             raise ValueError("parallel_per_endpoint must be positive")
         self.parallel_per_endpoint = int(parallel_per_endpoint)
         self.max_tokens = max_tokens
+        if dispatch_interval <= 0 or completion_poll_interval <= 0:
+            raise ValueError("inference polling intervals must be positive")
+        self.dispatch_interval = float(dispatch_interval)
+        self.completion_poll_interval = float(completion_poll_interval)
         self.workers_by_port: Dict[int, List[object]] = defaultdict(list)
 
         # Default configuration: all agents can access all ports
@@ -351,13 +357,13 @@ class InferencerManager:
         """Continuously process completed tasks"""
         while not self.stop_event.is_set():
             await self._process_completed_tasks()
-            await asyncio.sleep(0.1)  # Adjust as needed
+            await asyncio.sleep(self.completion_poll_interval)
 
     async def _handle_requests_loop(self):
         """Continuously handle incoming requests"""
         while not self.stop_event.is_set():
             await self._handle_new_request()
-            await asyncio.sleep(0.1)  # Adjust as needed
+            await asyncio.sleep(self.dispatch_interval)
 
     async def stop(self):
         """Stop all inference threads and perform cleanup"""

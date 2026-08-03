@@ -25,6 +25,8 @@ def build_configs(
     output_dir: Path,
     csv_root: Path,
     db_root: Path,
+    persona_root: Path,
+    tweet_pool_path: Path,
     model_type: str = "deepseek-chat",
     endpoints: list[dict],
     num_agents: int = 2000,
@@ -60,6 +62,9 @@ def build_configs(
                     "detection": False,
                     "activation_scale": 1.0,
                     "force_all_agents_active": False,
+                    "deep_persona_chunks_path": str(
+                        persona_root / f"seed_{seed}.chunks.json"
+                    ),
                     "activation_policy": "budgeted_activity",
                     "target_active_fraction": target_active_fraction,
                     "max_silent_steps": math.ceil(1 / target_active_fraction),
@@ -90,6 +95,8 @@ def build_configs(
                     "stop_tokens": [],
                     "timeout": 300,
                     "parallel_per_endpoint": 1,
+                    "dispatch_interval": 0.05,
+                    "completion_poll_interval": 0.05,
                     "max_tokens": max_tokens,
                     "server_url": endpoints,
                 },
@@ -112,6 +119,8 @@ def build_configs(
         "cutoff_step": cutoff_step,
         "target_active_fraction": target_active_fraction,
         "max_tokens": max_tokens,
+        "persona_root": str(persona_root.resolve()),
+        "tweet_pool_path": str(tweet_pool_path.resolve()),
         "step_request_ceiling": step_budget,
         "episode_request_ceiling": step_budget * time_steps,
         "corpus_activation_ceiling": step_budget * time_steps * len(configs),
@@ -125,10 +134,18 @@ def build_configs(
                 "scenario_id": scenario,
                 "simulation_seed": seed,
                 "csv_path": str(csv_root / scenario / f"seed_{seed}.csv"),
+                "profiles_path": str(
+                    persona_root / f"seed_{seed}.profiles.json"
+                ),
+                "chunks_path": str(
+                    persona_root / f"seed_{seed}.chunks.json"
+                ),
                 "command": (
                     "python MultiAgent4Collusion-master/generate_simulation_csv.py "
-                    f"--profiles $PROFILES --num-agents {num_agents} "
+                    f"--profiles {persona_root / f'seed_{seed}.profiles.json'} "
+                    f"--num-agents {num_agents} "
                     f"--scenario {scenario} --seed {seed} "
+                    f"--tweet-pool {tweet_pool_path} "
                     "--mean-following 30 "
                     f"--output {csv_root / scenario / f'seed_{seed}.csv'}"
                 ),
@@ -150,11 +167,13 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--csv-root", required=True, type=Path)
     parser.add_argument("--db-root", required=True, type=Path)
+    parser.add_argument("--persona-root", required=True, type=Path)
+    parser.add_argument("--tweet-pool", required=True, type=Path)
     parser.add_argument("--model-type", default="deepseek-chat")
     parser.add_argument("--host", default="api.deepseek.com")
     parser.add_argument("--ports", default="443")
     parser.add_argument("--base-url", default="https://api.deepseek.com/v1")
-    parser.add_argument("--parallel", type=int, default=4)
+    parser.add_argument("--parallel", type=int, default=64)
     parser.add_argument("--target-active-fraction", type=float, default=0.075)
     parser.add_argument("--num-agents", type=int, default=2000)
     parser.add_argument("--time-steps", type=int, default=30)
@@ -172,6 +191,8 @@ def main() -> None:
         output_dir=args.output_dir,
         csv_root=args.csv_root,
         db_root=args.db_root,
+        persona_root=args.persona_root,
+        tweet_pool_path=args.tweet_pool,
         model_type=args.model_type,
         endpoints=endpoints,
         num_agents=args.num_agents,

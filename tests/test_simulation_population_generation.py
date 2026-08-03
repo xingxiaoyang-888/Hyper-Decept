@@ -81,3 +81,15 @@ def test_synchronized_scenario_has_shared_malicious_burst_hours():
     )
     assert [adjusted[hour] for hour in (3, 9, 15, 21)] == [0.95] * 4
     assert max(adjusted[hour] for hour in (0, 1, 2, 4, 5)) <= 0.35
+
+
+def test_explicit_tweet_pool_rejects_empty_labels(tmp_path):
+    module = _load_module()
+    path = tmp_path / "pool.json"
+    path.write_text('{"good": ["organic"], "bad": []}', encoding="utf-8")
+    try:
+        module.load_tweet_pool(path)
+    except ValueError as exc:
+        assert "must not be empty" in str(exc)
+    else:
+        raise AssertionError("empty formal tweet pool should be rejected")

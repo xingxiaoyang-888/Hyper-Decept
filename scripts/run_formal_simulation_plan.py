@@ -42,6 +42,7 @@ def run_plan(
     log_dir: Path,
     python_executable: str = sys.executable,
     max_episodes: int | None = None,
+    deadline_minutes: float | None = None,
     dry_run: bool = False,
 ) -> dict:
     plan_path = plan_path.expanduser().resolve()
@@ -52,6 +53,8 @@ def run_plan(
         raise FileNotFoundError(simulation_script)
     if max_episodes is not None and max_episodes <= 0:
         raise ValueError("max_episodes must be positive")
+    if deadline_minutes is not None and deadline_minutes <= 0:
+        raise ValueError("deadline_minutes must be positive")
     plan = _load_plan(plan_path)
     if state_path.exists():
         state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -70,6 +73,7 @@ def run_plan(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     completed_this_run = 0
+    run_started = time.monotonic()
     for config_value in plan["configs"]:
         config = Path(config_value).expanduser().resolve()
         episode_id = config.stem
@@ -77,6 +81,11 @@ def run_plan(
         if previous.get("status") == "completed":
             continue
         if max_episodes is not None and completed_this_run >= max_episodes:
+            break
+        if (
+            deadline_minutes is not None
+            and time.monotonic() - run_started >= deadline_minutes * 60
+        ):
             break
         command = [
             python_executable,
@@ -156,6 +165,7 @@ def main() -> None:
     parser.add_argument("--log-dir", required=True, type=Path)
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--max-episodes", type=int)
+    parser.add_argument("--deadline-minutes", type=float)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     state = run_plan(
@@ -165,6 +175,7 @@ def main() -> None:
         log_dir=args.log_dir,
         python_executable=args.python,
         max_episodes=args.max_episodes,
+        deadline_minutes=args.deadline_minutes,
         dry_run=args.dry_run,
     )
     print(json.dumps(state["summary"], ensure_ascii=False, indent=2))

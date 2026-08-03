@@ -46,8 +46,29 @@ OUTPUT_CSV = os.path.join(OUTPUT_DIR, "False_Business_0.csv")
 TWEETS_DIR = os.path.join(SCRIPT_DIR, "data", "tweets")
 
 
-def load_tweet_pool():
+def load_tweet_pool(pool_path=None):
     """Load tweet pool from data/tweets/"""
+    if pool_path is not None:
+        path = os.path.abspath(pool_path)
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, dict):
+            raise ValueError("tweet pool must be a JSON object")
+        tweet_pool = {}
+        for label in ("good", "bad"):
+            values = payload.get(label)
+            if not isinstance(values, list):
+                raise ValueError(f"tweet pool {label!r} must be a list")
+            cleaned = [str(value).strip() for value in values if str(value).strip()]
+            if not cleaned:
+                raise ValueError(f"tweet pool {label!r} must not be empty")
+            tweet_pool[label] = cleaned
+        print(
+            f"  Tweet pool loaded: good={len(tweet_pool['good'])}, "
+            f"bad={len(tweet_pool['bad'])}"
+        )
+        return tweet_pool
+
     tweet_pool = {"good": [], "bad": []}
     good_files = ["real_tweets_COVID.json", "real_tweets_politics.json"]
     bad_files = ["fake_tweets_COVID.json", "fake_tweets_politics.json"]
@@ -293,6 +314,10 @@ def parse_args():
     parser.add_argument("--num-bad", type=int, default=NUM_BAD)
     parser.add_argument("--seed", type=int, default=RANDOM_SEED)
     parser.add_argument("--tweets-per-agent", type=int, default=10)
+    parser.add_argument(
+        "--tweet-pool",
+        help="Audited JSON object containing non-empty good and bad text lists.",
+    )
     parser.add_argument("--scenario", choices=sorted(SCENARIO_IDS))
     parser.add_argument(
         "--mean-following",
@@ -336,7 +361,11 @@ def main():
     validate_profiles(profiles)
     print(f"Loaded {len(profiles)} deep persona profiles")
 
-    tweet_pool = load_tweet_pool()
+    tweet_pool = load_tweet_pool(args.tweet_pool)
+    if args.scenario and not all(tweet_pool.values()):
+        raise ValueError(
+            "formal scenarios require --tweet-pool with non-empty good and bad lists"
+        )
     df = build_agent_dataframe(
         profiles,
         tweet_pool,

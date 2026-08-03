@@ -126,12 +126,15 @@ def _generate_dp_profile(
     }
     for start in range(0, len(selected_paths), attribute_batch_size):
         batch = selected_paths[start:start + attribute_batch_size]
+        aliases = {
+            f"A{offset:03d}": path for offset, path in enumerate(batch)
+        }
         system_prompt = (
             "You are the attribute filling stage of DeepPersona. Return one "
-            "valid JSON object whose keys exactly match every supplied dotted "
-            "attribute path. Values must be concise, specific, mutually "
-            "consistent, and grounded in the provided persona anchor. Do not "
-            "omit keys or add keys."
+            "valid JSON object whose keys exactly match every supplied short "
+            "attribute ID. Values must be concise (at most 12 words), specific, "
+            "mutually consistent, and grounded in the provided persona anchor. "
+            "Do not omit IDs or add IDs."
         )
         user_prompt = (
             "Persona anchor:\n"
@@ -141,18 +144,23 @@ def _generate_dp_profile(
                 {key: value for key, value in profile.items() if key != "Base Info"},
                 ensure_ascii=False,
             )
-            + "\n\nFill these attribute paths (one value per key):\n"
-            + "\n".join(f"- {path}" for path in batch)
+            + "\n\nFill these attribute IDs (return the ID, not the path):\n"
+            + "\n".join(
+                f"- {alias}: {path}" for alias, path in aliases.items()
+            )
         )
         values = {}
-        missing = list(batch)
+        missing_aliases = list(aliases)
         for batch_attempt in range(3):
             retry_prompt = user_prompt
             if batch_attempt:
                 retry_prompt += (
-                    "\n\nYour previous response omitted or malformed these paths. "
-                    "Return valid JSON containing every path exactly once:\n"
-                    + "\n".join(f"- {path}" for path in missing)
+                    "\n\nYour previous response omitted or malformed these IDs. "
+                    "Return valid JSON containing every listed ID exactly once:\n"
+                    + "\n".join(
+                        f"- {alias}: {aliases[alias]}"
+                        for alias in missing_aliases
+                    )
                 )
             response = config.get_completion(
                 [
@@ -163,13 +171,23 @@ def _generate_dp_profile(
             )
             parsed = config.parse_json_response(response, {})
             if isinstance(parsed, dict):
+                flattened = _flatten_response(parsed)
+                for alias, path in aliases.items():
+                    if alias in parsed:
+                        values[path] = parsed[alias]
+                    elif alias in flattened:
+                        values[path] = flattened[alias]
+                # Accept exact original paths if a provider ignores aliases.
                 values.update(_expected_values(parsed, batch))
-            missing = [path for path in batch if path not in values]
-            if not missing:
+            missing_aliases = [
+                alias for alias, path in aliases.items() if path not in values
+            ]
+            if not missing_aliases:
                 break
-        if missing:
+        if missing_aliases:
             raise ValueError(
-                f"attribute batch omitted {len(missing)} paths: {missing[:3]}"
+                "attribute batch omitted "
+                f"{len(missing_aliases)} IDs: {missing_aliases[:3]}"
             )
         for path in batch:
             _set_nested(profile, path, values[path])

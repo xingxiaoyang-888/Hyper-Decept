@@ -39,6 +39,8 @@ API_BASE_URL = os.getenv(
 client = OpenAI(
     api_key=OPENAI_API_KEY or "missing-api-key",
     base_url=API_BASE_URL,
+    timeout=float(os.getenv("DEEPPERSONA_API_TIMEOUT_SECONDS", "90")),
+    max_retries=int(os.getenv("DEEPPERSONA_HTTP_RETRIES", "1")),
 )
 API_CALL_COUNT = 0
 

@@ -88,9 +88,32 @@ def calibrate(
     elapsed = time.perf_counter() - started
     log_text = log_path.read_text(encoding="utf-8", errors="replace")
     marker_hits = [marker for marker in ERROR_MARKERS if marker in log_text]
-    audit = json.loads(
-        (output_dir / "activation_audit.json").read_text(encoding="utf-8")
-    )
+    audit_path = output_dir / "activation_audit.json"
+    if not audit_path.is_file():
+        report = {
+            "schema_version": "hyperdecept.formal-calibration.v1",
+            "status": "failed",
+            "full_run_eligible": False,
+            "returncode": result.returncode,
+            "elapsed_seconds": round(elapsed, 3),
+            "initialization_seconds": round(elapsed, 3),
+            "step_wall_seconds": None,
+            "max_step_seconds": max_step_seconds,
+            "selected_count": 0,
+            "inference_requests": 0,
+            "request_ratio": 0.0,
+            "minimum_request_ratio": minimum_request_ratio,
+            "error_markers": marker_hits or ["activation_audit_missing"],
+            "projected_20_episode_hours": None,
+            "action": "do_not_start_full_run; inspect calibration log",
+            "log": str(log_path),
+        }
+        (output_dir / "calibration_report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return report
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
     step = audit["steps"][0]
     selected = int(step["selected_count"])
     requests = int(audit["inference_requests_at_export"])

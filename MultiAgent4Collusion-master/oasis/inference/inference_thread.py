@@ -93,6 +93,8 @@ class InferenceThread:
             model_config = {
                 "temperature": temperature,
             }
+            if is_deepseek:
+                model_config["response_format"] = {"type": "json_object"}
             if max_tokens is not None:
                 if max_tokens <= 0:
                     raise ValueError("max_tokens must be positive")

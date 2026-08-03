@@ -38,3 +38,6 @@ def test_deepseek_uses_secret_from_environment(monkeypatch):
     )
     assert calls[0]["api_key"] == "test-only-key"
     assert calls[0]["url"] == "https://api.deepseek.com/v1"
+    assert calls[0]["model_config_dict"]["response_format"] == {
+        "type": "json_object"
+    }

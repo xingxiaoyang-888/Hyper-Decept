@@ -31,7 +31,7 @@ def build_configs(
     time_steps: int = 30,
     cutoff_step: int = 18,
     target_active_fraction: float = 0.075,
-    max_tokens: int = 128,
+    max_tokens: int = 512,
 ) -> dict:
     if not 0 < cutoff_step < time_steps:
         raise ValueError("cutoff_step must be between 1 and time_steps - 1")
@@ -159,7 +159,7 @@ def main() -> None:
     parser.add_argument("--num-agents", type=int, default=2000)
     parser.add_argument("--time-steps", type=int, default=30)
     parser.add_argument("--cutoff-step", type=int, default=18)
-    parser.add_argument("--max-tokens", type=int, default=128)
+    parser.add_argument("--max-tokens", type=int, default=512)
     args = parser.parse_args()
     endpoints = [{
         "host": args.host,

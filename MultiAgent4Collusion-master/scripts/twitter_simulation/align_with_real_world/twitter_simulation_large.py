@@ -32,7 +32,6 @@ import numpy as np
 import pandas as pd
 from colorama import Back
 from yaml import safe_load
-from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
@@ -114,6 +113,8 @@ WARNING_MESSAGE = "[Important] Warning: This post is controversial and may provo
 COLLAPSE_POST_MESSAGE = "This post has been collapsed due to the spread of false information, which constitutes a serious violation of the social media platform’s rules. The platform advises users not to like, share, or comment on this post. The original content of the post is as follows: "
 
 def generate_embeddings(texts, model_path="all-mpnet-base-v2"):
+    from sentence_transformers import SentenceTransformer
+
     model = SentenceTransformer(model_path)
     
     embeddings = model.encode(texts)

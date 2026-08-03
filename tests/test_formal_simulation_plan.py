@@ -28,5 +28,5 @@ def test_formal_plan_has_twenty_bounded_configs(tmp_path):
     assert simulation["max_silent_steps"] == 14
     assert simulation["export_debug_artifacts"] is False
     assert simulation["export_visualizations"] is False
-    assert first["inference"]["max_tokens"] == 128
+    assert first["inference"]["max_tokens"] == 512
     assert first["model"]["cfgs"][0]["is_openai_model"] is False

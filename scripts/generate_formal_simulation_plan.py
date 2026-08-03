@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from deeppersona_ai.package_formal_personas import DESIGN
+
 
 SCENARIOS = (
     "leader_amplifier",
@@ -42,6 +44,21 @@ def build_configs(
     if max_tokens <= 0:
         raise ValueError("max_tokens must be positive")
     output_dir.mkdir(parents=True, exist_ok=True)
+    persona_manifest_path = (
+        persona_root / "formal_dp_personas.personas.manifest.json"
+    ).expanduser().resolve()
+    if not persona_manifest_path.is_file():
+        raise FileNotFoundError(persona_manifest_path)
+    persona_manifest = json.loads(
+        persona_manifest_path.read_text(encoding="utf-8")
+    )
+    if persona_manifest.get("design") != DESIGN:
+        raise ValueError("formal plan requires independently generated personas")
+    if int(persona_manifest.get("agents", -1)) != num_agents:
+        raise ValueError("persona manifest population mismatch")
+    profiles_path = persona_manifest_path.parent / persona_manifest["profiles_file"]
+    chunks_path = persona_manifest_path.parent / persona_manifest["chunks_file"]
+    population_sha256 = persona_manifest["chunks_sha256"]
     configs = []
     for scenario in SCENARIOS:
         for seed in SIMULATION_SEEDS:
@@ -62,9 +79,9 @@ def build_configs(
                     "detection": False,
                     "activation_scale": 1.0,
                     "force_all_agents_active": False,
-                    "deep_persona_chunks_path": str(
-                        persona_root / f"seed_{seed}.chunks.json"
-                    ),
+                    "deep_persona_chunks_path": str(chunks_path),
+                    "deep_persona_manifest_path": str(persona_manifest_path),
+                    "deep_persona_population_sha256": population_sha256,
                     "activation_policy": "budgeted_activity",
                     "target_active_fraction": target_active_fraction,
                     "max_silent_steps": math.ceil(1 / target_active_fraction),
@@ -120,6 +137,14 @@ def build_configs(
         "target_active_fraction": target_active_fraction,
         "max_tokens": max_tokens,
         "persona_root": str(persona_root.resolve()),
+        "shared_population": {
+            "design": DESIGN,
+            "manifest_path": str(persona_manifest_path),
+            "profiles_path": str(profiles_path),
+            "chunks_path": str(chunks_path),
+            "profiles_sha256": persona_manifest["profiles_sha256"],
+            "chunks_sha256": population_sha256,
+        },
         "tweet_pool_path": str(tweet_pool_path.resolve()),
         "step_request_ceiling": step_budget,
         "episode_request_ceiling": step_budget * time_steps,
@@ -134,15 +159,11 @@ def build_configs(
                 "scenario_id": scenario,
                 "simulation_seed": seed,
                 "csv_path": str(csv_root / scenario / f"seed_{seed}.csv"),
-                "profiles_path": str(
-                    persona_root / f"seed_{seed}.profiles.json"
-                ),
-                "chunks_path": str(
-                    persona_root / f"seed_{seed}.chunks.json"
-                ),
+                "profiles_path": str(profiles_path),
+                "chunks_path": str(chunks_path),
                 "command": (
                     "python MultiAgent4Collusion-master/generate_simulation_csv.py "
-                    f"--profiles {persona_root / f'seed_{seed}.profiles.json'} "
+                    f"--profiles {profiles_path} "
                     f"--num-agents {num_agents} "
                     f"--scenario {scenario} --seed {seed} "
                     f"--tweet-pool {tweet_pool_path} "

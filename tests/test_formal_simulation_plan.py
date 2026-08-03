@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 
 import yaml
@@ -5,7 +7,30 @@ import yaml
 from scripts.generate_formal_simulation_plan import build_configs
 
 
+def _sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_shared_population(root, count=2000):
+    root.mkdir(parents=True)
+    profiles = root / "formal_dp_personas.profiles.json"
+    chunks = root / "formal_dp_personas.chunks.json"
+    profiles.write_text("[]", encoding="utf-8")
+    chunks.write_text("[]", encoding="utf-8")
+    manifest = root / "formal_dp_personas.personas.manifest.json"
+    manifest.write_text(json.dumps({
+        "design": "independently_generated_fixed_population_reused_across_episode_seeds",
+        "agents": count,
+        "profiles_file": profiles.name,
+        "chunks_file": chunks.name,
+        "profiles_sha256": _sha256(profiles),
+        "chunks_sha256": _sha256(chunks),
+    }), encoding="utf-8")
+    return manifest
+
+
 def test_formal_plan_has_twenty_bounded_configs(tmp_path):
+    _write_shared_population(tmp_path / "personas")
     report = build_configs(
         output_dir=tmp_path / "configs",
         csv_root=tmp_path / "csv",
@@ -28,7 +53,8 @@ def test_formal_plan_has_twenty_bounded_configs(tmp_path):
     assert simulation["force_all_agents_active"] is False
     chunks_path = Path(simulation["deep_persona_chunks_path"])
     assert chunks_path.parent.name == "personas"
-    assert chunks_path.name == "seed_11.chunks.json"
+    assert chunks_path.name == "formal_dp_personas.chunks.json"
+    assert simulation["deep_persona_population_sha256"]
     assert simulation["coverage_deadlines"] == [18]
     assert simulation["max_silent_steps"] == 14
     assert simulation["export_debug_artifacts"] is False
@@ -37,5 +63,8 @@ def test_formal_plan_has_twenty_bounded_configs(tmp_path):
     assert first["inference"]["dispatch_interval"] == 0.05
     assert first["inference"]["completion_poll_interval"] == 0.05
     assert first["model"]["cfgs"][0]["is_openai_model"] is False
-    assert "seed_11.profiles.json" in report["population_commands"][0]["command"]
+    assert "formal_dp_personas.profiles.json" in report["population_commands"][0]["command"]
+    assert report["shared_population"]["chunks_sha256"] == simulation[
+        "deep_persona_population_sha256"
+    ]
     assert "--tweet-pool" in report["population_commands"][0]["command"]

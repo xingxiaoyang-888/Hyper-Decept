@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -10,17 +11,28 @@ from scripts.audit_formal_simulation_inputs import audit_plan
 def test_audit_accepts_aligned_population(tmp_path, monkeypatch):
     personas = tmp_path / "personas"
     personas.mkdir()
-    chunks = personas / "seed_11.chunks.json"
+    chunks = personas / "formal_dp_personas.chunks.json"
     chunks.write_text(json.dumps([
         {"agent_id": 0, "section": "summary", "text": "zero"},
         {"agent_id": 1, "section": "summary", "text": "one"},
     ]), encoding="utf-8")
-    chunks.with_name("seed_11.personas.manifest.json").write_text(json.dumps({
-        "schema_version": "hyperdecept.persona-population.v1",
+    profiles = personas / "formal_dp_personas.profiles.json"
+    profiles.write_text(json.dumps([{"Profile Index": 1}, {"Profile Index": 2}]), encoding="utf-8")
+    chunks_sha256 = hashlib.sha256(chunks.read_bytes()).hexdigest()
+    profiles_sha256 = hashlib.sha256(profiles.read_bytes()).hexdigest()
+    manifest = personas / "formal_dp_personas.personas.manifest.json"
+    manifest.write_text(json.dumps({
+        "schema_version": "hyperdecept.formal-dp-personas.v1",
+        "artifact_kind": "shared_population_package",
+        "design": "independently_generated_fixed_population_reused_across_episode_seeds",
         "agents": 2,
-        "prototype_count": 2,
-        "min_attributes": 200,
-        "assignments": [{"agent_id": 0}, {"agent_id": 1}],
+        "attribute_count": 200,
+        "unique_content_hashes": 2,
+        "profiles_file": profiles.name,
+        "chunks_file": chunks.name,
+        "profiles_sha256": profiles_sha256,
+        "chunks_sha256": chunks_sha256,
+        "records": [{"agent_id": 0}, {"agent_id": 1}],
     }), encoding="utf-8")
     csv_path = tmp_path / "agents.csv"
     pd.DataFrame({
@@ -36,6 +48,8 @@ def test_audit_accepts_aligned_population(tmp_path, monkeypatch):
             "scenario_id": "leader_amplifier",
             "force_all_agents_active": False,
             "deep_persona_chunks_path": str(chunks),
+            "deep_persona_manifest_path": str(manifest),
+            "deep_persona_population_sha256": chunks_sha256,
         },
         "model": {"num_agents": 2, "cfgs": [{"num": 2}]},
         "inference": {
@@ -53,6 +67,7 @@ def test_audit_accepts_aligned_population(tmp_path, monkeypatch):
         "episodes": 1,
         "num_agents": 2,
         "configs": [str(config_path)],
+        "shared_population": {"chunks_sha256": chunks_sha256},
     }), encoding="utf-8")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-only")
     report = audit_plan(plan_path)
@@ -60,3 +75,4 @@ def test_audit_accepts_aligned_population(tmp_path, monkeypatch):
     assert report["csv_rows_checked"] == 2
     assert report["endpoint_parallel_slots"] == [64]
     assert report["api_key_present"] is True
+    assert report["persona_populations"] == 1

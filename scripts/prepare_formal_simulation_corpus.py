@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import sys
 
-from deeppersona_ai.prepare_formal_personas import _source_path, prepare_seed
+from deeppersona_ai.package_formal_personas import package_population
 from scripts.audit_formal_simulation_inputs import audit_plan
 from scripts.generate_formal_simulation_plan import (
     SCENARIOS,
@@ -36,13 +36,17 @@ def prepare_corpus(
     output_root: Path,
     tweet_pool_path: Path,
     source: Path | None = None,
+    generation_report: Path | None = None,
     num_agents: int = 2000,
     min_attributes: int = 200,
     parallel: int = 64,
 ) -> dict:
     output_root = output_root.expanduser().resolve()
     tweet_pool_path = tweet_pool_path.expanduser().resolve()
-    source_path = _source_path(source)
+    if source is None or generation_report is None:
+        raise ValueError("formal corpus requires source and generation_report")
+    source_path = source.expanduser().resolve()
+    generation_report_path = generation_report.expanduser().resolve()
     personas = output_root / "personas"
     csv_root = output_root / "csv"
     db_root = output_root / "db"
@@ -50,16 +54,14 @@ def prepare_corpus(
     for path in (personas, csv_root, db_root, config_root):
         path.mkdir(parents=True, exist_ok=True)
 
-    persona_reports = {
-        seed: prepare_seed(
-            source=source_path,
-            output_dir=personas,
-            count=num_agents,
-            seed=seed,
-            min_attributes=min_attributes,
-        )
-        for seed in SIMULATION_SEEDS
-    }
+    persona_report = package_population(
+        source=source_path,
+        generation_report=generation_report_path,
+        output_dir=personas,
+        count=num_agents,
+        attribute_count=min_attributes,
+        minimum_leaves=150,
+    )
     adapter = _load_population_adapter()
     tweet_pool = adapter.load_tweet_pool(tweet_pool_path)
     generated_csv = []
@@ -68,7 +70,7 @@ def prepare_corpus(
         scenario_dir.mkdir(parents=True, exist_ok=True)
         for seed in SIMULATION_SEEDS:
             profiles = json.loads(
-                Path(persona_reports[seed]["profiles_path"]).read_text(
+                (personas / persona_report["profiles_file"]).read_text(
                     encoding="utf-8"
                 )
             )
@@ -107,8 +109,9 @@ def prepare_corpus(
         "source": str(source_path),
         "tweet_pool": str(tweet_pool_path),
         "num_agents": num_agents,
-        "persona_populations": len(persona_reports),
-        "prototype_count": next(iter(persona_reports.values()))["prototype_count"],
+        "persona_populations": 1,
+        "independent_profiles": persona_report["agents"],
+        "population_sha256": persona_report["chunks_sha256"],
         "csv_files": len(generated_csv),
         "episodes": plan["episodes"],
         "parallel": parallel,
@@ -128,6 +131,7 @@ def main() -> None:
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--tweet-pool", required=True, type=Path)
     parser.add_argument("--source", type=Path)
+    parser.add_argument("--generation-report", type=Path)
     parser.add_argument("--num-agents", type=int, default=2000)
     parser.add_argument("--min-attributes", type=int, default=200)
     parser.add_argument("--parallel", type=int, default=64)
@@ -136,6 +140,7 @@ def main() -> None:
         output_root=args.output_root,
         tweet_pool_path=args.tweet_pool,
         source=args.source,
+        generation_report=args.generation_report,
         num_agents=args.num_agents,
         min_attributes=args.min_attributes,
         parallel=args.parallel,

@@ -11,6 +11,8 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from deeppersona_ai.package_formal_personas import DESIGN, SCHEMA_VERSION, _sha256
+
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -73,20 +75,37 @@ def audit_plan(plan_path: Path, *, require_api_key: bool = True) -> dict:
                 if row.get("section") == "summary" and str(row.get("text", "")).strip()
             }
             _assert_agent_ids(summary_ids, num_agents, f"{chunks_path} summaries")
-            manifest_path = chunks_path.with_name(
-                chunks_path.name.replace(".chunks.json", ".personas.manifest.json")
-            )
+            manifest_path = Path(
+                simulation["deep_persona_manifest_path"]
+            ).expanduser().resolve()
             manifest = _load_json(manifest_path)
-            if manifest.get("schema_version") != "hyperdecept.persona-population.v1":
+            if manifest.get("schema_version") != SCHEMA_VERSION:
                 raise ValueError(f"unsupported persona manifest: {manifest_path}")
+            if manifest.get("artifact_kind") != "shared_population_package":
+                raise ValueError(f"not a shared population package: {manifest_path}")
+            if manifest.get("design") != DESIGN:
+                raise ValueError(f"persona independence claim mismatch: {manifest_path}")
             if int(manifest["agents"]) != num_agents:
                 raise ValueError(f"persona population mismatch: {manifest_path}")
-            if len(manifest["assignments"]) != num_agents:
-                raise ValueError(f"persona assignments mismatch: {manifest_path}")
+            if int(manifest["attribute_count"]) != 200:
+                raise ValueError(f"formal personas require 200 attributes: {manifest_path}")
+            if int(manifest["unique_content_hashes"]) != num_agents:
+                raise ValueError(f"persona content is not unique: {manifest_path}")
+            if len(manifest["records"]) != num_agents:
+                raise ValueError(f"persona records mismatch: {manifest_path}")
+            profiles_path = manifest_path.parent / manifest["profiles_file"]
+            if _sha256(profiles_path) != manifest["profiles_sha256"]:
+                raise ValueError(f"persona profiles hash mismatch: {manifest_path}")
+            if _sha256(chunks_path) != manifest["chunks_sha256"]:
+                raise ValueError(f"persona chunks hash mismatch: {manifest_path}")
+            configured_hash = simulation.get("deep_persona_population_sha256")
+            if configured_hash != manifest["chunks_sha256"]:
+                raise ValueError(f"config population hash mismatch: {config_path}")
             persona_cache[chunks_path] = {
                 "chunks": len(chunks),
-                "prototypes": int(manifest["prototype_count"]),
-                "min_attributes": int(manifest["min_attributes"]),
+                "independent_profiles": int(manifest["agents"]),
+                "attribute_count": int(manifest["attribute_count"]),
+                "population_sha256": manifest["chunks_sha256"],
             }
 
         csv_path = Path(config["data"]["csv_path"]).expanduser().resolve()
@@ -120,6 +139,13 @@ def audit_plan(plan_path: Path, *, require_api_key: bool = True) -> dict:
         serialized = json.dumps(config, ensure_ascii=False)
         if "sk-" in serialized or "DEEPSEEK_API_KEY" in serialized:
             raise ValueError(f"secret-like content embedded in config: {config_path}")
+
+    if len(persona_cache) != 1:
+        raise ValueError("all formal episodes must reuse one fixed persona population")
+    plan_population = plan.get("shared_population", {})
+    only_population = next(iter(persona_cache.values()))
+    if plan_population.get("chunks_sha256") != only_population["population_sha256"]:
+        raise ValueError("plan shared population hash mismatch")
 
     return {
         "schema_version": "hyperdecept.formal-input-audit.v1",

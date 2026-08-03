@@ -10,7 +10,7 @@ def test_formal_plan_has_twenty_bounded_configs(tmp_path):
         output_dir=tmp_path / "configs",
         csv_root=tmp_path / "csv",
         db_root=tmp_path / "db",
-        model_type="qwen-test",
+        model_type="deepseek-chat",
         endpoints=[{"host": "127.0.0.1", "ports": [8000], "parallel": 4}],
     )
     assert report["episodes"] == 20
@@ -29,3 +29,4 @@ def test_formal_plan_has_twenty_bounded_configs(tmp_path):
     assert simulation["export_debug_artifacts"] is False
     assert simulation["export_visualizations"] is False
     assert first["inference"]["max_tokens"] == 128
+    assert first["model"]["cfgs"][0]["is_openai_model"] is False

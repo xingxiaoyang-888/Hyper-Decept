@@ -25,7 +25,7 @@ def build_configs(
     output_dir: Path,
     csv_root: Path,
     db_root: Path,
-    model_type: str,
+    model_type: str = "deepseek-chat",
     endpoints: list[dict],
     num_agents: int = 2000,
     time_steps: int = 30,
@@ -79,6 +79,7 @@ def build_configs(
                         "num": num_agents,
                         "server_url": "configured_by_inference_section",
                         "model_path": "openai",
+                        "is_openai_model": False,
                         "stop_tokens": [],
                         "temperature": 0.0,
                     }],
@@ -149,10 +150,11 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--csv-root", required=True, type=Path)
     parser.add_argument("--db-root", required=True, type=Path)
-    parser.add_argument("--model-type", required=True)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--ports", default="8000,8001,8002,8003")
-    parser.add_argument("--parallel", type=int, default=1)
+    parser.add_argument("--model-type", default="deepseek-chat")
+    parser.add_argument("--host", default="api.deepseek.com")
+    parser.add_argument("--ports", default="443")
+    parser.add_argument("--base-url", default="https://api.deepseek.com/v1")
+    parser.add_argument("--parallel", type=int, default=4)
     parser.add_argument("--target-active-fraction", type=float, default=0.075)
     parser.add_argument("--num-agents", type=int, default=2000)
     parser.add_argument("--time-steps", type=int, default=30)
@@ -164,6 +166,7 @@ def main() -> None:
         "ports": [int(value) for value in args.ports.split(",") if value.strip()],
         "parallel": args.parallel,
         "max_tokens": args.max_tokens,
+        "base_url": args.base_url,
     }]
     print(json.dumps(build_configs(
         output_dir=args.output_dir,

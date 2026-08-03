@@ -84,6 +84,37 @@ def test_inference_manager_supports_multiple_slots_per_endpoint(monkeypatch):
     assert len(manager.workers_by_port[11434]) == 4
 
 
+def test_inference_manager_supports_explicit_base_url(monkeypatch):
+    module = _load_module(
+        "base_url_inference_manager",
+        ROOT / "MultiAgent4Collusion-master/oasis/inference/inference_manager.py",
+    )
+    endpoints = []
+
+    class FakeThread:
+        def __init__(self, *, server_url, **kwargs):
+            endpoints.append(server_url)
+
+    monkeypatch.setattr(module, "InferenceThread", FakeThread)
+    manager = object.__new__(module.InferencerManager)
+    manager.threads = {}
+    manager.parallel_per_endpoint = 1
+    manager.max_tokens = 128
+    manager.workers_by_port = module.defaultdict(list)
+    manager._initialize_threads(
+        [{
+            "host": "api.deepseek.com",
+            "ports": [443],
+            "base_url": "https://api.deepseek.com/v1",
+            "parallel": 4,
+        }],
+        "deepseek-chat",
+        "openai",
+        [],
+    )
+    assert endpoints == ["https://api.deepseek.com/v1"] * 4
+
+
 def test_busy_timed_out_inference_slot_is_not_reused(monkeypatch):
     module = _load_module(
         "timeout_safe_inference_manager",

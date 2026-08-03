@@ -74,15 +74,21 @@ class InferenceThread:
         elif model_path == "openai":
             model_platform_type = ModelPlatformType.OPENAI_COMPATIBILITY_MODEL
             is_local = "localhost" in server_url or "127.0.0.1" in server_url
+            is_deepseek = (
+                "deepseek" in str(self.model_type).lower()
+                or "api.deepseek.com" in server_url.lower()
+            )
             api_key = (
+                get_env_variable("DEEPSEEK_API_KEY") if is_deepseek else None
+            ) or (
                 get_env_variable("OPENAI_API_KEY")
                 or get_env_variable("ZHIPUAI_API_KEY")
                 or ("ollama" if is_local else None)
             )
             if not api_key:
                 raise ValueError(
-                    "Set OPENAI_API_KEY or ZHIPUAI_API_KEY for a remote "
-                    "OpenAI-compatible endpoint"
+                    "Set DEEPSEEK_API_KEY for DeepSeek or OPENAI_API_KEY for "
+                    "a remote OpenAI-compatible endpoint"
                 )
             model_config = {
                 "temperature": temperature,
@@ -111,6 +117,15 @@ class InferenceThread:
                 # multiplying a slow request with automatic retries.
                 self.model_backend._client = OpenAI(
                     timeout=180,
+                    max_retries=0,
+                    base_url=server_url,
+                    api_key=api_key,
+                )
+            elif hasattr(self.model_backend, "_client"):
+                # Disable hidden SDK retries: the simulation already records and
+                # bounds failed activations, and retry amplification is budgeted.
+                self.model_backend._client = OpenAI(
+                    timeout=float(os.getenv("HYPERDECEPT_API_TIMEOUT", "180")),
                     max_retries=0,
                     base_url=server_url,
                     api_key=api_key,

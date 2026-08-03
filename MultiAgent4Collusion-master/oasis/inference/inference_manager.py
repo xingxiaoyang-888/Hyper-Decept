@@ -178,7 +178,9 @@ class InferencerManager:
                     raise ValueError("endpoint parallel slots must be positive")
                 for slot in range(slots):
                     try:
-                        endpoint = f"{scheme}://{host}:{port}{api_prefix}"
+                        endpoint = str(url_config.get("base_url") or "").strip()
+                        if not endpoint:
+                            endpoint = f"{scheme}://{host}:{port}{api_prefix}"
                         shared_memory = SharedMemory()
                         thread = InferenceThread(
                             model_path=model_path,

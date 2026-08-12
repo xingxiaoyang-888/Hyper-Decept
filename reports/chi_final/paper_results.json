@@ -1,0 +1,492 @@
+{
+  "schema_version": "hypertrace.chi-public-results.v1",
+  "created_at_utc": "2026-08-12T22:51:16.312348+00:00",
+  "status": "passed",
+  "scope": "aggregate_only_no_raw_data_no_checkpoints_no_target_labels",
+  "excluded_modules": [
+    "psychological_features",
+    "role_classification"
+  ],
+  "external_evaluation": {
+    "honduras": {
+      "count": 15,
+      "evaluation_protocol": "strict_unseen_operation",
+      "operation_disjoint": true,
+      "metrics": {
+        "auroc": {
+          "mean": 0.8850266269098324,
+          "std": 0.08417359844509475,
+          "min": 0.6417478630430583,
+          "max": 0.9680943265766536
+        },
+        "auprc": {
+          "mean": 0.4676593798714423,
+          "std": 0.35780148438133225,
+          "min": 0.011283667671645773,
+          "max": 0.852645628045524
+        },
+        "f1": {
+          "mean": 0.11414952992513928,
+          "std": 0.2358097053752054,
+          "min": 0.0,
+          "max": 0.8409475465313029
+        },
+        "balanced_accuracy": {
+          "mean": 0.5968252203241956,
+          "std": 0.1497446684874427,
+          "min": 0.48711398401329564,
+          "max": 0.9133748003819344
+        },
+        "brier": {
+          "mean": 0.2842443248877923,
+          "std": 0.34371684225668186,
+          "min": 0.006942604668438435,
+          "max": 0.9000557661056519
+        },
+        "ece": {
+          "mean": 0.35606004708904493,
+          "std": 0.3723548329044077,
+          "min": 0.0080868536606431,
+          "max": 0.9412002891476732
+        }
+      }
+    },
+    "uae": {
+      "count": 15,
+      "evaluation_protocol": "strict_unseen_operation",
+      "operation_disjoint": true,
+      "metrics": {
+        "auroc": {
+          "mean": 0.9004635476692742,
+          "std": 0.031231853526709506,
+          "min": 0.8081894063237974,
+          "max": 0.9527638247183162
+        },
+        "auprc": {
+          "mean": 0.5559270964267015,
+          "std": 0.26500185598917064,
+          "min": 0.0882246663510037,
+          "max": 0.8238998883457075
+        },
+        "f1": {
+          "mean": 0.09723012487374727,
+          "std": 0.22432217916391003,
+          "min": 0.0,
+          "max": 0.689849143441575
+        },
+        "balanced_accuracy": {
+          "mean": 0.5668453441068314,
+          "std": 0.13853726696454427,
+          "min": 0.5,
+          "max": 0.889467027668207
+        },
+        "brier": {
+          "mean": 0.33042772946258386,
+          "std": 0.45913276486012505,
+          "min": 0.005075628869235516,
+          "max": 0.9602189064025879
+        },
+        "ece": {
+          "mean": 0.3683079881021134,
+          "std": 0.44846257319201677,
+          "min": 0.012408314272761345,
+          "max": 0.9773740768432617
+        }
+      }
+    }
+  },
+  "rank_consensus": {
+    "honduras": {
+      "protocol_status": "retrospective_stability_analysis_for_current_operations; preregistered_candidate_for_future_operations",
+      "checkpoint_count": 15,
+      "labels_used_for_selection_scoring_or_ordering": false,
+      "top_1_percent": {
+        "reviewed_accounts": 2247,
+        "true_io_hits": 236,
+        "precision_at_k": 0.105028927458834,
+        "recall_at_k": 0.1264737406216506,
+        "lift_at_k": 12.646529778182272,
+        "mean_pairwise_checkpoint_jaccard": 0.3554488813276196
+      },
+      "stability": {
+        "mean_pairwise_spearman": 0.8425486892270313,
+        "std_pairwise_spearman": 0.1893105844299913,
+        "mean_account_rank_std": 0.09327729791402817,
+        "p95_account_rank_std": 0.2001946747303009
+      }
+    },
+    "uae": {
+      "protocol_status": "retrospective_stability_analysis_for_current_operations; preregistered_candidate_for_future_operations",
+      "checkpoint_count": 15,
+      "labels_used_for_selection_scoring_or_ordering": false,
+      "top_1_percent": {
+        "reviewed_accounts": 3991,
+        "true_io_hits": 670,
+        "precision_at_k": 0.1678777248809822,
+        "recall_at_k": 0.3365143144148669,
+        "lift_at_k": 33.64434870472626,
+        "mean_pairwise_checkpoint_jaccard": 0.45393635698599066
+      },
+      "stability": {
+        "mean_pairwise_spearman": 0.8751174191331073,
+        "std_pairwise_spearman": 0.09518384258459107,
+        "mean_account_rank_std": 0.08380408585071564,
+        "p95_account_rank_std": 0.1698768362402916
+      }
+    }
+  },
+  "explanation_preflight": {
+    "status": "passed",
+    "labels_csv_opened": false,
+    "operations": [
+      {
+        "operation": "honduras",
+        "status": "passed",
+        "packet_count": 3,
+        "event_evidence_ids": 30,
+        "edge_evidence_ids": 13,
+        "counterfactual_percentile_change": [
+          -0.46967116926660285,
+          -0.46963586057517565,
+          -0.4695842327406517
+        ],
+        "geodesic_margin_mean": [
+          0.24575620492299396,
+          0.20730637709299723,
+          0.2078552007675171
+        ],
+        "errors": [],
+        "artifact_sha256": {
+          "manifest": "a03f8b0496aa133dd3d4d5c3f103ba93ce33a50575a566b2c87d9d042aaac435",
+          "packets": "0fa1ca80ca82ee47086557d1e7182efefb8f86fe6ccc1ce30a8eb129b7424b37"
+        }
+      },
+      {
+        "operation": "uae",
+        "status": "passed",
+        "packet_count": 3,
+        "event_evidence_ids": 30,
+        "edge_evidence_ids": 21,
+        "counterfactual_percentile_change": [
+          -0.35355123604066,
+          -0.3530789074456496,
+          -0.35306771324124014
+        ],
+        "geodesic_margin_mean": [
+          0.10955135027567546,
+          0.015640743573506675,
+          0.015230894088745117
+        ],
+        "errors": [],
+        "artifact_sha256": {
+          "manifest": "5e57839eb652590d018ad973dfaa2ba088749b8631b8fce74f626f95e39e7fb0",
+          "packets": "fee550d7317ce0b2722f9e9ec6e8d8009812496b0db493f2911037268ffe1839"
+        }
+      }
+    ]
+  },
+  "model_ablation": {
+    "fold_count": 60,
+    "summaries": {
+      "lorentz_observable18": {
+        "auprc": {
+          "n": 15,
+          "mean": 0.9790952070665271,
+          "std": 0.008187672328899966,
+          "ci95_low": 0.9745610252624385,
+          "ci95_high": 0.9836293888706157
+        },
+        "auroc": {
+          "n": 15,
+          "mean": 0.99439,
+          "std": 0.002958669612100534,
+          "ci95_low": 0.9927515433812434,
+          "ci95_high": 0.9960284566187566
+        },
+        "f1": {
+          "n": 15,
+          "mean": 0.9296107407066064,
+          "std": 0.017148292962673388,
+          "ci95_low": 0.9201143325946101,
+          "ci95_high": 0.9391071488186028
+        },
+        "balanced_accuracy": {
+          "n": 15,
+          "mean": 0.9631064814814815,
+          "std": 0.017708887064690412,
+          "ci95_low": 0.9532996267034805,
+          "ci95_high": 0.9729133362594825
+        },
+        "brier": {
+          "n": 15,
+          "mean": 0.011637246608734131,
+          "std": 0.0027348725766470593,
+          "ci95_low": 0.010122724657267613,
+          "ci95_high": 0.01315176856020065
+        },
+        "ece": {
+          "n": 15,
+          "mean": 0.01818296100618871,
+          "std": 0.005709351496108126,
+          "ci95_low": 0.015021227533364514,
+          "ci95_high": 0.021344694479012907
+        }
+      },
+      "lorentz_scratch_observable18": {
+        "auprc": {
+          "n": 15,
+          "mean": 0.9791552127867232,
+          "std": 0.008000904195393435,
+          "ci95_low": 0.9747244597275222,
+          "ci95_high": 0.9835859658459243
+        },
+        "auroc": {
+          "n": 15,
+          "mean": 0.9938499305555555,
+          "std": 0.003413943191623261,
+          "ci95_low": 0.9919593518320992,
+          "ci95_high": 0.9957405092790118
+        },
+        "f1": {
+          "n": 15,
+          "mean": 0.920524266845196,
+          "std": 0.03478021143884297,
+          "ci95_low": 0.9012636277388013,
+          "ci95_high": 0.9397849059515906
+        },
+        "balanced_accuracy": {
+          "n": 15,
+          "mean": 0.9537777777777777,
+          "std": 0.0349753944751862,
+          "ci95_low": 0.9344090499086305,
+          "ci95_high": 0.973146505646925
+        },
+        "brier": {
+          "n": 15,
+          "mean": 0.012905572773888707,
+          "std": 0.005134138246830916,
+          "ci95_low": 0.010062381780975136,
+          "ci95_high": 0.01574876376680228
+        },
+        "ece": {
+          "n": 15,
+          "mean": 0.020114762343564508,
+          "std": 0.008065914871667539,
+          "ci95_low": 0.015648007571838544,
+          "ci95_high": 0.024581517115290472
+        }
+      },
+      "euclidean_observable18": {
+        "auprc": {
+          "n": 15,
+          "mean": 0.9835924294408407,
+          "std": 0.005446282369249483,
+          "ci95_low": 0.9805763787946252,
+          "ci95_high": 0.9866084800870561
+        },
+        "auroc": {
+          "n": 15,
+          "mean": 0.9969517129629629,
+          "std": 0.0013192217561313775,
+          "ci95_low": 0.9962211523051926,
+          "ci95_high": 0.9976822736207333
+        },
+        "f1": {
+          "n": 15,
+          "mean": 0.9238297648762186,
+          "std": 0.01300640104747998,
+          "ci95_low": 0.916627060053994,
+          "ci95_high": 0.9310324696984432
+        },
+        "balanced_accuracy": {
+          "n": 15,
+          "mean": 0.9741203703703704,
+          "std": 0.006190338402346609,
+          "ci95_low": 0.9706922752271391,
+          "ci95_high": 0.9775484655136016
+        },
+        "brier": {
+          "n": 15,
+          "mean": 0.012578506402981778,
+          "std": 0.0022394774794740643,
+          "ci95_low": 0.01133832511210912,
+          "ci95_high": 0.013818687693854435
+        },
+        "ece": {
+          "n": 15,
+          "mean": 0.012924934392913201,
+          "std": 0.004854223980094258,
+          "ci95_low": 0.010236754754137769,
+          "ci95_high": 0.015613114031688633
+        }
+      },
+      "lorentz_no_temporal": {
+        "auprc": {
+          "n": 15,
+          "mean": 0.9776435110182962,
+          "std": 0.008262079579305871,
+          "ci95_low": 0.9730681238523745,
+          "ci95_high": 0.9822188981842178
+        },
+        "auroc": {
+          "n": 15,
+          "mean": 0.9926743981481482,
+          "std": 0.004420758100951999,
+          "ci95_low": 0.990226263912138,
+          "ci95_high": 0.9951225323841584
+        },
+        "f1": {
+          "n": 15,
+          "mean": 0.9300891252077338,
+          "std": 0.01590695593178686,
+          "ci95_low": 0.9212801466302976,
+          "ci95_high": 0.93889810378517
+        },
+        "balanced_accuracy": {
+          "n": 15,
+          "mean": 0.9642731481481481,
+          "std": 0.012347277646717355,
+          "ci95_low": 0.9574354536988763,
+          "ci95_high": 0.97111084259742
+        },
+        "brier": {
+          "n": 15,
+          "mean": 0.01164867856229345,
+          "std": 0.0025710592522560373,
+          "ci95_low": 0.010224873406136304,
+          "ci95_high": 0.013072483718450597
+        },
+        "ece": {
+          "n": 15,
+          "mean": 0.01937029286048452,
+          "std": 0.004456207270539484,
+          "ci95_low": 0.01690252752869308,
+          "ci95_high": 0.021838058192275963
+        }
+      }
+    },
+    "paired_comparisons": {
+      "scratch_lorentz_minus_scratch_euclidean": {
+        "auprc": {
+          "mean_delta": -0.00443721665411753,
+          "ci95_low": -0.006786508909386722,
+          "ci95_high": -0.002148068096950964,
+          "probability_delta_above_zero": 0.0
+        },
+        "auroc": {
+          "mean_delta": -0.0031017824074074237,
+          "ci95_low": -0.004533335069444508,
+          "ci95_high": -0.0017846255787037305,
+          "probability_delta_above_zero": 0.0
+        },
+        "f1": {
+          "mean_delta": -0.00330549803102258,
+          "ci95_low": -0.02212770793797982,
+          "ci95_high": 0.0112120332062935,
+          "probability_delta_above_zero": 0.3759
+        },
+        "balanced_accuracy": {
+          "mean_delta": -0.020342592592592575,
+          "ci95_low": -0.03817187499999996,
+          "ci95_high": -0.007643518518518498,
+          "probability_delta_above_zero": 0.0
+        },
+        "brier": {
+          "mean_delta": -0.0003270663709069292,
+          "ci95_low": -0.0029448335103613014,
+          "ci95_high": 0.0018322554655605921,
+          "probability_delta_above_zero": 0.4177
+        },
+        "ece": {
+          "mean_delta": -0.007189827950651306,
+          "ci95_low": -0.010948274785478135,
+          "ci95_high": -0.0038695708953199945,
+          "probability_delta_above_zero": 0.0
+        }
+      },
+      "temporal_input_contribution": {
+        "auprc": {
+          "mean_delta": 0.001451696048230966,
+          "ci95_low": -0.0010343705483568852,
+          "ci95_high": 0.004202906682673768,
+          "probability_delta_above_zero": 0.8649
+        },
+        "auroc": {
+          "mean_delta": 0.001715601851851889,
+          "ci95_low": 0.00016729513888890472,
+          "ci95_high": 0.0034164363425926397,
+          "probability_delta_above_zero": 0.9858
+        },
+        "f1": {
+          "mean_delta": -0.000478384501127301,
+          "ci95_low": -0.007629007892310789,
+          "ci95_high": 0.008154634786894974,
+          "probability_delta_above_zero": 0.4308
+        },
+        "balanced_accuracy": {
+          "mean_delta": -0.0011666666666666566,
+          "ci95_low": -0.00585185185185182,
+          "ci95_high": 0.003375115740740776,
+          "probability_delta_above_zero": 0.3187
+        },
+        "brier": {
+          "mean_delta": 1.1431953559319179e-05,
+          "ci95_low": -0.001209451899630949,
+          "ci95_high": 0.0014263956572782865,
+          "probability_delta_above_zero": 0.48975
+        },
+        "ece": {
+          "mean_delta": 0.0011873318542958108,
+          "ci95_low": -0.001403806215546434,
+          "ci95_high": 0.004098592845506581,
+          "probability_delta_above_zero": 0.79815
+        }
+      },
+      "real_warm_start_contribution": {
+        "auprc": {
+          "mean_delta": -6.0005720196043555e-05,
+          "ci95_low": -0.0015943328920370989,
+          "ci95_high": 0.0015370779162441662,
+          "probability_delta_above_zero": 0.4642
+        },
+        "auroc": {
+          "mean_delta": 0.0005400694444444835,
+          "ci95_low": -0.0010349537037036758,
+          "ci95_high": 0.0021222615740741045,
+          "probability_delta_above_zero": 0.7457
+        },
+        "f1": {
+          "mean_delta": 0.009086473861410475,
+          "ci95_low": -0.002446946424560424,
+          "ci95_high": 0.025226345784516397,
+          "probability_delta_above_zero": 0.90765
+        },
+        "balanced_accuracy": {
+          "mean_delta": 0.009328703703703697,
+          "ci95_low": -0.001884259259259258,
+          "ci95_high": 0.027125231481481438,
+          "probability_delta_above_zero": 0.8987
+        },
+        "brier": {
+          "mean_delta": 0.0012683261651545764,
+          "ci95_low": -0.000586743820264625,
+          "ci95_high": 0.003660141484385045,
+          "probability_delta_above_zero": 0.88345
+        },
+        "ece": {
+          "mean_delta": 0.0019318013373757974,
+          "ci95_low": -0.001690552582665153,
+          "ci95_high": 0.005666351328318245,
+          "probability_delta_above_zero": 0.844
+        }
+      }
+    }
+  },
+  "source_audit_sha256": {
+    "external": "cfb36990859fcc6ebcc3dfe42d968f4d58ffc083c4ee18747115f45444b8abc6",
+    "honduras_consensus": "74eb968d7faeec752b07d9c0c4462be530fcb31b390fd3ab32540698792c122c",
+    "uae_consensus": "e26fe9efb83c786a2b65d69ba50825515a575f8ed187d556081745700d3720c2",
+    "explanation": "3869a9680ae4d1164cad33f809a93f213333e988580952e0bf68f5f3c7a92ca6",
+    "ablation": "23f15cd3ceafd20ebae3c5336426a32a15e50b09feb605963dd0c43d462ea4da"
+  }
+}

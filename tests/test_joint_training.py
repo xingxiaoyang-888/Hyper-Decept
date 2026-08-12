@@ -1,7 +1,9 @@
 import importlib.util
+import json
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import torch
@@ -132,6 +134,100 @@ def _mgtab_manifest(root):
             "labels_stance_pt": str(root / "labels_stance.pt"),
         },
     )
+
+
+def test_disk_graph_cache_roundtrip_and_metadata(tmp_path):
+    module = _load_module()
+    graph = _graph(4)
+    target = tmp_path / "toy.pt"
+    contract = {"schema_version": module.GRAPH_CACHE_SCHEMA, "episode_id": "toy"}
+    module._write_disk_graph_cache(
+        target,
+        graph=graph,
+        contract=contract,
+        digest="abc123",
+    )
+
+    loaded = module._load_disk_graph_cache(target, "abc123")
+    assert loaded is not None
+    assert loaded.node_types == graph.node_types
+    assert loaded.edge_types == graph.edge_types
+    assert torch.equal(loaded["user"].x, graph["user"].x)
+    metadata = json.loads(target.with_suffix(".json").read_text())
+    assert metadata["cache_digest"] == "abc123"
+    assert module._load_disk_graph_cache(target, "different") is None
+
+
+def test_concurrent_graph_cache_writes_use_independent_temporary_files(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    module = _load_module()
+    target = tmp_path / "concurrent.pt"
+    graph = _graph(4)
+    contract = {"schema_version": module.GRAPH_CACHE_SCHEMA, "episode_id": "toy"}
+
+    def write() -> None:
+        module._write_disk_graph_cache(
+            target, graph=graph, contract=contract, digest="concurrent"
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(lambda _: write(), range(8)))
+
+    assert module._load_disk_graph_cache(target, "concurrent") is not None
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_graph_cache_contract_changes_when_source_changes(tmp_path):
+    module = _load_module()
+    features = tmp_path / "features.csv"
+    source = tmp_path / "episode.db"
+    features.write_text("user_id,feature\nu0,1\n", encoding="utf-8")
+    source.write_bytes(b"version-one")
+    manifest = EpisodeManifest(
+        episode_id="sim:cache:test",
+        dataset_name="simulation",
+        domain="synthetic",
+        purpose="simulation_main",
+        partition="pool",
+        split_level="scenario",
+        source_path=str(source),
+        identity_scope="episode",
+        scenario_id="cache",
+        simulation_seed=1,
+        num_agents=1,
+        artifacts={"features_csv": str(features), "labels_csv": str(features)},
+    )
+    _, first = module._graph_cache_contract(
+        manifest, feature_columns=("feature",), similarity_threshold=0.7
+    )
+    source.write_bytes(b"version-two")
+    _, second = module._graph_cache_contract(
+        manifest, feature_columns=("feature",), similarity_threshold=0.7
+    )
+    assert first != second
+
+
+def test_train_epoch_can_resume_inside_an_epoch():
+    module = _load_module()
+    trainer = SimpleNamespace(epoch=2)
+    trainer.train_step = lambda real, synthetic: {"loss": 1.0}
+    callbacks = []
+
+    metrics = module.DomainAlternatingTrainer.train_epoch(
+        trainer,
+        ["real-0", "real-1", "real-2"],
+        ["synthetic"],
+        start_step=1,
+        initial_totals={"loss": 1.0},
+        step_callback=lambda completed, total, values: callbacks.append(
+            (completed, total, dict(values))
+        ),
+    )
+
+    assert metrics == {"loss": 1.0}
+    assert callbacks == [(2, 3, {"loss": 2.0}), (3, 3, {"loss": 3.0})]
+    assert trainer.epoch == 3
 
 
 def test_target_alignment_keeps_privileged_labels_synthetic_only():

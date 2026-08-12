@@ -27,6 +27,17 @@ outputs/
 # Keep portable, aggregate-only P2 smoke audit reports (never raw run outputs).
 !reports/p2_smoke/*.json
 
+# Aggregate-only CHI results. Raw data, graph caches, and checkpoints remain ignored.
+!reports/
+reports/*
+!reports/p2_smoke/
+!reports/p2_smoke/*.json
+!reports/chi_final/
+!reports/chi_final/*.json
+!reports/chi_final/*.md
+!reports/chi_final/*.tex
+!reports/chi_final/checksums.sha256
+
 # Small, reproducibility-critical inputs for the independent-attack baseline.
 # Keep bulk datasets/results ignored, but allow these exact treatment files.
 !data/

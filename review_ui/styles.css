@@ -124,6 +124,12 @@ code { font-family: "SFMono-Regular", Consolas, monospace; }
 .case-heading h1 { font-size: 22px; }
 .integrity-line { display: flex; align-items: center; gap: 7px; color: var(--blue); font-size: 11px; }
 .integrity-line svg { width: 15px; height: 15px; }
+.preview-controls { min-height: 48px; padding: 7px 28px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--muted); background: var(--amber-soft); border-bottom: 1px solid #ead9b7; font-size: 11px; }
+.preview-controls > span { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--amber); font-weight: 600; }
+.preview-controls svg { width: 14px; height: 14px; }
+.preview-controls select { min-height: 32px; padding: 4px 28px 4px 8px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; }
+.preview-controls .icon-button { width: 32px; height: 32px; display: grid; place-items: center; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; }
+.preview-controls strong { min-width: 46px; color: var(--ink); text-align: center; }
 .trial-layout { max-width: 1540px; margin: 0 auto; padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px; align-items: start; }
 .evidence-column { min-width: 0; }
 .recommendation-band { min-height: 112px; padding: 22px 24px; display: flex; align-items: center; justify-content: space-between; gap: 28px; background: var(--surface); border: 1px solid var(--line); }
@@ -133,6 +139,8 @@ code { font-family: "SFMono-Regular", Consolas, monospace; }
 .risk-readout { min-width: 220px; padding-left: 24px; text-align: right; border-left: 1px solid var(--line); }
 .risk-readout span, .risk-readout small { display: block; color: var(--muted); font-size: 11px; }
 .risk-readout strong { display: block; margin: 2px 0; font-size: 27px; font-weight: 600; }
+.risk-only-notice { margin-top: 18px; min-height: 54px; padding: 14px 16px; display: flex; align-items: center; gap: 9px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); font-size: 12px; }
+.risk-only-notice svg { width: 16px; height: 16px; color: var(--blue); }
 
 .signals-section, .trace-section { margin-top: 18px; padding: 22px 24px; background: var(--surface); border: 1px solid var(--line); }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
@@ -282,6 +290,8 @@ td code { color: var(--blue); font-size: 10px; }
   .briefing-view { padding: 20px 14px; }
   .briefing-shell { padding: 24px 18px; }
   .case-heading { padding: 15px 14px; }
+  .preview-controls { padding: 7px 14px; justify-content: flex-start; flex-wrap: wrap; }
+  .preview-controls > span { width: 100%; margin-right: 0; }
   .integrity-line { display: none; }
   .trial-layout { padding: 14px 14px 32px; }
   .recommendation-band { padding: 17px; align-items: flex-start; }

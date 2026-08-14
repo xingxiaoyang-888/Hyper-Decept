@@ -35,9 +35,11 @@ $env:HYPERTRACE_DB_PATH = $Database
 $env:STUDY_SALT = New-Secret $SaltFile
 $env:ADMIN_TOKEN = New-Secret $AdminFile
 $env:HYPERTRACE_DURABLE_STORAGE = "1"
+$env:HYPERTRACE_PREVIEW_MODE = "1"
 
 Write-Host "Participant UI: http://127.0.0.1:$Port/"
 Write-Host "Admin console: http://127.0.0.1:$Port/admin"
+Write-Host "HyperTrace preview: http://127.0.0.1:$Port/?preview=hypertrace_evidence"
 Write-Host "Admin token file: $AdminFile"
 Write-Host "Response database: $Database"
 Write-Host "Stop the study server with Ctrl+C."

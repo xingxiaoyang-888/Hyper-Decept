@@ -2,6 +2,9 @@ const state = {
   sessionId: sessionStorage.getItem("hypertraceSession") || null,
   currentCase: null,
   started: false,
+  preview: false,
+  previewIndex: 0,
+  previewCount: 0,
 };
 
 const byId = (id) => document.getElementById(id);
@@ -25,7 +28,7 @@ function dateLabel(value) {
   if (!value) return "Not available";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
 function setView(id) {
@@ -170,6 +173,9 @@ function resetDecision() {
   byId("confidenceValue").textContent = "50";
   byId("rationale").value = "";
   byId("submitDecision").disabled = true;
+  byId("submitDecision").innerHTML = state.preview
+    ? 'Preview only <i data-lucide="eye" aria-hidden="true"></i>'
+    : 'Submit decision <i data-lucide="arrow-right" aria-hidden="true"></i>';
 }
 
 function renderCase(caseData) {
@@ -183,6 +189,7 @@ function renderCase(caseData) {
   byId("progressBar").style.width = `${progress}%`;
   byId("progressWrap").querySelector("[role=progressbar]").setAttribute("aria-valuenow", String(Math.round(progress)));
   renderRecommendation(caseData);
+  byId("riskOnlyNotice").hidden = caseData.view_mode !== "risk_only";
   renderSignals(caseData);
   renderTrace(caseData);
   resetDecision();
@@ -200,6 +207,27 @@ async function loadNextTrial() {
     } else {
       renderCase(payload.case);
     }
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadPreview(mode = null, index = null) {
+  if (mode) byId("previewMode").value = mode;
+  if (index != null) state.previewIndex = index;
+  setLoading(true, "Loading preview case");
+  try {
+    const selectedMode = byId("previewMode").value;
+    const payload = await api(`/api/preview?mode=${encodeURIComponent(selectedMode)}&case_index=${state.previewIndex}`);
+    state.preview = true;
+    state.previewCount = payload.available_cases;
+    renderCase(payload.case);
+    byId("previewControls").hidden = false;
+    byId("progressWrap").hidden = true;
+    byId("previewCaseLabel").textContent = `${state.previewIndex + 1} / ${state.previewCount}`;
+    refreshIcons();
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -282,10 +310,19 @@ function bindEvents() {
     byId("confidenceValue").textContent = event.target.value;
   });
   document.querySelectorAll('input[name="decision"]').forEach((input) => {
-    input.addEventListener("change", () => { byId("submitDecision").disabled = false; });
+    input.addEventListener("change", () => {
+      if (!state.preview) byId("submitDecision").disabled = false;
+    });
   });
   byId("submitDecision").addEventListener("click", submitDecision);
   byId("questionnaireForm").addEventListener("submit", submitQuestionnaire);
+  byId("previewMode").addEventListener("change", () => loadPreview());
+  byId("previousPreview").addEventListener("click", () => {
+    loadPreview(null, (state.previewIndex - 1 + state.previewCount) % state.previewCount);
+  });
+  byId("nextPreview").addEventListener("click", () => {
+    loadPreview(null, (state.previewIndex + 1) % state.previewCount);
+  });
 }
 
 async function initialize() {
@@ -297,7 +334,14 @@ async function initialize() {
   } catch (error) {
     toast("Study service is unavailable", true);
   }
-  if (state.sessionId) setView("briefingView");
+  const parameters = new URLSearchParams(window.location.search);
+  const requestedPreview = parameters.get("preview");
+  if (requestedPreview) {
+    state.preview = true;
+    await loadPreview(requestedPreview, Number(parameters.get("case") || 0));
+  } else if (state.sessionId) {
+    setView("briefingView");
+  }
 }
 
 initialize();

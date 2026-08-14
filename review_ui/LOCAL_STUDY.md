@@ -13,6 +13,11 @@ Participant interface: `http://127.0.0.1:8765/`
 
 Administration console: `http://127.0.0.1:8765/admin`
 
+Researcher preview: `http://127.0.0.1:8765/?preview=hypertrace_evidence`
+
+The preview toolbar switches among all three interface conditions and cases.
+Previewing never creates a participant session or writes a response.
+
 The admin token is stored in `data/.admin_token`. Participant responses are
 stored in `data/hypertrace_study.sqlite3` using SQLite WAL mode.
 

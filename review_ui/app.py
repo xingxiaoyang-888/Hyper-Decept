@@ -36,6 +36,9 @@ ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 DURABLE_STORAGE = os.getenv("HYPERTRACE_DURABLE_STORAGE", "0").lower() in {
     "1", "true", "yes"
 }
+PREVIEW_MODE = os.getenv("HYPERTRACE_PREVIEW_MODE", "0").lower() in {
+    "1", "true", "yes"
+}
 CONSENT_VERSION = "hypertrace-chi-consent-v1"
 CONDITIONS = ("risk_only", "standard_signals", "hypertrace_evidence")
 
@@ -302,6 +305,7 @@ def health() -> dict:
         "demo_data": CASES_PATH == DEMO_CASES,
         "durable_storage": DURABLE_STORAGE,
         "storage_path": str(DB_PATH.parent),
+        "preview_mode": PREVIEW_MODE,
     }
 
 
@@ -311,6 +315,21 @@ def study_metadata() -> dict:
         "consent_version": CONSENT_VERSION,
         "trial_count": TRIAL_COUNT,
         "data_policy": "No names, IP addresses, or raw participant codes are stored.",
+    }
+
+
+@app.get("/api/preview")
+def preview_case(mode: str, case_index: int = 0) -> dict:
+    if not PREVIEW_MODE:
+        raise HTTPException(status_code=404, detail="preview mode is disabled")
+    if mode not in CONDITIONS:
+        raise HTTPException(status_code=400, detail="unknown interface condition")
+    if case_index < 0 or case_index >= len(CASES):
+        raise HTTPException(status_code=400, detail="preview case index out of range")
+    return {
+        "case": public_case(CASES[case_index], mode, case_index),
+        "preview": True,
+        "available_cases": len(CASES),
     }
 
 

@@ -33,6 +33,9 @@ if not DEFAULT_DB.parent.exists() or not os.access(DEFAULT_DB.parent, os.W_OK):
 DB_PATH = Path(os.getenv("HYPERTRACE_DB_PATH", DEFAULT_DB)).resolve()
 STUDY_SALT = os.getenv("STUDY_SALT", "development-only-change-before-study")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+DURABLE_STORAGE = os.getenv("HYPERTRACE_DURABLE_STORAGE", "0").lower() in {
+    "1", "true", "yes"
+}
 CONSENT_VERSION = "hypertrace-chi-consent-v1"
 CONDITIONS = ("risk_only", "standard_signals", "hypertrace_evidence")
 
@@ -297,7 +300,8 @@ def health() -> dict:
         "case_count": len(CASES),
         "trial_count": TRIAL_COUNT,
         "demo_data": CASES_PATH == DEMO_CASES,
-        "durable_storage": str(DB_PATH).startswith("/data/"),
+        "durable_storage": DURABLE_STORAGE,
+        "storage_path": str(DB_PATH.parent),
     }
 
 

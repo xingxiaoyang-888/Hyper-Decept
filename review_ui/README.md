@@ -26,6 +26,7 @@ file the application starts with synthetic demonstration cases and reports
 
 Persistent Storage should be mounted at `/data`. If it is unavailable, set
 `HYPERTRACE_DB_PATH` to another durable path before collecting participants.
+Set `HYPERTRACE_DURABLE_STORAGE=1` only after that storage has been verified.
 
 The protected administration console is available at `/admin`. See
 `DEPLOYMENT.md` for the formal pre-pilot gates.

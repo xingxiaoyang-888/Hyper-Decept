@@ -34,6 +34,7 @@ $env:HYPERTRACE_CASES_PATH = $Cases
 $env:HYPERTRACE_DB_PATH = $Database
 $env:STUDY_SALT = New-Secret $SaltFile
 $env:ADMIN_TOKEN = New-Secret $AdminFile
+$env:HYPERTRACE_DURABLE_STORAGE = "1"
 
 Write-Host "Participant UI: http://127.0.0.1:$Port/"
 Write-Host "Admin console: http://127.0.0.1:$Port/admin"

@@ -11,9 +11,11 @@ collection and paper review are complete.
 3. Add Space Secrets:
    - `ADMIN_TOKEN`: a new random value of at least 32 bytes.
    - `STUDY_SALT`: a different random value of at least 32 bytes.
-4. Add `data/study_cases.private.json` to the private Space repository. The
+4. Add the Space Variable `HYPERTRACE_DURABLE_STORAGE=1` only after Persistent
+   Storage is mounted and verified at `/data`.
+5. Add `data/study_cases.private.json` to the private Space repository. The
    public source repository intentionally ignores this file.
-5. Push the contents of `review_ui/` as the Space repository root.
+6. Push the contents of `review_ui/` as the Space repository root.
 
 ## Pre-pilot gates
 

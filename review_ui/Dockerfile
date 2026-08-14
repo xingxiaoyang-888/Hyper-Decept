@@ -3,7 +3,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HYPERTRACE_DATA_DIR=/app/data \
-    HYPERTRACE_DB_PATH=/data/hypertrace_study.sqlite3
+    HYPERTRACE_DB_PATH=/data/hypertrace_study.sqlite3 \
+    HYPERTRACE_DURABLE_STORAGE=0
 
 WORKDIR /app
 COPY requirements.txt .

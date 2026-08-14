@@ -16,6 +16,7 @@ def load_app(tmp_path: Path):
     os.environ["HYPERTRACE_CASES_PATH"] = str(ROOT / "data" / "study_cases.demo.json")
     os.environ["STUDY_SALT"] = "test-study-salt"
     os.environ["ADMIN_TOKEN"] = "test-admin-token"
+    os.environ["HYPERTRACE_DURABLE_STORAGE"] = "1"
     module_name = f"review_app_{tmp_path.name}"
     spec = importlib.util.spec_from_file_location(module_name, ROOT / "app.py")
     module = importlib.util.module_from_spec(spec)
@@ -123,3 +124,4 @@ def test_hugging_face_embedding_and_admin_page_are_supported(tmp_path) -> None:
     assert "https://huggingface.co" in index.headers["content-security-policy"]
     assert "x-frame-options" not in index.headers
     assert client.get("/admin").status_code == 200
+    assert client.get("/api/health").json()["durable_storage"] is True

@@ -9,6 +9,7 @@ import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from scripts.external_bundle_episode import load_external_bundle_episode
+from scripts.frozen_manifest import resolve_frozen_checkpoint
 from scripts.run_frozen_external_io import _build_model, _checkpoint_edge_types, _sha256
 
 BUDGETS = (0.005, 0.01, 0.02, 0.05)
@@ -57,7 +58,7 @@ def main() -> None:
     checkpoint_records = []
     metadata = None
     for entry in entries:
-        checkpoint_path = Path(entry["frozen_checkpoint"])
+        checkpoint_path = resolve_frozen_checkpoint(args.freeze_manifest, entry)
         if _sha256(checkpoint_path) != entry["sha256"]:
             raise ValueError(f"frozen checkpoint hash mismatch: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)

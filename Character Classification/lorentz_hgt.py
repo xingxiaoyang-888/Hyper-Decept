@@ -321,6 +321,10 @@ class LorentzRelationMessage(torch.nn.Module):
         )
         distance_scale = F.softplus(self.distance_scale_raw) + 1e-4
         logits = self.attention_bias.unsqueeze(0) - distance_scale.unsqueeze(0) * distance
+        mask = None
+        if edge_mask is not None:
+            mask = edge_mask.to(logits).clamp(0.0, 1.0)
+            logits = logits + torch.log(mask.clamp_min(1e-12)).unsqueeze(-1)
         attention = softmax(
             logits, target_index, num_nodes=target_points.shape[0], dim=0
         )
@@ -342,9 +346,8 @@ class LorentzRelationMessage(torch.nn.Module):
         )
         attention = attention * reliability
 
-        if edge_mask is not None:
-            mask = edge_mask.to(attention).clamp(0.0, 1.0).unsqueeze(-1)
-            attention = attention * mask
+        if mask is not None:
+            attention = attention * mask.unsqueeze(-1)
 
         source_spatial = source_relation[source_index, 1:].reshape(
             -1, self.num_heads, self.head_dim

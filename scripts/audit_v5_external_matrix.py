@@ -4,6 +4,8 @@ import argparse, hashlib, json, statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
+from scripts.frozen_manifest import resolve_frozen_checkpoint
+
 METRICS = ("auroc", "auprc", "f1", "balanced_accuracy", "brier", "ece")
 
 def sha256(path: Path) -> str:
@@ -24,7 +26,7 @@ def main() -> None:
     errors = []
     frozen = {}
     for entry in freeze["checkpoints"]:
-        path = Path(entry["frozen_checkpoint"])
+        path = resolve_frozen_checkpoint(args.freeze_manifest, entry)
         actual = sha256(path)
         if actual != entry["sha256"]:
             errors.append(f"checkpoint hash mismatch: {path}")

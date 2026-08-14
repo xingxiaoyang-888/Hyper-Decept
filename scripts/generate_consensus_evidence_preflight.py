@@ -17,6 +17,7 @@ for value in (ROOT, CHARACTER_DIR):
 
 from lorentz_hgt import lorentz_distance, lorentz_to_poincare
 from scripts.external_bundle_episode import load_external_bundle_episode
+from scripts.frozen_manifest import resolve_frozen_checkpoint
 from scripts.run_frozen_external_io import _build_model, _checkpoint_edge_types, _sha256
 
 
@@ -128,7 +129,7 @@ def main() -> None:
     counterfactual: dict[str, list[dict[str, float]]] = {uid: [] for uid in selected_ids}
     metadata = None
     for entry in entries:
-        path = Path(entry["frozen_checkpoint"])
+        path = resolve_frozen_checkpoint(args.freeze_manifest, entry)
         if _sha256(path) != entry["sha256"]: raise ValueError(f"checkpoint hash mismatch: {path}")
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         if metadata is None: metadata = (tuple(sorted(batch.graph.node_types)), _checkpoint_edge_types(checkpoint["model"]))

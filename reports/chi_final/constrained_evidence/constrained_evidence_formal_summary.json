@@ -1,0 +1,105 @@
+{
+  "created_at_utc": "2026-08-14T18:12:03.615573+00:00",
+  "operations": {
+    "honduras": {
+      "audit_sha256": "a4a506fb71b7953143c9350da3b90b23d0b66ea4cebe017804b1416c799e4a88",
+      "cases_sha256": "7fcca360734b10611362e1fb5d9b1592acd88d712e02e5c76fd0ae62ccfc150e",
+      "metrics": {
+        "comprehensiveness": {
+          "mean": 0.22915459420967133,
+          "n": 12,
+          "std": 0.2778184867400819
+        },
+        "explanation_stability": {
+          "mean": 0.9262674362674362,
+          "n": 12,
+          "std": 0.1724660651522598
+        },
+        "geometry_fidelity": {
+          "mean": 0.9945913222479635,
+          "n": 12,
+          "std": 0.010812176439461684
+        },
+        "prototype_vote_agreement": {
+          "mean": 1.0,
+          "n": 12,
+          "std": 0.0
+        },
+        "provenance_coverage": {
+          "mean": 1.0,
+          "n": 12,
+          "std": 0.0
+        },
+        "sparsity": {
+          "mean": 0.6823455291731301,
+          "n": 12,
+          "std": 0.4697077664444561
+        },
+        "sufficiency_percentile_error": {
+          "mean": 0.0006153800505893427,
+          "n": 12,
+          "std": 0.0012301163204827548
+        },
+        "timestamp_parse_coverage": {
+          "mean": 1.0,
+          "n": 12,
+          "std": 0.0
+        }
+      }
+    },
+    "uae": {
+      "audit_sha256": "661ec82076f2685e559a4e1471a32888cbd71f98cf1f665457591914d2e010e6",
+      "cases_sha256": "8ff891a832c01abc6356d65db943716a7441612f98a5755a719dd47892f9584a",
+      "metrics": {
+        "comprehensiveness": {
+          "mean": 0.2600033861076025,
+          "n": 12,
+          "std": 0.2848529147579503
+        },
+        "explanation_stability": {
+          "mean": 0.9685557563158542,
+          "n": 12,
+          "std": 0.05688860928470578
+        },
+        "geometry_fidelity": {
+          "mean": 0.9948452703309015,
+          "n": 12,
+          "std": 0.010869877731844758
+        },
+        "prototype_vote_agreement": {
+          "mean": 1.0,
+          "n": 12,
+          "std": 0.0
+        },
+        "provenance_coverage": {
+          "mean": 1.0,
+          "n": 12,
+          "std": 0.0
+        },
+        "sparsity": {
+          "mean": 0.672991092456854,
+          "n": 12,
+          "std": 0.48309956221449374
+        },
+        "sufficiency_percentile_error": {
+          "mean": 0.00034184092868456436,
+          "n": 12,
+          "std": 0.0006712543869880016
+        },
+        "timestamp_parse_coverage": {
+          "mean": 1.0,
+          "n": 12,
+          "std": 0.0
+        }
+      }
+    }
+  },
+  "protocol": {
+    "case_count_per_operation": 12,
+    "checkpoint_count": 15,
+    "evidence_search": "relation-stratified attention-reliability prefixes",
+    "selection": "label-blind high/mid/low consensus strata"
+  },
+  "schema_version": "hypertrace.constrained-evidence-formal-summary.v1",
+  "status": "passed"
+}

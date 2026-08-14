@@ -260,3 +260,26 @@ def test_masked_relation_with_zero_budget_is_numerically_stable():
         edge_mask_dict={follows: mask},
     )
     assert torch.isfinite(embedding).all()
+
+
+def test_hard_edge_mask_renormalizes_attention_over_retained_edges():
+    module = _load_module()
+    torch.manual_seed(17)
+    curvature = torch.tensor(1.0)
+    source = module.expmap0(torch.randn(2, 4) * 0.05, curvature)
+    target = module.expmap0(torch.randn(1, 4) * 0.05, curvature)
+    edge_index = torch.tensor([[0, 1], [0, 0]], dtype=torch.long)
+    relation = module.LorentzRelationMessage(hidden_dim=4, num_heads=2)
+    relation.eval()
+
+    _, full_audit = relation(source, target, edge_index, curvature)
+    _, masked_audit = relation(
+        source,
+        target,
+        edge_index,
+        curvature,
+        edge_mask=torch.tensor([1.0, 0.0]),
+    )
+
+    assert torch.count_nonzero(masked_audit.attention[1]) == 0
+    assert torch.all(masked_audit.attention[0] > full_audit.attention[0])

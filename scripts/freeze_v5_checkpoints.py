@@ -27,7 +27,8 @@ def main() -> None:
         result = json.loads((source.parent / "metrics.json").read_text(encoding="utf-8"))
         entries.append({
             "held_out_scenario": result["held_out_scenario"], "seed": result["seed"],
-            "source_checkpoint": str(source.resolve()), "frozen_checkpoint": str(target.resolve()),
+            "source_checkpoint": relative.as_posix(),
+            "frozen_checkpoint": relative.as_posix(),
             "sha256": sha256(target), "best_epoch": result["best_epoch"],
             "best_validation_auprc": result["best_validation_auprc"], "warm_start": result["warm_start"],
             "training_objective": result["training_objective"], "privileged_heads_used": result["privileged_heads_used"],
@@ -35,8 +36,10 @@ def main() -> None:
     if len(entries) != 15:
         raise SystemExit(f"expected 15 formal checkpoints, found {len(entries)}")
     manifest = {
-        "schema_version": "hypertrace.v5-frozen-checkpoint-manifest.v1",
-        "created_at_utc": datetime.now(timezone.utc).isoformat(), "source_run": str(args.source.resolve()),
+        "schema_version": "hypertrace.v5-frozen-checkpoint-manifest.v2",
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "path_contract": "manifest_directory_relative",
+        "source_run": args.source.name,
         "freeze_policy": "best_checkpoint_only; immutable 0444 copies; no parameter updates during external evaluation",
         "training_labels": "synthetic coordination membership only", "real_operation_labels_consumed": False,
         "operation_evaluation": "Honduras and UAE are read-only external bundles", "checkpoints": entries,

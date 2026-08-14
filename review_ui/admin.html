@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HyperTrace Study Administration</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <script src="/assets/admin.js" defer></script>
+</head>
+<body class="admin-body">
+  <header class="topbar admin-topbar">
+    <div class="brand"><span class="brand-mark"><i data-lucide="scan-search" aria-hidden="true"></i></span><span>HyperTrace</span></div>
+    <div class="study-status"><span>Study administration</span></div>
+    <a class="admin-back" href="/"><i data-lucide="arrow-left" aria-hidden="true"></i>Participant view</a>
+  </header>
+  <main class="admin-main">
+    <section id="adminLogin" class="admin-login">
+      <p class="eyebrow">Protected access</p>
+      <h1>Study administration</h1>
+      <p>Enter the Space secret configured as <code>ADMIN_TOKEN</code>.</p>
+      <form id="adminLoginForm">
+        <label class="field" for="adminToken"><span>Admin token</span><input id="adminToken" type="password" autocomplete="current-password" required></label>
+        <button class="button button-primary" type="submit">Open dashboard <i data-lucide="lock-open" aria-hidden="true"></i></button>
+      </form>
+    </section>
+    <section id="adminDashboard" class="admin-dashboard" hidden>
+      <div class="admin-heading">
+        <div><p class="eyebrow">Live study state</p><h1>Response dashboard</h1></div>
+        <div class="admin-actions"><button id="refreshAdmin" class="button button-secondary" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i>Refresh</button><button id="exportAdmin" class="button button-primary" type="button"><i data-lucide="download" aria-hidden="true"></i>Export CSV</button></div>
+      </div>
+      <div class="admin-overview"><div><span>Sessions</span><strong id="sessionTotal">0</strong></div><div><span>Completed</span><strong id="completedTotal">0</strong></div><div><span>Completion rate</span><strong id="completionRate">0%</strong></div></div>
+      <div class="table-wrap admin-table-wrap">
+        <table><thead><tr><th>Interface condition</th><th>Responses</th><th>Decision accuracy</th><th>Appropriate reliance</th></tr></thead><tbody id="conditionRows"></tbody></table>
+      </div>
+      <div class="notice warning admin-warning"><i data-lucide="database-backup" aria-hidden="true"></i><span>Export responses regularly. The formal deployment must use persistent storage mounted at <code>/data</code>.</span></div>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -3,225 +3,281 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HyperTrace Review Console</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta name="color-scheme" content="light">
+  <title>HyperTrace Review Study</title>
+  <link rel="stylesheet" href="/assets/styles.css">
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <div class="app-shell">
-    <header class="topbar">
-      <a class="brand" href="#" aria-label="HyperTrace review console">
-        <span class="brand-mark"><i data-lucide="scan-search" aria-hidden="true"></i></span>
-        <span>HyperTrace</span>
-      </a>
-      <div class="topbar-context">
-        <span id="datasetName">Demonstration release</span>
-        <span class="divider" aria-hidden="true"></span>
-        <span id="snapshotScope">Full release snapshot</span>
+  <header class="topbar">
+    <div class="brand" aria-label="HyperTrace">
+      <span class="brand-mark"><i data-lucide="scan-search" aria-hidden="true"></i></span>
+      <span>HyperTrace</span>
+    </div>
+    <div class="study-status">
+      <span id="phaseLabel">Study entry</span>
+      <span class="top-divider" aria-hidden="true"></span>
+      <span id="saveState"><i data-lucide="shield-check" aria-hidden="true"></i> Private session</span>
+    </div>
+    <div id="progressWrap" class="progress-wrap" hidden>
+      <span id="progressText">Case 1 of 8</span>
+      <div class="progress-track" role="progressbar" aria-label="Study progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span id="progressBar"></span>
       </div>
-      <div class="topbar-actions">
-        <input id="packetFile" type="file" accept=".json,.jsonl,application/json" multiple hidden>
-        <button id="openPacket" class="button button-secondary" type="button">
-          <i data-lucide="folder-open" aria-hidden="true"></i>
-          Open packets
-        </button>
-        <button class="icon-button" type="button" aria-label="Export review record" data-tooltip="Export review record">
-          <i data-lucide="download" aria-hidden="true"></i>
-        </button>
+    </div>
+  </header>
+
+  <main>
+    <section id="consentView" class="view consent-view is-active" aria-labelledby="consentTitle">
+      <div class="consent-layout">
+        <div class="consent-copy">
+          <p class="eyebrow">Reviewer decision study</p>
+          <h1 id="consentTitle">Coordination assessment</h1>
+          <p class="lead">You will review a sequence of social-account cases and make an independent decision about coordinated activity.</p>
+          <dl class="study-facts">
+            <div><dt>Task</dt><dd>Classify each case and report confidence.</dd></div>
+            <div><dt>Duration</dt><dd>Approximately 15–20 minutes.</dd></div>
+            <div><dt>Data</dt><dd>No names, IP addresses, or raw participant codes are stored.</dd></div>
+            <div><dt>Withdrawal</dt><dd>You may stop before submission without penalty.</dd></div>
+          </dl>
+          <div class="notice"><i data-lucide="info" aria-hidden="true"></i><span>The model recommendation may be correct or incorrect. Ground-truth labels are not shown during review.</span></div>
+        </div>
+
+        <form id="consentForm" class="entry-form">
+          <div class="form-heading">
+            <p class="eyebrow">Consent</p>
+            <h2>Start a private session</h2>
+          </div>
+          <label class="field" for="participantCode">
+            <span>Participant code</span>
+            <input id="participantCode" name="participantCode" autocomplete="off" minlength="3" maxlength="96" required placeholder="Assigned study code">
+          </label>
+          <label class="check-row">
+            <input id="ageConfirmed" type="checkbox" required>
+            <span>I confirm that I am at least 18 years old.</span>
+          </label>
+          <label class="check-row">
+            <input id="consentConfirmed" type="checkbox" required>
+            <span>I have read the study information and voluntarily consent to participate.</span>
+          </label>
+          <button class="button button-primary button-wide" type="submit">
+            Begin study <i data-lucide="arrow-right" aria-hidden="true"></i>
+          </button>
+          <p class="privacy-note">Your code is transformed into a one-way hash before storage.</p>
+        </form>
       </div>
-    </header>
+    </section>
 
-    <div class="workspace">
-      <aside class="case-rail" aria-label="Review queue">
-        <div class="rail-heading">
-          <div>
-            <p class="eyebrow">Review queue</p>
-            <h1>Flagged accounts</h1>
-          </div>
-          <span id="caseCount" class="count">0</span>
+    <section id="briefingView" class="view briefing-view" aria-labelledby="briefingTitle">
+      <div class="briefing-shell">
+        <div>
+          <p class="eyebrow">Before the first case</p>
+          <h1 id="briefingTitle">Make the final judgment</h1>
+          <p class="lead">For every case, decide whether the reviewed account belongs to a coordinated information operation.</p>
         </div>
-        <div class="rail-filter">
-          <i data-lucide="search" aria-hidden="true"></i>
-          <label class="sr-only" for="caseSearch">Search cases</label>
-          <input id="caseSearch" type="search" placeholder="Search case ID">
+        <div class="briefing-steps">
+          <div><span>01</span><strong>Initial judgment</strong><p>Review the common case context without model assistance.</p></div>
+          <div><span>02</span><strong>Reveal assistance</strong><p>Lock the initial response, then open the assigned model interface.</p></div>
+          <div><span>03</span><strong>Final judgment</strong><p>Retain or revise the decision and report confidence.</p></div>
         </div>
-        <div id="caseList" class="case-list"></div>
-      </aside>
+        <div class="notice warning"><i data-lucide="clock-3" aria-hidden="true"></i><span>Evidence covers the full public release snapshot, not a historical online cutoff.</span></div>
+        <button id="startTrials" class="button button-primary" type="button">Open first case <i data-lucide="arrow-right" aria-hidden="true"></i></button>
+      </div>
+    </section>
 
-      <main class="case-main">
-        <section class="case-header" aria-labelledby="caseTitle">
-          <div>
-            <p class="eyebrow"><span id="operationName">Operation</span> · Account review</p>
-            <h2 id="caseTitle">Select a case</h2>
-            <div class="status-line">
-              <span class="status status-ready"><i data-lucide="circle-check" aria-hidden="true"></i> Ready for review</span>
-              <span id="integrityStatus" class="status status-neutral"><i data-lucide="shield-check" aria-hidden="true"></i> Integrity verified</span>
-            </div>
-          </div>
-          <div class="priority-block">
-            <span>Review priority</span>
-            <strong id="priorityValue">—</strong>
-            <small>within the frozen eligibility universe</small>
-          </div>
-        </section>
-
-        <div id="scopeWarning" class="scope-warning" role="status">
-          <i data-lucide="clock-alert" aria-hidden="true"></i>
-          <span>Evidence covers the full public release snapshot. It is not a historical online cutoff.</span>
+    <section id="trialView" class="view trial-view" aria-labelledby="caseTitle">
+      <div class="case-heading">
+        <div>
+          <p class="eyebrow"><span id="operationLabel">Operation</span> · Account review</p>
+          <h1 id="caseTitle">Case</h1>
         </div>
+        <div class="integrity-line"><i data-lucide="database" aria-hidden="true"></i><span>Frozen release snapshot</span></div>
+      </div>
 
-        <nav class="tabs" aria-label="Case views">
-          <button class="tab is-active" type="button" data-tab="overview" aria-selected="true">Overview</button>
-          <button class="tab" type="button" data-tab="evidence" aria-selected="false">Source evidence</button>
-          <button class="tab" type="button" data-tab="audit" aria-selected="false">Audit trail</button>
-        </nav>
+      <div id="previewControls" class="preview-controls" hidden>
+        <span><i data-lucide="eye" aria-hidden="true"></i>Researcher preview</span>
+        <label for="previewMode">Interface</label>
+        <select id="previewMode">
+          <option value="risk_only">Risk only</option>
+          <option value="standard_signals">Standard signals</option>
+          <option value="hypertrace_evidence">HyperTrace evidence</option>
+        </select>
+        <button id="previousPreview" class="icon-button" type="button" aria-label="Previous preview case"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+        <strong id="previewCaseLabel">1 / 24</strong>
+        <button id="nextPreview" class="icon-button" type="button" aria-label="Next preview case"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+      </div>
 
-        <section id="overviewPanel" class="tab-panel is-active" data-panel="overview">
-          <div class="metric-strip" aria-label="Case summary">
-            <div class="metric">
-              <span>Consensus rank</span>
-              <strong id="rankValue">—</strong>
-              <small id="rankSpread">15-checkpoint consensus</small>
+      <div class="trial-layout">
+        <div class="evidence-column">
+          <section class="case-context-section" aria-labelledby="caseContextTitle">
+            <div class="section-heading">
+              <div><p class="eyebrow">Common case context</p><h2 id="caseContextTitle">Available before model assistance</h2></div>
+              <span id="stageStatus" class="status-pill">Initial judgment</span>
             </div>
-            <div class="metric">
-              <span>Coordination vote</span>
-              <strong id="voteValue">—</strong>
-              <small>positive geodesic margin</small>
+            <div class="context-grid">
+              <div><span>Data scope</span><strong id="contextScope">—</strong></div>
+              <div><span>Available records</span><strong id="contextRecords">—</strong></div>
+              <div><span>Observed range</span><strong id="contextWindow">—</strong></div>
             </div>
-            <div class="metric">
-              <span>Incident-edge deletion</span>
-              <strong id="deletionValue">—</strong>
-              <small>percentile-point change</small>
+            <div id="contextEvents" class="context-events" aria-label="Observed event counts"></div>
+            <div class="table-heading common-table-heading">
+              <div><p class="eyebrow">Account activity</p><h3>Shared case records</h3></div>
+              <span id="commonEvidenceCount">0 records</span>
             </div>
-          </div>
+            <div class="table-wrap common-records-wrap">
+              <table>
+                <thead><tr><th>Time</th><th>Action</th><th>Activity excerpt</th></tr></thead>
+                <tbody id="commonEvidenceRows"></tbody>
+              </table>
+            </div>
+            <div id="initialStageNotice" class="notice"><i data-lucide="eye-off" aria-hidden="true"></i><span>No model recommendation or explanation is shown until the initial judgment is locked.</span></div>
+          </section>
 
-          <div class="overview-grid">
-            <section class="evidence-section network-section" aria-labelledby="networkTitle">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Relational evidence</p>
-                  <h3 id="networkTitle">Critical account neighborhood</h3>
-                </div>
-                <div class="legend" aria-label="Network legend">
-                  <span><i class="legend-dot focal"></i>Reviewed account</span>
-                  <span><i class="legend-dot related"></i>Related entity</span>
-                </div>
-              </div>
-              <svg id="networkGraph" role="img" aria-labelledby="networkTitle networkDescription" viewBox="0 0 720 350">
-                <desc id="networkDescription">Relationship neighborhood for the selected account.</desc>
-              </svg>
-              <div id="relationCounts" class="relation-counts"></div>
-            </section>
-
-            <section class="evidence-section geometry-section" aria-labelledby="geometryTitle">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Model-space evidence</p>
-                  <h3 id="geometryTitle">Lorentz geometry</h3>
-                </div>
-                <span class="model-count">15 checkpoints</span>
-              </div>
-              <dl class="geometry-list">
-                <div>
-                  <dt>Geodesic margin</dt>
-                  <dd id="marginValue">—</dd>
-                  <div class="axis-bar" aria-hidden="true"><span id="marginBar"></span><i></i></div>
-                </div>
-                <div>
-                  <dt>Poincaré radius</dt>
-                  <dd id="radiusValue">—</dd>
-                  <div class="axis-bar radius" aria-hidden="true"><span id="radiusBar"></span></div>
-                </div>
-                <div>
-                  <dt>Cross-checkpoint agreement</dt>
-                  <dd id="agreementValue">—</dd>
-                  <div class="axis-bar agreement" aria-hidden="true"><span id="agreementBar"></span></div>
-                </div>
-              </dl>
-              <p class="geometry-note"><i data-lucide="rotate-3d" aria-hidden="true"></i>Only rotation-invariant distances, radii, and margins are aggregated.</p>
-            </section>
-
-            <section class="evidence-section counterfactual-section" aria-labelledby="counterfactualTitle">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Fidelity check</p>
-                  <h3 id="counterfactualTitle">Remove incident learned edges</h3>
-                </div>
-                <span id="counterfactualDirection" class="effect-label">—</span>
-              </div>
-              <div class="comparison-row">
-                <div class="comparison-label"><span>Observed graph</span><strong id="beforeValue">—</strong></div>
-                <div class="comparison-track"><span id="beforeBar"></span></div>
-              </div>
-              <div class="comparison-row">
-                <div class="comparison-label"><span>Edges removed</span><strong id="afterValue">—</strong></div>
-                <div class="comparison-track after"><span id="afterBar"></span></div>
-              </div>
-              <p id="counterfactualText" class="section-note"></p>
-            </section>
-
-            <section class="evidence-section timeline-section" aria-labelledby="timelineTitle">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Temporal evidence</p>
-                  <h3 id="timelineTitle">Observed activity window</h3>
-                </div>
-                <span id="eventTotal" class="model-count">0 events</span>
-              </div>
-              <div class="timeline-track" aria-hidden="true">
-                <i></i><span></span><i></i>
-              </div>
-              <div class="timeline-dates"><time id="firstEvent">—</time><time id="lastEvent">—</time></div>
-              <div id="eventCounts" class="event-counts"></div>
-            </section>
-          </div>
-
-          <section class="review-section" aria-labelledby="reviewTitle">
+          <section id="recommendationSection" class="recommendation-band" hidden aria-labelledby="recommendationTitle">
             <div>
-              <p class="eyebrow">Human decision</p>
-              <h3 id="reviewTitle">Record assessment</h3>
+              <p class="eyebrow">Model recommendation</p>
+              <h2 id="recommendationTitle">—</h2>
             </div>
-            <label class="rationale-field" for="reviewRationale">
-              <span>Review note</span>
-              <textarea id="reviewRationale" rows="2" placeholder="Evidence-based rationale"></textarea>
-            </label>
-            <div class="decision-actions">
-              <button class="button button-danger" type="button" data-decision="rejected"><i data-lucide="x" aria-hidden="true"></i>Reject recommendation</button>
-              <button class="button button-secondary" type="button" data-decision="more_evidence"><i data-lucide="search-check" aria-hidden="true"></i>Request more evidence</button>
-              <button class="button button-primary" type="button" data-decision="confirmed"><i data-lucide="check" aria-hidden="true"></i>Confirm escalation</button>
+            <div class="risk-readout">
+              <span>Review priority</span>
+              <strong id="riskPercentile">—</strong>
+              <small>percentile in the frozen universe</small>
             </div>
           </section>
-        </section>
 
-        <section id="evidencePanel" class="tab-panel" data-panel="evidence">
-          <div class="section-heading evidence-heading">
-            <div><p class="eyebrow">Traceable records</p><h3>Source evidence</h3></div>
-            <span id="evidenceCount" class="model-count">0 records</span>
+          <div id="riskOnlyNotice" class="risk-only-notice" hidden>
+            <i data-lucide="panel-top" aria-hidden="true"></i>
+            <span>This baseline view provides only the model recommendation and review priority.</span>
           </div>
-          <div class="table-wrap">
-            <table class="evidence-table">
-              <thead><tr><th>Evidence ID</th><th>Time</th><th>Type</th><th>Source</th><th>Target</th><th>Content / relation</th></tr></thead>
-              <tbody id="evidenceRows"></tbody>
-            </table>
-          </div>
-        </section>
 
-        <section id="auditPanel" class="tab-panel" data-panel="audit">
-          <div class="audit-grid">
-            <section class="evidence-section" aria-labelledby="provenanceTitle">
-              <div class="section-heading"><div><p class="eyebrow">Artifact integrity</p><h3 id="provenanceTitle">Provenance</h3></div></div>
-              <dl id="provenanceList" class="provenance-list"></dl>
-            </section>
-            <section class="evidence-section" aria-labelledby="traceTitle">
-              <div class="section-heading"><div><p class="eyebrow">Append-only record</p><h3 id="traceTitle">Review state</h3></div></div>
-              <ol id="auditEvents" class="audit-events"></ol>
-            </section>
+          <section id="signalsSection" class="signals-section" hidden aria-labelledby="signalsTitle">
+            <div class="section-heading">
+              <div><p class="eyebrow">Observed signals</p><h2 id="signalsTitle">Activity summary</h2></div>
+              <span id="riskStratum" class="status-pill">—</span>
+            </div>
+            <div class="signal-grid">
+              <div class="signal-panel">
+                <div class="panel-label"><i data-lucide="network" aria-hidden="true"></i>Relations</div>
+                <div id="relationBars" class="relation-bars"></div>
+              </div>
+              <div class="signal-panel">
+                <div class="panel-label"><i data-lucide="clock" aria-hidden="true"></i>Observed window</div>
+                <div class="time-window"><time id="firstEvent">—</time><span></span><time id="lastEvent">—</time></div>
+                <div id="eventSummary" class="event-summary"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="traceSection" class="trace-section" hidden aria-labelledby="traceTitle">
+            <div class="section-heading">
+              <div><p class="eyebrow">Constrained reconstruction</p><h2 id="traceTitle">Auditable evidence</h2></div>
+              <span class="verified"><i data-lucide="badge-check" aria-hidden="true"></i> Integrity verified</span>
+            </div>
+
+            <div class="metric-grid">
+              <div class="metric"><span>Evidence retained</span><strong id="sparsityValue">—</strong><small id="evidenceUnits">—</small></div>
+              <div class="metric"><span>Sufficiency error</span><strong id="sufficiencyValue">—</strong><small>risk-percentile difference</small></div>
+              <div class="metric"><span>Geometry fidelity</span><strong id="geometryValue">—</strong><small>Lorentz margin preservation</small></div>
+              <div class="metric"><span>Checkpoint agreement</span><strong id="agreementValue">—</strong><small>15 frozen models</small></div>
+            </div>
+
+            <div class="fidelity-band">
+              <div><span>Full graph</span><strong id="fullRisk">—</strong></div>
+              <div class="fidelity-track" aria-hidden="true"><span id="keptRiskBar"></span></div>
+              <div><span>Evidence only</span><strong id="keptRisk">—</strong></div>
+            </div>
+
+            <div class="table-heading">
+              <div><p class="eyebrow">Source records</p><h3>Selected evidence</h3></div>
+              <span id="evidenceCount">0 records</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Time</th><th>Action</th><th>Source excerpt</th><th>Evidence</th></tr></thead>
+                <tbody id="evidenceRows"></tbody>
+              </table>
+            </div>
+
+            <div class="audit-strip">
+              <span><i data-lucide="fingerprint" aria-hidden="true"></i>Provenance <strong id="provenanceValue">—</strong></span>
+              <span><i data-lucide="calendar-check" aria-hidden="true"></i>Timestamp coverage <strong id="timestampValue">—</strong></span>
+              <span><i data-lucide="rotate-3d" aria-hidden="true"></i>Prototype vote <strong id="voteValue">—</strong></span>
+            </div>
+
+            <div id="versionPanel" class="version-panel" hidden>
+              <div class="version-heading">
+                <div><p class="eyebrow">Evidence state</p><h3>Version history</h3></div>
+                <span id="versionStatus" class="status-pill">Current version</span>
+              </div>
+              <div class="version-controls">
+                <label for="versionSelect">Compare with</label>
+                <select id="versionSelect"></select>
+                <button id="rollbackVersion" class="button button-secondary" type="button">Restore as current</button>
+              </div>
+              <div id="versionDiff" class="version-diff" aria-live="polite"></div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="decision-panel" aria-labelledby="decisionTitle">
+          <div class="decision-heading">
+            <p id="decisionStage" class="eyebrow">Stage 1 of 3</p>
+            <h2 id="decisionTitle">Initial decision</h2>
           </div>
-        </section>
-      </main>
-    </div>
-  </div>
+          <div id="initialLockedSummary" class="locked-summary" hidden>
+            <i data-lucide="lock" aria-hidden="true"></i>
+            <div><span>Initial judgment locked</span><strong id="lockedDecision">—</strong><small id="lockedConfidence">—</small></div>
+          </div>
+          <div id="decisionFields">
+            <fieldset class="decision-options">
+              <legend>Classification</legend>
+              <label><input type="radio" name="decision" value="coordinated"><span><i data-lucide="users-round" aria-hidden="true"></i>Coordinated</span></label>
+              <label><input type="radio" name="decision" value="not_coordinated"><span><i data-lucide="user-round" aria-hidden="true"></i>Not coordinated</span></label>
+            </fieldset>
+            <label class="slider-field" for="confidence">
+              <span>Confidence <strong id="confidenceValue">50</strong></span>
+              <input id="confidence" type="range" min="0" max="100" value="50" step="1">
+              <span class="slider-ends"><small>Uncertain</small><small>Certain</small></span>
+            </label>
+            <label id="rationaleField" class="field" for="rationale" hidden>
+              <span>Review note <small>optional</small></span>
+              <textarea id="rationale" rows="4" maxlength="1000" placeholder="Evidence considered in the final decision"></textarea>
+            </label>
+          </div>
+          <button id="submitDecision" class="button button-primary button-wide" type="button" disabled>
+            Lock initial decision <i data-lucide="lock" aria-hidden="true"></i>
+          </button>
+          <button id="revealAssistance" class="button button-primary button-wide" type="button" hidden>
+            Reveal model assistance <i data-lucide="eye" aria-hidden="true"></i>
+          </button>
+          <p id="decisionNote" class="decision-note">The initial judgment cannot be changed after model assistance is revealed.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="questionnaireView" class="view questionnaire-view" aria-labelledby="questionnaireTitle">
+      <form id="questionnaireForm" class="questionnaire-form">
+        <div class="form-heading">
+          <p class="eyebrow">Post-task questionnaire</p>
+          <h1 id="questionnaireTitle">Review experience</h1>
+        </div>
+        <div id="ratingFields" class="rating-fields"></div>
+        <label class="field" for="feedback"><span>Additional comments <small>optional</small></span><textarea id="feedback" rows="4" maxlength="2000"></textarea></label>
+        <button class="button button-primary" type="submit">Complete study <i data-lucide="check" aria-hidden="true"></i></button>
+      </form>
+    </section>
+
+    <section id="completeView" class="view complete-view" aria-labelledby="completeTitle">
+      <div class="complete-mark"><i data-lucide="check" aria-hidden="true"></i></div>
+      <p class="eyebrow">Submission recorded</p>
+      <h1 id="completeTitle">Study complete</h1>
+      <p>Your responses have been stored without your raw participant code.</p>
+      <div class="completion-code"><span>Completion code</span><strong id="completionCode">—</strong></div>
+    </section>
+  </main>
+
+  <div id="loading" class="loading" hidden><span></span><p>Loading study data</p></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

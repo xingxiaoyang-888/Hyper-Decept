@@ -1,0 +1,118 @@
+{
+  "schema_version": "hypertrace.review-study-cases.v1",
+  "created_from": "synthetic demonstration records",
+  "contains_raw_identifiers": false,
+  "cases": [
+    {
+      "case_id": "DEMO-A01", "operation": "operation_a", "operation_label": "Operation A",
+      "ground_truth": "coordinated", "model_recommendation": "coordinated", "risk_percentile": 0.994, "risk_stratum": "high",
+      "relation_summary": {"retweets": 42, "posts": 18},
+      "temporal_summary": {"first_event_at": "2019-01-18T08:12:00+00:00", "last_event_at": "2019-04-03T21:44:00+00:00", "event_type_counts": {"retweet": 31, "post": 12}},
+      "explanation": {"sparsity": 0.054, "selected_units": 10, "candidate_units": 186, "sufficiency_error": 0.0016, "geometry_fidelity": 0.988, "checkpoint_agreement": 1.0, "prototype_vote_agreement": 1.0, "full_percentile": 0.994, "keep_only_percentile": 0.992},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [
+        {"evidence_id": "EV-A01-1", "timestamp": "2019-04-03T21:44:00+00:00", "event_type": "retweet", "text": "Repeated amplification of a shared campaign link."},
+        {"evidence_id": "EV-A01-2", "timestamp": "2019-04-03T20:51:00+00:00", "event_type": "retweet", "text": "Activity aligned with a dense synchronized window."}
+      ]
+    },
+    {
+      "case_id": "DEMO-A02", "operation": "operation_a", "operation_label": "Operation A",
+      "ground_truth": "not_coordinated", "model_recommendation": "coordinated", "risk_percentile": 0.925, "risk_stratum": "high",
+      "relation_summary": {"retweets": 16, "posts": 11},
+      "temporal_summary": {"first_event_at": "2019-02-08T10:10:00+00:00", "last_event_at": "2019-04-02T16:32:00+00:00", "event_type_counts": {"retweet": 12, "post": 9}},
+      "explanation": {"sparsity": 0.08, "selected_units": 6, "candidate_units": 75, "sufficiency_error": 0.007, "geometry_fidelity": 0.969, "checkpoint_agreement": 0.84, "prototype_vote_agreement": 0.87, "full_percentile": 0.925, "keep_only_percentile": 0.918},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-A02-1", "timestamp": "2019-04-02T16:32:00+00:00", "event_type": "post", "text": "A widely shared public announcement was reposted."}]
+    },
+    {
+      "case_id": "DEMO-A03", "operation": "operation_a", "operation_label": "Operation A",
+      "ground_truth": "coordinated", "model_recommendation": "coordinated", "risk_percentile": 0.811, "risk_stratum": "medium",
+      "relation_summary": {"retweets": 8, "posts": 4},
+      "temporal_summary": {"first_event_at": "2019-02-14T09:00:00+00:00", "last_event_at": "2019-03-20T18:20:00+00:00", "event_type_counts": {"retweet": 8, "post": 4}},
+      "explanation": {"sparsity": 0.25, "selected_units": 3, "candidate_units": 12, "sufficiency_error": 0.01, "geometry_fidelity": 0.961, "checkpoint_agreement": 0.8, "prototype_vote_agreement": 0.93, "full_percentile": 0.811, "keep_only_percentile": 0.801},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-A03-1", "timestamp": "2019-03-20T18:20:00+00:00", "event_type": "retweet", "text": "The same message appeared across linked accounts."}]
+    },
+    {
+      "case_id": "DEMO-A04", "operation": "operation_a", "operation_label": "Operation A",
+      "ground_truth": "not_coordinated", "model_recommendation": "not_coordinated", "risk_percentile": 0.426, "risk_stratum": "medium",
+      "relation_summary": {"posts": 5, "retweets": 2},
+      "temporal_summary": {"first_event_at": "2019-01-04T12:00:00+00:00", "last_event_at": "2019-03-10T11:30:00+00:00", "event_type_counts": {"post": 5, "retweet": 2}},
+      "explanation": {"sparsity": 0.5, "selected_units": 2, "candidate_units": 4, "sufficiency_error": 0.004, "geometry_fidelity": 0.982, "checkpoint_agreement": 0.87, "prototype_vote_agreement": 1.0, "full_percentile": 0.426, "keep_only_percentile": 0.422},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-A04-1", "timestamp": "2019-03-10T11:30:00+00:00", "event_type": "post", "text": "Independent original content with no repeated link."}]
+    },
+    {
+      "case_id": "DEMO-A05", "operation": "operation_a", "operation_label": "Operation A",
+      "ground_truth": "coordinated", "model_recommendation": "not_coordinated", "risk_percentile": 0.318, "risk_stratum": "low",
+      "relation_summary": {"posts": 2, "retweets": 1},
+      "temporal_summary": {"first_event_at": "2019-01-22T08:40:00+00:00", "last_event_at": "2019-02-07T08:44:00+00:00", "event_type_counts": {"post": 2, "retweet": 1}},
+      "explanation": {"sparsity": 1.0, "selected_units": 1, "candidate_units": 1, "sufficiency_error": 0.0, "geometry_fidelity": 1.0, "checkpoint_agreement": 1.0, "prototype_vote_agreement": 1.0, "full_percentile": 0.318, "keep_only_percentile": 0.318},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-A05-1", "timestamp": "2019-02-07T08:44:00+00:00", "event_type": "retweet", "text": "A low-volume account amplified a campaign asset."}]
+    },
+    {
+      "case_id": "DEMO-A06", "operation": "operation_a", "operation_label": "Operation A",
+      "ground_truth": "not_coordinated", "model_recommendation": "not_coordinated", "risk_percentile": 0.071, "risk_stratum": "low",
+      "relation_summary": {"posts": 1},
+      "temporal_summary": {"first_event_at": "2019-03-01T13:10:00+00:00", "last_event_at": "2019-03-01T13:10:00+00:00", "event_type_counts": {"post": 1}},
+      "explanation": {"sparsity": 1.0, "selected_units": 1, "candidate_units": 1, "sufficiency_error": 0.0, "geometry_fidelity": 1.0, "checkpoint_agreement": 1.0, "prototype_vote_agreement": 1.0, "full_percentile": 0.071, "keep_only_percentile": 0.071},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-A06-1", "timestamp": "2019-03-01T13:10:00+00:00", "event_type": "post", "text": "A single standalone post."}]
+    },
+    {
+      "case_id": "DEMO-B01", "operation": "operation_b", "operation_label": "Operation B",
+      "ground_truth": "coordinated", "model_recommendation": "coordinated", "risk_percentile": 0.997, "risk_stratum": "high",
+      "relation_summary": {"retweets": 83, "posts": 24},
+      "temporal_summary": {"first_event_at": "2018-11-20T04:10:00+00:00", "last_event_at": "2019-03-21T23:10:00+00:00", "event_type_counts": {"retweet": 62, "post": 19}},
+      "explanation": {"sparsity": 0.019, "selected_units": 12, "candidate_units": 632, "sufficiency_error": 0.001, "geometry_fidelity": 0.985, "checkpoint_agreement": 0.91, "prototype_vote_agreement": 1.0, "full_percentile": 0.997, "keep_only_percentile": 0.996},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-B01-1", "timestamp": "2019-03-21T23:10:00+00:00", "event_type": "retweet", "text": "High-volume amplification linked multiple campaign accounts."}]
+    },
+    {
+      "case_id": "DEMO-B02", "operation": "operation_b", "operation_label": "Operation B",
+      "ground_truth": "not_coordinated", "model_recommendation": "coordinated", "risk_percentile": 0.941, "risk_stratum": "high",
+      "relation_summary": {"retweets": 21, "posts": 8},
+      "temporal_summary": {"first_event_at": "2018-12-12T05:10:00+00:00", "last_event_at": "2019-03-14T15:40:00+00:00", "event_type_counts": {"retweet": 18, "post": 8}},
+      "explanation": {"sparsity": 0.05, "selected_units": 5, "candidate_units": 100, "sufficiency_error": 0.009, "geometry_fidelity": 0.956, "checkpoint_agreement": 0.78, "prototype_vote_agreement": 0.87, "full_percentile": 0.941, "keep_only_percentile": 0.932},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-B02-1", "timestamp": "2019-03-14T15:40:00+00:00", "event_type": "retweet", "text": "Popular news content generated a dense but organic cascade."}]
+    },
+    {
+      "case_id": "DEMO-B03", "operation": "operation_b", "operation_label": "Operation B",
+      "ground_truth": "coordinated", "model_recommendation": "coordinated", "risk_percentile": 0.782, "risk_stratum": "medium",
+      "relation_summary": {"retweets": 10, "posts": 3},
+      "temporal_summary": {"first_event_at": "2018-12-05T07:20:00+00:00", "last_event_at": "2019-02-20T10:10:00+00:00", "event_type_counts": {"retweet": 10, "post": 3}},
+      "explanation": {"sparsity": 0.2, "selected_units": 3, "candidate_units": 15, "sufficiency_error": 0.008, "geometry_fidelity": 0.971, "checkpoint_agreement": 0.82, "prototype_vote_agreement": 0.93, "full_percentile": 0.782, "keep_only_percentile": 0.774},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-B03-1", "timestamp": "2019-02-20T10:10:00+00:00", "event_type": "retweet", "text": "Shared assets recurred across a small linked cluster."}]
+    },
+    {
+      "case_id": "DEMO-B04", "operation": "operation_b", "operation_label": "Operation B",
+      "ground_truth": "not_coordinated", "model_recommendation": "not_coordinated", "risk_percentile": 0.481, "risk_stratum": "medium",
+      "relation_summary": {"posts": 6, "retweets": 3},
+      "temporal_summary": {"first_event_at": "2019-01-09T09:15:00+00:00", "last_event_at": "2019-03-18T12:20:00+00:00", "event_type_counts": {"post": 6, "retweet": 3}},
+      "explanation": {"sparsity": 0.5, "selected_units": 2, "candidate_units": 4, "sufficiency_error": 0.006, "geometry_fidelity": 0.979, "checkpoint_agreement": 0.88, "prototype_vote_agreement": 1.0, "full_percentile": 0.481, "keep_only_percentile": 0.475},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-B04-1", "timestamp": "2019-03-18T12:20:00+00:00", "event_type": "post", "text": "Account activity was distributed across unrelated topics."}]
+    },
+    {
+      "case_id": "DEMO-B05", "operation": "operation_b", "operation_label": "Operation B",
+      "ground_truth": "coordinated", "model_recommendation": "not_coordinated", "risk_percentile": 0.287, "risk_stratum": "low",
+      "relation_summary": {"retweets": 1, "posts": 1},
+      "temporal_summary": {"first_event_at": "2019-02-01T08:00:00+00:00", "last_event_at": "2019-02-08T08:00:00+00:00", "event_type_counts": {"post": 1, "retweet": 1}},
+      "explanation": {"sparsity": 1.0, "selected_units": 1, "candidate_units": 1, "sufficiency_error": 0.0, "geometry_fidelity": 1.0, "checkpoint_agreement": 1.0, "prototype_vote_agreement": 1.0, "full_percentile": 0.287, "keep_only_percentile": 0.287},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-B05-1", "timestamp": "2019-02-08T08:00:00+00:00", "event_type": "retweet", "text": "Low-volume participation in a verified campaign cluster."}]
+    },
+    {
+      "case_id": "DEMO-B06", "operation": "operation_b", "operation_label": "Operation B",
+      "ground_truth": "not_coordinated", "model_recommendation": "not_coordinated", "risk_percentile": 0.053, "risk_stratum": "low",
+      "relation_summary": {"posts": 1},
+      "temporal_summary": {"first_event_at": "2019-02-19T11:15:00+00:00", "last_event_at": "2019-02-19T11:15:00+00:00", "event_type_counts": {"post": 1}},
+      "explanation": {"sparsity": 1.0, "selected_units": 1, "candidate_units": 1, "sufficiency_error": 0.0, "geometry_fidelity": 1.0, "checkpoint_agreement": 1.0, "prototype_vote_agreement": 1.0, "full_percentile": 0.053, "keep_only_percentile": 0.053},
+      "audit": {"provenance_coverage": 1.0, "timestamp_coverage": 1.0},
+      "evidence": [{"evidence_id": "EV-B06-1", "timestamp": "2019-02-19T11:15:00+00:00", "event_type": "post", "text": "A single independent source record."}]
+    }
+  ]
+}

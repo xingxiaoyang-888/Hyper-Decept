@@ -216,6 +216,12 @@
                 <button id="rollbackVersion" class="button button-secondary" type="button">Restore as current</button>
               </div>
               <div id="versionDiff" class="version-diff" aria-live="polite"></div>
+              <div class="update-controls">
+                <label><input id="autoRollback" type="checkbox"> Auto-restore when an update invalidates the current packet</label>
+                <button id="checkUpdates" class="button button-secondary" type="button">Check for updates</button>
+                <button id="simulateUpdate" class="button button-secondary" type="button">Simulate new evidence</button>
+              </div>
+              <div id="updateAlert" class="update-alert" role="status" aria-live="polite" hidden></div>
             </div>
           </section>
         </div>
@@ -250,6 +256,12 @@
           </button>
           <button id="revealAssistance" class="button button-primary button-wide" type="button" hidden>
             Reveal model assistance <i data-lucide="eye" aria-hidden="true"></i>
+          </button>
+          <button id="reviseDecision" class="button button-secondary button-wide" type="button" hidden>
+            Revise submitted judgment <i data-lucide="edit-3" aria-hidden="true"></i>
+          </button>
+          <button id="continueTrial" class="button button-primary button-wide" type="button" hidden>
+            Continue to next case <i data-lucide="arrow-right" aria-hidden="true"></i>
           </button>
           <p id="decisionNote" class="decision-note">The initial judgment cannot be changed after model assistance is revealed.</p>
         </aside>

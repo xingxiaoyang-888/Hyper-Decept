@@ -41,6 +41,10 @@ DURABLE_STORAGE = os.getenv("HYPERTRACE_DURABLE_STORAGE", "0").lower() in {
 PREVIEW_MODE = os.getenv("HYPERTRACE_PREVIEW_MODE", "0").lower() in {
     "1", "true", "yes"
 }
+DEMO_MODE = CASES_PATH == DEMO_CASES
+ALLOW_JUDGMENT_REVISION = os.getenv(
+    "HYPERTRACE_ALLOW_JUDGMENT_REVISION", "1" if DEMO_MODE else "0"
+).lower() in {"1", "true", "yes"}
 CONSENT_VERSION = "hypertrace-chi-consent-v2"
 PROTOCOL_VERSION = "three-stage-v2"
 CONDITIONS = ("risk_only", "standard_signals", "hypertrace_evidence")
@@ -132,6 +136,22 @@ class QuestionnaireResponse(BaseModel):
     feedback: str = Field(default="", max_length=2000)
 
 
+class RevisionRequest(TrialIdentity):
+    decision: Literal["coordinated", "not_coordinated"]
+    confidence: int = Field(ge=0, le=100)
+    rationale: str = Field(default="", max_length=1000)
+    reason: str = Field(default="Reviewer requested a correction", max_length=500)
+
+
+class VersionRequest(TrialIdentity):
+    version_id: str = Field(min_length=1, max_length=80)
+    reason: str = Field(default="Reviewer restored an earlier evidence state", max_length=500)
+
+
+class UpdateRequest(TrialIdentity):
+    reason: str = Field(default="Demonstration update", max_length=500)
+
+
 class StudyStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -207,6 +227,29 @@ class StudyStore:
                     evidence_usefulness INTEGER NOT NULL,
                     feedback TEXT NOT NULL,
                     submitted_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                );
+                CREATE TABLE IF NOT EXISTS evidence_versions (
+                    scope_id TEXT NOT NULL,
+                    case_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    parent_version_id TEXT,
+                    created_at TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL,
+                    invalidates_current INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (scope_id, case_id, version_id)
+                );
+                CREATE TABLE IF NOT EXISTS judgment_revisions (
+                    session_id TEXT NOT NULL,
+                    trial_index INTEGER NOT NULL,
+                    revision_no INTEGER NOT NULL,
+                    decision TEXT NOT NULL,
+                    confidence INTEGER NOT NULL,
+                    rationale TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    revised_at TEXT NOT NULL,
+                    PRIMARY KEY (session_id, trial_index, revision_no),
                     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
                 );
                 """
@@ -335,7 +378,62 @@ def common_case(case: dict, trial_index: int, phase: str) -> dict:
     }
 
 
-def public_case(case: dict, condition: str, trial_index: int) -> dict:
+def _version_scope(scope_id: str | None) -> str:
+    return scope_id or "preview"
+
+
+def ensure_evidence_versions(db: sqlite3.Connection, case: dict, scope_id: str) -> None:
+    """Seed two deterministic snapshots for old case bundles, then preserve all later revisions."""
+    exists = db.execute(
+        "SELECT 1 FROM evidence_versions WHERE scope_id = ? AND case_id = ? LIMIT 1",
+        (scope_id, case["case_id"]),
+    ).fetchone()
+    if exists:
+        return
+    evidence = list(case.get("evidence", []))
+    baseline_count = max(0, len(evidence) // 2)
+    now = utc_now()
+    db.executemany(
+        "INSERT INTO evidence_versions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (scope_id, case["case_id"], "v1", None, now, "Initial evidence snapshot", json.dumps(evidence[:baseline_count]), 0),
+            (scope_id, case["case_id"], "v2", "v1", now, "Current constrained evidence reconstruction", json.dumps(evidence), 0),
+        ],
+    )
+
+
+def evidence_versions(db: sqlite3.Connection, case: dict, scope_id: str) -> list[dict]:
+    ensure_evidence_versions(db, case, scope_id)
+    rows = db.execute(
+        "SELECT version_id, parent_version_id, created_at, reason, evidence_json, invalidates_current "
+        "FROM evidence_versions WHERE scope_id = ? AND case_id = ? ORDER BY rowid",
+        (scope_id, case["case_id"]),
+    ).fetchall()
+    return [
+        {
+            "version_id": row["version_id"],
+            "parent_version_id": row["parent_version_id"],
+            "created_at": row["created_at"],
+            "reason": row["reason"],
+            "evidence": json.loads(row["evidence_json"]),
+            "invalidates_current": bool(row["invalidates_current"]),
+        }
+        for row in rows
+    ]
+
+
+def attach_version_state(case_payload: dict, case: dict, scope_id: str) -> dict:
+    with STORE.lock, STORE.connect() as db:
+        versions = evidence_versions(db, case, scope_id)
+    if versions:
+        current = versions[-1]
+        case_payload["evidence"] = current["evidence"]
+        case_payload["evidence_versions"] = versions
+        case_payload["current_version_id"] = current["version_id"]
+    return case_payload
+
+
+def public_case(case: dict, condition: str, trial_index: int, scope_id: str | None = None) -> dict:
     common = {
         **common_case(case, trial_index, "assisted"),
         "risk_percentile": case["risk_percentile"],
@@ -350,6 +448,7 @@ def public_case(case: dict, condition: str, trial_index: int) -> dict:
         common["explanation"] = case.get("explanation", {})
         common["evidence"] = case.get("evidence", [])
         common["audit"] = case.get("audit", {})
+        attach_version_state(common, case, _version_scope(scope_id))
     return common
 
 
@@ -448,10 +547,88 @@ def preview_case(mode: str, case_index: int = 0) -> dict:
     if case_index < 0 or case_index >= len(CASES):
         raise HTTPException(status_code=400, detail="preview case index out of range")
     return {
-        "case": public_case(CASES[case_index], mode, case_index),
+        "case": public_case(CASES[case_index], mode, case_index, "preview"),
         "preview": True,
         "available_cases": len(CASES),
     }
+
+
+def version_response(case_id: str, scope_id: str) -> dict:
+    case = CASE_LOOKUP.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="unknown case")
+    with STORE.lock, STORE.connect() as db:
+        versions = evidence_versions(db, case, scope_id)
+    return {"case_id": case_id, "versions": versions, "current_version_id": versions[-1]["version_id"]}
+
+
+@app.get("/api/preview/versions")
+def preview_versions(case_id: str) -> dict:
+    if not PREVIEW_MODE:
+        raise HTTPException(status_code=404, detail="preview mode is disabled")
+    return version_response(case_id, "preview")
+
+
+def rollback_version(case_id: str, scope_id: str, version_id: str, reason: str) -> dict:
+    case = CASE_LOOKUP.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="unknown case")
+    with STORE.lock, STORE.connect() as db:
+        versions = evidence_versions(db, case, scope_id)
+        selected = next((item for item in versions if item["version_id"] == version_id), None)
+        current = versions[-1]
+        if selected is None:
+            raise HTTPException(status_code=404, detail="unknown evidence version")
+        if selected["version_id"] == current["version_id"]:
+            raise HTTPException(status_code=409, detail="version is already current")
+        next_no = len(versions) + 1
+        new_id = f"v{next_no}"
+        db.execute(
+            "INSERT INTO evidence_versions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (scope_id, case_id, new_id, current["version_id"], utc_now(), reason or f"Restored from {version_id}", json.dumps(selected["evidence"]), 0),
+        )
+    return version_response(case_id, scope_id)
+
+
+@app.post("/api/preview/rollback")
+def preview_rollback(payload: VersionRequest) -> dict:
+    if not PREVIEW_MODE:
+        raise HTTPException(status_code=404, detail="preview mode is disabled")
+    return rollback_version(payload.case_id, "preview", payload.version_id, payload.reason)
+
+
+@app.get("/api/preview/updates")
+def preview_updates(case_id: str, since: str = "") -> dict:
+    if not PREVIEW_MODE:
+        raise HTTPException(status_code=404, detail="preview mode is disabled")
+    data = version_response(case_id, "preview")
+    current = data["versions"][-1]
+    return {"case_id": case_id, "current_version_id": current["version_id"], "changed": bool(since and since != current["version_id"]), "requires_rollback": current["invalidates_current"]}
+
+
+@app.post("/api/preview/simulate-update")
+def preview_simulate_update(payload: UpdateRequest) -> dict:
+    if not PREVIEW_MODE or not DEMO_MODE:
+        raise HTTPException(status_code=404, detail="demonstration updates are disabled")
+    case = CASE_LOOKUP.get(payload.case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="unknown case")
+    with STORE.lock, STORE.connect() as db:
+        versions = evidence_versions(db, case, "preview")
+        current = versions[-1]
+        evidence = list(current["evidence"])
+        evidence.append({
+            "evidence_id": f"EV-LIVE-{len(versions) + 1:02d}",
+            "timestamp": utc_now(),
+            "event_type": "new_record",
+            "text": "New evidence record received in the demonstration stream.",
+        })
+        new_id = f"v{len(versions) + 1}"
+        db.execute(
+            "INSERT INTO evidence_versions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("preview", payload.case_id, new_id, current["version_id"], utc_now(), payload.reason, json.dumps(evidence), 1),
+        )
+    return version_response(payload.case_id, "preview")
 
 
 @app.post("/api/session")
@@ -528,7 +705,7 @@ def get_trial(session_id: str) -> dict:
         case_payload = common_case(CASE_LOOKUP[case_id], next_index, "ready_to_reveal")
         case_payload["initial_response"] = dict(initial)
     else:
-        case_payload = public_case(CASE_LOOKUP[case_id], row["condition"], next_index)
+        case_payload = public_case(CASE_LOOKUP[case_id], row["condition"], next_index, f"session:{session_id}")
         case_payload["initial_response"] = dict(initial)
     return {
         "complete": False,
@@ -603,7 +780,7 @@ def reveal_assistance(session_id: str, payload: TrialIdentity) -> dict:
             (session_id, payload.trial_index, payload.case_id, utc_now()),
         )
     case_payload = public_case(
-        CASE_LOOKUP[payload.case_id], row["condition"], payload.trial_index
+        CASE_LOOKUP[payload.case_id], row["condition"], payload.trial_index, f"session:{session_id}"
     )
     case_payload["initial_response"] = dict(initial)
     return {"case": case_payload}
@@ -645,12 +822,88 @@ def record_response(session_id: str, payload: TrialResponse) -> dict:
                     latency_ms,
                 ),
             )
+            db.execute(
+                "INSERT INTO judgment_revisions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (session_id, payload.trial_index, 1, payload.decision, payload.confidence,
+                 payload.rationale.strip(), "Initial final submission", utc_now()),
+            )
         except sqlite3.IntegrityError as error:
             raise HTTPException(status_code=409, detail="trial already submitted") from error
         completed = db.execute(
             "SELECT COUNT(*) FROM responses WHERE session_id = ?", (session_id,)
         ).fetchone()[0]
+    if ALLOW_JUDGMENT_REVISION:
+        case_payload = public_case(
+            CASE_LOOKUP[payload.case_id], row["condition"], payload.trial_index, f"session:{session_id}"
+        )
+        case_payload["phase"] = "submitted"
+        case_payload["final_response"] = {
+            "decision": payload.decision,
+            "confidence": payload.confidence,
+            "rationale": payload.rationale.strip(),
+        }
+        return {"accepted": True, "completed_trials": completed, "trial_count": len(order), "case": case_payload}
     return {"accepted": True, "completed_trials": completed, "trial_count": len(order)}
+
+
+@app.get("/api/session/{session_id}/versions")
+def session_versions(session_id: str, case_id: str) -> dict:
+    row = session_row(session_id)
+    if case_id not in json.loads(row["trial_order_json"]):
+        raise HTTPException(status_code=403, detail="case is not assigned to this session")
+    return version_response(case_id, f"session:{session_id}")
+
+
+@app.post("/api/session/{session_id}/evidence/rollback")
+def session_rollback(session_id: str, payload: VersionRequest) -> dict:
+    row = session_row(session_id)
+    if payload.case_id not in json.loads(row["trial_order_json"]):
+        raise HTTPException(status_code=403, detail="case is not assigned to this session")
+    return rollback_version(payload.case_id, f"session:{session_id}", payload.version_id, payload.reason)
+
+
+@app.get("/api/session/{session_id}/updates")
+def session_updates(session_id: str, case_id: str, since: str = "") -> dict:
+    row = session_row(session_id)
+    if case_id not in json.loads(row["trial_order_json"]):
+        raise HTTPException(status_code=403, detail="case is not assigned to this session")
+    data = version_response(case_id, f"session:{session_id}")
+    current = data["versions"][-1]
+    return {"case_id": case_id, "current_version_id": current["version_id"], "changed": bool(since and since != current["version_id"]), "requires_rollback": current["invalidates_current"]}
+
+
+@app.post("/api/session/{session_id}/response/revise")
+def revise_response(session_id: str, payload: RevisionRequest) -> dict:
+    if not ALLOW_JUDGMENT_REVISION:
+        raise HTTPException(status_code=403, detail="judgment revision is disabled for this deployment")
+    row = session_row(session_id)
+    validate_trial(row, payload)
+    with STORE.lock, STORE.connect() as db:
+        existing = db.execute(
+            "SELECT 1 FROM responses WHERE session_id = ? AND trial_index = ?",
+            (session_id, payload.trial_index),
+        ).fetchone()
+        if existing is None:
+            raise HTTPException(status_code=409, detail="final response has not been submitted")
+        latest = db.execute(
+            "SELECT COALESCE(MAX(revision_no), 0) FROM judgment_revisions WHERE session_id = ? AND trial_index = ?",
+            (session_id, payload.trial_index),
+        ).fetchone()[0]
+        revision_no = int(latest) + 1
+        now = utc_now()
+        db.execute(
+            "UPDATE responses SET decision = ?, confidence = ?, rationale = ?, submitted_at = ? WHERE session_id = ? AND trial_index = ?",
+            (payload.decision, payload.confidence, payload.rationale.strip(), now, session_id, payload.trial_index),
+        )
+        db.execute(
+            "INSERT INTO judgment_revisions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, payload.trial_index, revision_no, payload.decision, payload.confidence, payload.rationale.strip(), payload.reason.strip(), now),
+        )
+        history = [dict(item) for item in db.execute(
+            "SELECT revision_no, decision, confidence, rationale, reason, revised_at FROM judgment_revisions WHERE session_id = ? AND trial_index = ? ORDER BY revision_no",
+            (session_id, payload.trial_index),
+        ).fetchall()]
+    return {"accepted": True, "revision_no": revision_no, "history": history}
 
 
 @app.post("/api/session/{session_id}/questionnaire")

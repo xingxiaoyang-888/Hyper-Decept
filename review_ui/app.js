@@ -6,6 +6,8 @@ const state = {
   previewIndex: 0,
   previewCount: 0,
   currentPhase: null,
+  demoMode: false,
+  updateTimer: null,
 };
 
 const byId = (id) => document.getElementById(id);
@@ -247,7 +249,7 @@ function renderVersionHistory(caseData) {
   select.value = String(Math.max(0, versions.length - 2));
   updateVersionDiff(caseData, versions);
   select.onchange = () => updateVersionDiff(caseData, versions);
-  byId("rollbackVersion").onclick = () => {
+  byId("rollbackVersion").onclick = async () => {
     const index = Number(select.value);
     if (index >= versions.length - 1) return toast("The selected version is already current");
     const chosen = versions[index];
@@ -259,11 +261,82 @@ function renderVersionHistory(caseData) {
       created_at: new Date().toISOString(),
       reason: `Restored from ${chosen.version_id || `v${index + 1}`}`,
     };
-    caseData.evidence = restored.evidence || [];
-    caseData.evidence_versions = [...versions, restored];
-    renderTrace(caseData);
-    toast(`${restored.version_id} created from ${chosen.version_id || `v${index + 1}`}`);
+    try {
+      const path = state.preview ? "/api/preview/rollback" : `/api/session/${state.sessionId}/evidence/rollback`;
+      const payload = await api(path, { method: "POST", body: JSON.stringify({
+        trial_index: caseData.trial_index, case_id: caseData.case_id,
+        version_id: chosen.version_id, reason: `Restored from ${chosen.version_id || `v${index + 1}`}`,
+      }) });
+      caseData.evidence_versions = payload.versions;
+      caseData.evidence = payload.versions[payload.versions.length - 1].evidence;
+      caseData.current_version_id = payload.current_version_id;
+      renderTrace(caseData);
+      toast(`${payload.current_version_id} created from ${chosen.version_id || `v${index + 1}`}`);
+    } catch (error) {
+      toast(error.message, true);
+    }
   };
+  byId("checkUpdates").onclick = () => checkForUpdates(caseData, false);
+  byId("simulateUpdate").hidden = !state.preview || !state.demoMode;
+  byId("simulateUpdate").onclick = async () => {
+    try {
+      const payload = await api("/api/preview/simulate-update", { method: "POST", body: JSON.stringify({ trial_index: caseData.trial_index, case_id: caseData.case_id }) });
+      caseData.evidence_versions = payload.versions;
+      caseData.evidence = payload.versions[payload.versions.length - 1].evidence;
+      renderTrace(caseData);
+      showUpdateAlert("New evidence detected. Review the version difference before continuing.", true);
+      await checkForUpdates(caseData, true);
+    } catch (error) { toast(error.message, true); }
+  };
+}
+
+function showUpdateAlert(message, warning = false) {
+  const alert = byId("updateAlert");
+  if (!alert) return;
+  alert.hidden = false;
+  alert.textContent = message;
+  alert.classList.toggle("is-warning", warning);
+}
+
+async function checkForUpdates(caseData, silent = false) {
+  if (!caseData || caseData.view_mode !== "hypertrace_evidence") return;
+  try {
+    const query = new URLSearchParams({ case_id: caseData.case_id, since: caseData.current_version_id || "" });
+    const path = state.preview ? `/api/preview/updates?${query}` : `/api/session/${state.sessionId}/updates?${query}`;
+    const update = await api(path);
+    if (!update.changed) { if (!silent) showUpdateAlert("No new evidence version is available."); return; }
+    const versionsPath = state.preview ? `/api/preview/versions?case_id=${encodeURIComponent(caseData.case_id)}` : `/api/session/${state.sessionId}/versions?case_id=${encodeURIComponent(caseData.case_id)}`;
+    const latest = await api(versionsPath);
+    caseData.evidence_versions = latest.versions;
+    caseData.evidence = latest.versions[latest.versions.length - 1].evidence;
+    caseData.current_version_id = latest.current_version_id;
+    renderTrace(caseData);
+    showUpdateAlert(update.requires_rollback ? "The latest evidence update invalidates the current packet." : "A new evidence version is available.", update.requires_rollback);
+    if (byId("autoRollback").checked && update.requires_rollback) {
+      const versions = caseData.evidence_versions || [];
+      const previous = versions.length > 1 ? versions[versions.length - 2] : null;
+      if (previous) {
+        const path = state.preview ? "/api/preview/rollback" : `/api/session/${state.sessionId}/evidence/rollback`;
+        const payload = await api(path, { method: "POST", body: JSON.stringify({ trial_index: caseData.trial_index, case_id: caseData.case_id, version_id: previous.version_id, reason: "Automatic rollback after invalidating evidence update" }) });
+        caseData.evidence_versions = payload.versions;
+        caseData.evidence = payload.versions[payload.versions.length - 1].evidence;
+        caseData.current_version_id = payload.current_version_id;
+        renderTrace(caseData);
+        showUpdateAlert(`Automatically restored ${payload.current_version_id} after the invalidating update.`, false);
+      }
+    }
+  } catch (error) { if (!silent) toast(error.message, true); }
+}
+
+function stopUpdatePolling() {
+  if (state.updateTimer) window.clearInterval(state.updateTimer);
+  state.updateTimer = null;
+}
+
+function startUpdatePolling(caseData) {
+  stopUpdatePolling();
+  if (caseData.view_mode !== "hypertrace_evidence" || !state.demoMode) return;
+  state.updateTimer = window.setInterval(() => checkForUpdates(state.currentCase, true), 15000);
 }
 
 function updateVersionDiff(caseData, versions) {
@@ -293,13 +366,16 @@ function resetDecision(caseData) {
   const isInitial = phase === "initial";
   const isReady = phase === "ready_to_reveal";
   const isAssisted = phase === "assisted";
+  const isSubmitted = phase === "submitted";
 
   byId("decisionFields").hidden = isReady;
   byId("initialLockedSummary").hidden = !initial;
   byId("revealAssistance").hidden = !isReady || state.preview;
   byId("revealAssistance").disabled = false;
-  byId("submitDecision").hidden = isReady;
-  byId("rationaleField").hidden = !isAssisted;
+  byId("submitDecision").hidden = isReady || isSubmitted;
+  byId("rationaleField").hidden = !(isAssisted || isSubmitted);
+  byId("reviseDecision").hidden = !isSubmitted || state.preview;
+  byId("continueTrial").hidden = !isSubmitted || state.preview;
 
   if (initial) {
     byId("lockedDecision").textContent = decisionLabel(initial.decision);
@@ -316,6 +392,17 @@ function resetDecision(caseData) {
     byId("decisionStage").textContent = "Stage 2 of 3";
     byId("decisionTitle").textContent = "Reveal assistance";
     byId("decisionNote").textContent = "Opening assistance starts the assisted-review timer.";
+  } else if (isSubmitted) {
+    const finalResponse = caseData.final_response || {};
+    byId("decisionStage").textContent = "Submitted judgment";
+    byId("decisionTitle").textContent = "Judgment recorded";
+    byId("decisionNote").textContent = "This demonstration keeps the submitted judgment editable and records each revision.";
+    const finalInput = document.querySelector(`input[name="decision"][value="${finalResponse.decision}"]`);
+    if (finalInput) finalInput.checked = true;
+    byId("confidence").value = String(finalResponse.confidence ?? 50);
+    byId("confidenceValue").textContent = String(finalResponse.confidence ?? 50);
+    byId("rationale").value = finalResponse.rationale || "";
+    byId("submitDecision").disabled = true;
   } else {
     byId("decisionStage").textContent = "Stage 3 of 3";
     byId("decisionTitle").textContent = "Final decision";
@@ -345,7 +432,7 @@ function renderCase(caseData) {
   byId("progressBar").style.width = `${progress}%`;
   byId("progressWrap").querySelector("[role=progressbar]").setAttribute("aria-valuenow", String(Math.round(progress)));
   renderCommonContext(caseData);
-  const assisted = state.currentPhase === "assisted";
+  const assisted = ["assisted", "submitted"].includes(state.currentPhase);
   byId("recommendationSection").hidden = !assisted;
   byId("initialStageNotice").hidden = assisted;
   byId("stageStatus").textContent = assisted ? "Model assistance revealed" : "Initial judgment";
@@ -357,6 +444,7 @@ function renderCase(caseData) {
   setView("trialView");
   byId("phaseLabel").textContent = assisted ? "AI-assisted judgment" : "Initial judgment";
   refreshIcons();
+  startUpdatePolling(caseData);
 }
 
 async function loadNextTrial() {
@@ -404,7 +492,7 @@ async function submitDecision() {
   const initialPhase = state.currentPhase === "initial";
   setLoading(true, initialPhase ? "Locking initial judgment" : "Saving final judgment");
   try {
-    await api(`/api/session/${state.sessionId}/${initialPhase ? "initial-response" : "response"}`, {
+    const payload = await api(`/api/session/${state.sessionId}/${initialPhase ? "initial-response" : "response"}`, {
       method: "POST",
       body: JSON.stringify({
         trial_index: state.currentCase.trial_index,
@@ -414,13 +502,32 @@ async function submitDecision() {
         ...(initialPhase ? {} : { rationale: byId("rationale").value }),
       }),
     });
-    await loadNextTrial();
+    if (!initialPhase && state.demoMode && payload.case) {
+      renderCase(payload.case);
+    } else {
+      await loadNextTrial();
+    }
   } catch (error) {
     toast(error.message, true);
     byId("submitDecision").disabled = false;
   } finally {
     setLoading(false);
   }
+}
+
+async function reviseDecision() {
+  if (!state.currentCase || state.preview || state.currentPhase !== "submitted") return;
+  const selected = document.querySelector('input[name="decision"]:checked');
+  if (!selected) return;
+  try {
+    const payload = await api(`/api/session/${state.sessionId}/response/revise`, { method: "POST", body: JSON.stringify({
+      trial_index: state.currentCase.trial_index, case_id: state.currentCase.case_id,
+      decision: selected.value, confidence: Number(byId("confidence").value),
+      rationale: byId("rationale").value, reason: "Reviewer revised the submitted judgment",
+    }) });
+    state.currentCase.final_response = { decision: selected.value, confidence: Number(byId("confidence").value), rationale: byId("rationale").value };
+    toast(`Judgment revision ${payload.revision_no} saved`);
+  } catch (error) { toast(error.message, true); }
 }
 
 async function revealAssistance() {
@@ -499,6 +606,8 @@ function bindEvents() {
     });
   });
   byId("submitDecision").addEventListener("click", submitDecision);
+  byId("reviseDecision").addEventListener("click", reviseDecision);
+  byId("continueTrial").addEventListener("click", loadNextTrial);
   byId("revealAssistance").addEventListener("click", revealAssistance);
   byId("questionnaireForm").addEventListener("submit", submitQuestionnaire);
   byId("previewMode").addEventListener("change", () => loadPreview());
@@ -515,6 +624,7 @@ async function initialize() {
   refreshIcons();
   try {
     const health = await api("/api/health");
+    state.demoMode = Boolean(health.demo_data);
     if (health.demo_data) byId("phaseLabel").textContent = "Demonstration study";
   } catch (error) {
     toast("Study service is unavailable", true);

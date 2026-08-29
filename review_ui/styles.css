@@ -214,6 +214,12 @@ td code { color: var(--blue); font-size: 10px; }
 .version-diff span:nth-child(2) strong { color: var(--red); }
 .version-diff span:nth-child(3) strong { color: var(--green); }
 .version-diff small { flex-basis: 100%; color: var(--muted); }
+.update-controls { margin-top: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 10px; }
+.update-controls label { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; }
+.update-controls input { accent-color: var(--teal); }
+.update-controls .button { min-height: 31px; margin: 0; padding: 6px 9px; font-size: 10px; }
+.update-alert { margin-top: 10px; padding: 9px 11px; color: var(--green); background: var(--green-soft); border-left: 3px solid var(--green); font-size: 10px; }
+.update-alert.is-warning { color: #6c470a; background: var(--amber-soft); border-left-color: var(--amber); }
 
 .decision-panel { position: sticky; top: 84px; padding: 22px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 8px 20px rgba(23, 35, 45, 0.08); }
 .decision-heading { padding-bottom: 18px; border-bottom: 1px solid var(--line); }

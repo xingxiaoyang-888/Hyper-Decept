@@ -61,13 +61,22 @@ switch among the bundled cases. Stop the server with `Ctrl+C`.
 7. **Evidence version comparison** — in HyperTrace preview, the version panel
    compares the current packet with an earlier snapshot and counts added,
    removed, and retained evidence records.
-8. **Evidence rollback prototype** — `Restore as current` creates a new local
-   version from the selected snapshot without overwriting the prior version.
-   This is an offline browser prototype; it is not yet persisted to the study
-   database or an append-only audit ledger.
-9. **Post-task questionnaire** — collects trust/calibration, clarity,
+8. **Evidence rollback** — `Restore as current` creates a new persisted version
+   from the selected snapshot without overwriting prior versions. The
+   demonstration also supports an auto-restore toggle when an incoming update
+   is marked as invalidating the current packet.
+9. **Update alerts** — the HyperTrace view polls for newer evidence versions,
+   displays an in-context alert, and provides a demonstration-only control for
+   simulating an incoming evidence record. This is session polling, not a live
+   platform event stream.
+10. **Submitted-judgment revision** — in demonstration mode, a submitted final
+   judgment can be revised. Each revision updates the current response and is
+   appended to the SQLite `judgment_revisions` history with its reason and
+   timestamp. The formal private deployment keeps this capability disabled by
+   default.
+11. **Post-task questionnaire** — collects trust/calibration, clarity,
    workload, evidence usefulness, and optional comments.
-10. **Admin export (when configured)** — the private deployment provides the
+12. **Admin export (when configured)** — the private deployment provides the
     protected `/admin` console and aggregate CSV export using `ADMIN_TOKEN`.
 
 ## Recording workflow
@@ -90,12 +99,12 @@ demonstration database or screenshots as human-subject study results.
 
 ## Scope limitations
 
-The current prototype does **not** implement live event ingestion, automatic
-new-evidence notifications, server-persistent version history, graph-level
-visual diffing of arbitrary packets, or review-state rollback of a prior
-judgment/confidence/note. Those features remain future extensions. The current
-version comparison is evidence-record based and local to the open browser
-case.
+The current prototype does not implement a real platform event stream or
+arbitrary graph-layout diffing. Update alerts use periodic polling, and the
+demonstration update is synthetic. Version history, evidence rollback, and
+judgment revision are persisted for the active SQLite deployment; review-state
+rollback of an earlier judgment is represented by the revision history rather
+than destructive replacement.
 
 The formal protocol assigns eight cases per participant. Each case records an
 initial unaided judgment, an explicit model-assistance reveal, and a final

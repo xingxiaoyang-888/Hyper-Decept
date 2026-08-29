@@ -8,6 +8,7 @@ import itertools
 import json
 import os
 import random
+import re
 import sqlite3
 import threading
 import uuid
@@ -42,6 +43,9 @@ PREVIEW_MODE = os.getenv("HYPERTRACE_PREVIEW_MODE", "0").lower() in {
     "1", "true", "yes"
 }
 DEMO_MODE = CASES_PATH == DEMO_CASES
+ALLOW_EVIDENCE_INGEST = os.getenv(
+    "HYPERTRACE_ENABLE_EVIDENCE_INGEST", "1" if DEMO_MODE else "0"
+).lower() in {"1", "true", "yes"}
 ALLOW_JUDGMENT_REVISION = os.getenv(
     "HYPERTRACE_ALLOW_JUDGMENT_REVISION", "1" if DEMO_MODE else "0"
 ).lower() in {"1", "true", "yes"}
@@ -152,6 +156,14 @@ class UpdateRequest(TrialIdentity):
     reason: str = Field(default="Demonstration update", max_length=500)
 
 
+class EvidenceIngestRequest(TrialIdentity):
+    provider: str = Field(min_length=1, max_length=120)
+    source_bundle_hash: str = Field(min_length=64, max_length=64)
+    records: list[dict] = Field(min_length=1, max_length=1000)
+    invalidates_current: bool = False
+    reason: str = Field(default="Provider evidence ingestion", max_length=500)
+
+
 class StudyStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -239,6 +251,18 @@ class StudyStore:
                     evidence_json TEXT NOT NULL,
                     invalidates_current INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (scope_id, case_id, version_id)
+                );
+                CREATE TABLE IF NOT EXISTS evidence_ingestions (
+                    scope_id TEXT NOT NULL,
+                    case_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    source_bundle_hash TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    records_received INTEGER NOT NULL,
+                    records_added INTEGER NOT NULL,
+                    FOREIGN KEY (scope_id, case_id, version_id)
+                        REFERENCES evidence_versions(scope_id, case_id, version_id)
                 );
                 CREATE TABLE IF NOT EXISTS judgment_revisions (
                     session_id TEXT NOT NULL,
@@ -382,6 +406,35 @@ def _version_scope(scope_id: str | None) -> str:
     return scope_id or "preview"
 
 
+def demo_alternative_explanations(case: dict) -> list[dict]:
+    """Return authored, label-blind alternatives for the local UI demonstration.
+
+    These are deliberately conservative review hypotheses, not a second model
+    prediction. Formal study bundles do not receive this field automatically.
+    """
+    evidence = list(case.get("evidence", []))
+    linked = [
+        {
+            "evidence_id": record.get("evidence_id"),
+            "note": "Record is consistent with independent public amplification.",
+        }
+        for record in evidence[:2]
+        if record.get("evidence_id")
+    ]
+    return [
+        {
+            "title": "Independent public amplification",
+            "hypothesis": (
+                "Accounts may have reacted independently to a widely visible item "
+                "or campaign asset rather than following a shared coordination plan."
+            ),
+            "uncertainty": "Needs source review",
+            "supporting_evidence": linked[:1],
+            "challenging_evidence": linked[1:2],
+        }
+    ]
+
+
 def ensure_evidence_versions(db: sqlite3.Connection, case: dict, scope_id: str) -> None:
     """Seed two deterministic snapshots for old case bundles, then preserve all later revisions."""
     exists = db.execute(
@@ -422,6 +475,95 @@ def evidence_versions(db: sqlite3.Connection, case: dict, scope_id: str) -> list
     ]
 
 
+def _normalize_ingest_records(records: list[dict], source_bundle_hash: str) -> list[dict]:
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", source_bundle_hash):
+        raise HTTPException(status_code=422, detail="source_bundle_hash must be a 64-character SHA-256 hex digest")
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise HTTPException(status_code=422, detail=f"record {index} must be an object")
+        evidence_id = str(record.get("evidence_id", "")).strip()
+        source_record_id = str(record.get("source_record_id", "")).strip()
+        timestamp = str(record.get("timestamp", "")).strip()
+        event_type = str(record.get("event_type", "")).strip()
+        if not evidence_id or not source_record_id or not timestamp or not event_type:
+            raise HTTPException(
+                status_code=422,
+                detail=f"record {index} requires evidence_id, source_record_id, timestamp, and event_type",
+            )
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=f"record {index} has an invalid ISO-8601 timestamp") from error
+        if parsed.tzinfo is None:
+            raise HTTPException(status_code=422, detail=f"record {index} timestamp must include a timezone")
+        if evidence_id in seen:
+            raise HTTPException(status_code=422, detail=f"duplicate evidence_id in request: {evidence_id}")
+        seen.add(evidence_id)
+        record_hash = str(record.get("record_hash", "")).strip()
+        if record_hash and not re.fullmatch(r"[0-9a-fA-F]{64}", record_hash):
+            raise HTTPException(status_code=422, detail=f"record {index} has an invalid record_hash")
+        item = {
+            "evidence_id": evidence_id,
+            "source_record_id": source_record_id,
+            "timestamp": timestamp,
+            "event_type": event_type,
+            "text": str(record.get("text", "")).strip(),
+            "relation_type": str(record.get("relation_type", "")).strip(),
+            "source_bundle_hash": source_bundle_hash.lower(),
+        }
+        if record_hash:
+            item["record_hash"] = record_hash.lower()
+        normalized.append({key: value for key, value in item.items() if value != ""})
+    return normalized
+
+
+def ingest_evidence(
+    case_id: str,
+    scope_id: str,
+    provider: str,
+    source_bundle_hash: str,
+    records: list[dict],
+    invalidates_current: bool,
+    reason: str,
+) -> dict:
+    case = CASE_LOOKUP.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="unknown case")
+    normalized = _normalize_ingest_records(records, source_bundle_hash)
+    duplicate_only = False
+    added_count = 0
+    with STORE.lock, STORE.connect() as db:
+        versions = evidence_versions(db, case, scope_id)
+        current = versions[-1]
+        existing_ids = {str(item.get("evidence_id")) for item in current["evidence"]}
+        additions = [item for item in normalized if item["evidence_id"] not in existing_ids]
+        if not additions:
+            duplicate_only = True
+        else:
+            evidence = [*current["evidence"], *additions]
+            new_id = f"v{len(versions) + 1}"
+            received_at = utc_now()
+            db.execute(
+                "INSERT INTO evidence_versions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (scope_id, case_id, new_id, current["version_id"], received_at, reason, json.dumps(evidence), int(invalidates_current)),
+            )
+            db.execute(
+                "INSERT INTO evidence_ingestions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (scope_id, case_id, new_id, provider, source_bundle_hash.lower(), received_at, len(normalized), len(additions)),
+            )
+            added_count = len(additions)
+    return {
+        **version_response(case_id, scope_id),
+        "provider": provider,
+        "source_bundle_hash": source_bundle_hash.lower(),
+        "records_received": len(normalized),
+        "records_added": added_count,
+        "status": "duplicate_only" if duplicate_only else "new_version",
+    }
+
+
 def attach_version_state(case_payload: dict, case: dict, scope_id: str) -> dict:
     with STORE.lock, STORE.connect() as db:
         versions = evidence_versions(db, case, scope_id)
@@ -448,6 +590,10 @@ def public_case(case: dict, condition: str, trial_index: int, scope_id: str | No
         common["explanation"] = case.get("explanation", {})
         common["evidence"] = case.get("evidence", [])
         common["audit"] = case.get("audit", {})
+        if _version_scope(scope_id) == "preview":
+            common["alternative_explanations"] = case.get(
+                "alternative_explanations"
+            ) or demo_alternative_explanations(case)
         attach_version_state(common, case, _version_scope(scope_id))
     return common
 
@@ -629,6 +775,22 @@ def preview_simulate_update(payload: UpdateRequest) -> dict:
             ("preview", payload.case_id, new_id, current["version_id"], utc_now(), payload.reason, json.dumps(evidence), 1),
         )
     return version_response(payload.case_id, "preview")
+
+
+@app.post("/api/preview/evidence/ingest")
+def preview_ingest_evidence(payload: EvidenceIngestRequest) -> dict:
+    """Provider-neutral ingestion endpoint for the local demonstration."""
+    if not PREVIEW_MODE or not ALLOW_EVIDENCE_INGEST:
+        raise HTTPException(status_code=404, detail="evidence ingestion is disabled")
+    return ingest_evidence(
+        payload.case_id,
+        "preview",
+        payload.provider,
+        payload.source_bundle_hash,
+        payload.records,
+        payload.invalidates_current,
+        payload.reason,
+    )
 
 
 @app.post("/api/session")
@@ -870,6 +1032,25 @@ def session_updates(session_id: str, case_id: str, since: str = "") -> dict:
     data = version_response(case_id, f"session:{session_id}")
     current = data["versions"][-1]
     return {"case_id": case_id, "current_version_id": current["version_id"], "changed": bool(since and since != current["version_id"]), "requires_rollback": current["invalidates_current"]}
+
+
+@app.post("/api/session/{session_id}/evidence/ingest")
+def session_ingest_evidence(session_id: str, payload: EvidenceIngestRequest) -> dict:
+    """Ingest normalized provider records when explicitly enabled by deployment."""
+    if not ALLOW_EVIDENCE_INGEST:
+        raise HTTPException(status_code=403, detail="evidence ingestion is disabled for this deployment")
+    row = session_row(session_id)
+    if payload.case_id not in json.loads(row["trial_order_json"]):
+        raise HTTPException(status_code=403, detail="case is not assigned to this session")
+    return ingest_evidence(
+        payload.case_id,
+        f"session:{session_id}",
+        payload.provider,
+        payload.source_bundle_hash,
+        payload.records,
+        payload.invalidates_current,
+        payload.reason,
+    )
 
 
 @app.post("/api/session/{session_id}/response/revise")

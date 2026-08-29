@@ -55,28 +55,38 @@ switch among the bundled cases. Stop the server with `Ctrl+C`.
    geometry fidelity, checkpoint agreement, full-vs-evidence-only risk,
    timestamp coverage, provenance coverage, prototype vote, and selected
    source records.
-6. **Three-stage decision flow** — initial unaided decision and confidence,
+6. **Alternative explanations (demonstration preview only)** — shows a
+   separate, label-blind benign hypothesis with supporting/challenging source
+   records and an uncertainty label. This is a reviewer aid, not a second
+   prediction, and is not injected into formal private study sessions.
+7. **Three-stage decision flow** — initial unaided decision and confidence,
    locked reveal of the assigned assistance, then final decision, confidence,
    optional rationale, and submission.
-7. **Evidence version comparison** — in HyperTrace preview, the version panel
+8. **Evidence version comparison** — in HyperTrace preview, the version panel
    compares the current packet with an earlier snapshot and counts added,
    removed, and retained evidence records.
-8. **Evidence rollback** — `Restore as current` creates a new persisted version
+9. **Evidence rollback** — `Restore as current` creates a new persisted version
    from the selected snapshot without overwriting prior versions. The
    demonstration also supports an auto-restore toggle when an incoming update
    is marked as invalidating the current packet.
-9. **Update alerts** — the HyperTrace view polls for newer evidence versions,
+10. **Update alerts** — the HyperTrace view polls for newer evidence versions,
    displays an in-context alert, and provides a demonstration-only control for
    simulating an incoming evidence record. This is session polling, not a live
    platform event stream.
-10. **Submitted-judgment revision** — in demonstration mode, a submitted final
+11. **Provider-neutral evidence ingestion** — `POST /api/preview/evidence/ingest`
+   accepts normalized records from a platform adapter, validates provenance
+   fields and timestamps, creates a versioned evidence snapshot, and reports
+   duplicate records without creating another version. The session endpoint
+   (`/api/session/{session_id}/evidence/ingest`) is disabled by default and can
+   only be enabled explicitly with `HYPERTRACE_ENABLE_EVIDENCE_INGEST=1`.
+12. **Submitted-judgment revision** — in demonstration mode, a submitted final
    judgment can be revised. Each revision updates the current response and is
    appended to the SQLite `judgment_revisions` history with its reason and
    timestamp. The formal private deployment keeps this capability disabled by
    default.
-11. **Post-task questionnaire** — collects trust/calibration, clarity,
+13. **Post-task questionnaire** — collects trust/calibration, clarity,
    workload, evidence usefulness, and optional comments.
-12. **Admin export (when configured)** — the private deployment provides the
+14. **Admin export (when configured)** — the private deployment provides the
     protected `/admin` console and aggregate CSV export using `ADMIN_TOKEN`.
 
 ## Recording workflow
@@ -99,12 +109,36 @@ demonstration database or screenshots as human-subject study results.
 
 ## Scope limitations
 
-The current prototype does not implement a real platform event stream or
-arbitrary graph-layout diffing. Update alerts use periodic polling, and the
-demonstration update is synthetic. Version history, evidence rollback, and
-judgment revision are persisted for the active SQLite deployment; review-state
-rollback of an earlier judgment is represented by the revision history rather
-than destructive replacement.
+The current prototype does not implement a real platform event stream,
+continuous online model updating, or arbitrary graph-layout diffing. The
+provider-neutral ingestion endpoint is an adapter contract: it validates and
+versions normalized evidence but does not fetch platform data, retrain the
+detector, or claim real-time monitoring. Update alerts use periodic polling,
+and the demonstration update is synthetic. Version history, evidence rollback,
+and judgment revision are persisted for the active SQLite deployment;
+review-state rollback of an earlier judgment is represented by the revision
+history rather than destructive replacement.
+
+Example ingestion request (SHA-256 values are placeholders):
+
+```json
+{
+  "trial_index": 0,
+  "case_id": "DEMO-A01",
+  "provider": "example-platform-adapter",
+  "source_bundle_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "records": [{
+    "evidence_id": "EV-INGEST-01",
+    "source_record_id": "provider-record-01",
+    "timestamp": "2019-04-04T10:00:00+00:00",
+    "event_type": "retweet",
+    "relation_type": "amplifies",
+    "text": "Normalized provider record"
+  }],
+  "invalidates_current": false,
+  "reason": "Provider evidence ingestion"
+}
+```
 
 The formal protocol assigns eight cases per participant. Each case records an
 initial unaided judgment, an explicit model-assistance reveal, and a final

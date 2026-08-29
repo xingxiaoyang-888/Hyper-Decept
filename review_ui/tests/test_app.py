@@ -255,6 +255,9 @@ def test_local_preview_switches_conditions_without_exposing_labels(tmp_path) -> 
         case = response.json()["case"]
         assert case["view_mode"] == condition
         assert "ground_truth" not in case
+        if condition == "hypertrace_evidence":
+            assert case["alternative_explanations"]
+            assert "ground_truth" not in case["alternative_explanations"][0]
     with module.STORE.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
 
@@ -305,6 +308,84 @@ def test_demo_versions_updates_rollback_and_judgment_revision(tmp_path) -> None:
     assert revision.status_code == 200
     assert revision.json()["revision_no"] == 2
     assert len(revision.json()["history"]) == 2
+
+
+def test_provider_neutral_evidence_ingestion_versions_new_records_and_deduplicates(tmp_path) -> None:
+    module = load_app(tmp_path)
+    client = TestClient(module.app)
+    digest = "a" * 64
+    record = {
+        "evidence_id": "EV-INGEST-01",
+        "source_record_id": "provider-record-01",
+        "timestamp": "2019-04-04T10:00:00+00:00",
+        "event_type": "retweet",
+        "relation_type": "amplifies",
+        "text": "New normalized provider record.",
+    }
+    response = client.post(
+        "/api/preview/evidence/ingest",
+        json={
+            "trial_index": 0,
+            "case_id": "DEMO-A01",
+            "provider": "example-platform-adapter",
+            "source_bundle_hash": digest,
+            "records": [record],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "new_version"
+    assert response.json()["records_added"] == 1
+    assert response.json()["current_version_id"] == "v3"
+    duplicate = client.post(
+        "/api/preview/evidence/ingest",
+        json={
+            "trial_index": 0,
+            "case_id": "DEMO-A01",
+            "provider": "example-platform-adapter",
+            "source_bundle_hash": digest,
+            "records": [record],
+        },
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["status"] == "duplicate_only"
+    assert duplicate.json()["current_version_id"] == "v3"
+
+
+def test_provider_neutral_ingestion_rejects_missing_provenance_fields(tmp_path) -> None:
+    module = load_app(tmp_path)
+    client = TestClient(module.app)
+    response = client.post(
+        "/api/preview/evidence/ingest",
+        json={
+            "trial_index": 0,
+            "case_id": "DEMO-A01",
+            "provider": "adapter",
+            "source_bundle_hash": "b" * 64,
+            "records": [{"evidence_id": "missing-fields"}],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_formal_deployment_disables_provider_ingestion_by_default(tmp_path) -> None:
+    module = load_app(tmp_path, ROOT / "data" / "study_cases.private.json")
+    client = TestClient(module.app)
+    response = client.post(
+        "/api/session/not-a-session/evidence/ingest",
+        json={
+            "trial_index": 0,
+            "case_id": "PRIVATE-A01",
+            "provider": "adapter",
+            "source_bundle_hash": "c" * 64,
+            "records": [{
+                "evidence_id": "EV-INGEST-FORMAL-01",
+                "source_record_id": "provider-record-01",
+                "timestamp": "2019-04-04T10:00:00+00:00",
+                "event_type": "retweet",
+            }],
+        },
+    )
+    assert response.status_code == 403
 
 
 def test_formal_initial_payload_contains_only_common_case_evidence(tmp_path) -> None:

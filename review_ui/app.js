@@ -170,7 +170,10 @@ function renderSignals(caseData) {
 function renderTrace(caseData) {
   const visible = caseData.view_mode === "hypertrace_evidence";
   byId("traceSection").hidden = !visible;
-  if (!visible) return;
+  if (!visible) {
+    byId("alternativePanel").hidden = true;
+    return;
+  }
 
   const explanation = caseData.explanation || {};
   const audit = caseData.audit || {};
@@ -186,6 +189,8 @@ function renderTrace(caseData) {
   byId("timestampValue").textContent = percent(audit.timestamp_coverage, 0);
   byId("voteValue").textContent = percent(explanation.prototype_vote_agreement, 0);
 
+  renderAlternativeExplanations(caseData);
+
   const evidence = caseData.evidence || [];
   byId("evidenceCount").textContent = `${evidence.length} records`;
   byId("evidenceRows").innerHTML = evidence.length
@@ -198,6 +203,37 @@ function renderTrace(caseData) {
       </tr>`).join("")
     : '<tr><td colspan="4" class="empty-cell">No text excerpt is available for this evidence unit.</td></tr>';
   renderVersionHistory(caseData);
+}
+
+function renderAlternativeExplanations(caseData) {
+  const panel = byId("alternativePanel");
+  const list = byId("alternativeRows");
+  const alternatives = Array.isArray(caseData.alternative_explanations)
+    ? caseData.alternative_explanations
+    : [];
+  // Alternatives are optional and deliberately absent from formal case bundles
+  // unless they have been independently authored and provenance-linked.
+  panel.hidden = !state.preview || alternatives.length === 0;
+  if (panel.hidden) {
+    list.innerHTML = "";
+    return;
+  }
+  list.innerHTML = alternatives.map((item, index) => {
+    const supports = Array.isArray(item.supporting_evidence) ? item.supporting_evidence : [];
+    const challenges = Array.isArray(item.challenging_evidence) ? item.challenging_evidence : [];
+    const evidenceList = (records, emptyText) => records.length
+      ? records.map(record => `<li><code>${escapeHtml(record.evidence_id || "unresolved")}</code><span>${escapeHtml(record.note || "Source record available")}</span></li>`).join("")
+      : `<li class="alternative-empty">${escapeHtml(emptyText)}</li>`;
+    return `
+      <article class="alternative-card">
+        <div class="alternative-card-heading"><span class="alternative-index">${String(index + 1).padStart(2, "0")}</span><h4>${escapeHtml(item.title || "Alternative explanation")}</h4><span class="uncertainty">${escapeHtml(item.uncertainty || "Uncertainty not assessed")}</span></div>
+        <p class="alternative-hypothesis">${escapeHtml(item.hypothesis || "No hypothesis text is available.")}</p>
+        <div class="alternative-evidence-grid">
+          <div><span class="alternative-label">Supports</span><ul>${evidenceList(supports, "No supporting records linked")}</ul></div>
+          <div><span class="alternative-label">Challenges / missing</span><ul>${evidenceList(challenges, "No challenging record linked")}</ul></div>
+        </div>
+      </article>`;
+  }).join("");
 }
 
 function evidenceKey(record) {

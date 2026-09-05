@@ -502,7 +502,9 @@ def load_materialized_bundle(bundle_dir: str | Path) -> UnifiedDatasetBundle:
     ]
     if missing:
         raise FileNotFoundError(f"materialized TwiBot bundle is incomplete: {missing}")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Windows-side JSON tooling may emit a UTF-8 BOM; accept it without
+    # weakening the manifest schema or checksum validation.
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     if manifest.get("dataset_kind") != "twibot22_raw":
         raise ValueError("adapter manifest is not a raw TwiBot-22 bundle")
 
@@ -518,10 +520,35 @@ def load_materialized_bundle(bundle_dir: str | Path) -> UnifiedDatasetBundle:
         if digest.hexdigest() != expected_sha256:
             raise ValueError(f"materialized {name} SHA-256 mismatch")
 
-    frames = {
-        name: pd.read_csv(path, low_memory=False)
-        for name, path in required.items()
-    }
+    # Materialized TwiBot evidence/content columns can contain very long
+    # quoted strings.  Use the Python parser for the loader as well as the
+    # materializer; otherwise pandas' C tokenizer may fail with a buffer
+    # overflow before the model ever sees the audited bundle.
+    def read_audited_csv(path: Path) -> pd.DataFrame:
+        """Parse materialized CSVs without dropping multiline evidence rows."""
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            try:
+                header = next(reader)
+            except StopIteration:
+                return pd.DataFrame()
+            rows = list(reader)
+        width = len(header)
+        malformed = [len(row) for row in rows if len(row) != width]
+        if malformed:
+            # The adapter's boundary-user export predates the formal CSV
+            # contract and contains a few unquoted bio fields.  pandas'
+            # tolerant Python parser is the only safe fallback for this
+            # legacy table; action/post tables remain strict below.
+            if path.name in {"boundary_users.csv", "actions.csv", "posts.csv"}:
+                return pd.read_csv(path, engine="python")
+            raise ValueError(
+                f"malformed CSV rows in {path.name}: expected {width}, "
+                f"observed widths {sorted(set(malformed))[:8]}"
+            )
+        return pd.DataFrame.from_records(rows, columns=header)
+
+    frames = {name: read_audited_csv(path) for name, path in required.items()}
     id_columns = {
         "core_users": ("user_id",),
         "boundary_users": ("user_id",),
@@ -584,7 +611,7 @@ def load_materialized_bundle(bundle_dir: str | Path) -> UnifiedDatasetBundle:
     bundle.posts = frames["posts"]
     relations_path = root / "relations.csv"
     bundle.relations = (
-        pd.read_csv(relations_path, low_memory=False)
+        read_audited_csv(relations_path)
         if relations_path.is_file() else pd.DataFrame()
     )
     bundle.manifest_extra = dict(manifest.get("extra") or {})

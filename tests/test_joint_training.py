@@ -1,7 +1,9 @@
 import importlib.util
+import json
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import torch
@@ -134,10 +136,104 @@ def _mgtab_manifest(root):
     )
 
 
+def test_disk_graph_cache_roundtrip_and_metadata(tmp_path):
+    module = _load_module()
+    graph = _graph(4)
+    target = tmp_path / "toy.pt"
+    contract = {"schema_version": module.GRAPH_CACHE_SCHEMA, "episode_id": "toy"}
+    module._write_disk_graph_cache(
+        target,
+        graph=graph,
+        contract=contract,
+        digest="abc123",
+    )
+
+    loaded = module._load_disk_graph_cache(target, "abc123")
+    assert loaded is not None
+    assert loaded.node_types == graph.node_types
+    assert loaded.edge_types == graph.edge_types
+    assert torch.equal(loaded["user"].x, graph["user"].x)
+    metadata = json.loads(target.with_suffix(".json").read_text())
+    assert metadata["cache_digest"] == "abc123"
+    assert module._load_disk_graph_cache(target, "different") is None
+
+
+def test_concurrent_graph_cache_writes_use_independent_temporary_files(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    module = _load_module()
+    target = tmp_path / "concurrent.pt"
+    graph = _graph(4)
+    contract = {"schema_version": module.GRAPH_CACHE_SCHEMA, "episode_id": "toy"}
+
+    def write() -> None:
+        module._write_disk_graph_cache(
+            target, graph=graph, contract=contract, digest="concurrent"
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(lambda _: write(), range(8)))
+
+    assert module._load_disk_graph_cache(target, "concurrent") is not None
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_graph_cache_contract_changes_when_source_changes(tmp_path):
+    module = _load_module()
+    features = tmp_path / "features.csv"
+    source = tmp_path / "episode.db"
+    features.write_text("user_id,feature\nu0,1\n", encoding="utf-8")
+    source.write_bytes(b"version-one")
+    manifest = EpisodeManifest(
+        episode_id="sim:cache:test",
+        dataset_name="simulation",
+        domain="synthetic",
+        purpose="simulation_main",
+        partition="pool",
+        split_level="scenario",
+        source_path=str(source),
+        identity_scope="episode",
+        scenario_id="cache",
+        simulation_seed=1,
+        num_agents=1,
+        artifacts={"features_csv": str(features), "labels_csv": str(features)},
+    )
+    _, first = module._graph_cache_contract(
+        manifest, feature_columns=("feature",), similarity_threshold=0.7
+    )
+    source.write_bytes(b"version-two")
+    _, second = module._graph_cache_contract(
+        manifest, feature_columns=("feature",), similarity_threshold=0.7
+    )
+    assert first != second
+
+
+def test_train_epoch_can_resume_inside_an_epoch():
+    module = _load_module()
+    trainer = SimpleNamespace(epoch=2)
+    trainer.train_step = lambda real, synthetic: {"loss": 1.0}
+    callbacks = []
+
+    metrics = module.DomainAlternatingTrainer.train_epoch(
+        trainer,
+        ["real-0", "real-1", "real-2"],
+        ["synthetic"],
+        start_step=1,
+        initial_totals={"loss": 1.0},
+        step_callback=lambda completed, total, values: callbacks.append(
+            (completed, total, dict(values))
+        ),
+    )
+
+    assert metrics == {"loss": 1.0}
+    assert callbacks == [(2, 3, {"loss": 2.0}), (3, 3, {"loss": 3.0})]
+    assert trainer.epoch == 3
+
+
 def test_target_alignment_keeps_privileged_labels_synthetic_only():
     module = _load_module()
     real, synthetic = _batches(module)
-    assert real.bot_mask.all()
+    assert real.coordination_mask.all()
     assert not real.role_mask.any()
     assert not real.campaign_mask.any()
     assert not real.temporal_action_mask.any()
@@ -171,8 +267,10 @@ def test_joint_model_accepts_domain_specific_feature_dimensions():
     )
     real_output = model(real.graph, domain="real")
     synthetic_output = model(synthetic.graph, domain="synthetic")
-    assert real_output["bot_logits"].shape == (4,)
-    assert real_output["bot_class_logits"].shape == (4, 2)
+    assert real_output["coordination_logits"].shape == (4,)
+    assert real_output["coordination_class_logits"].shape == (4, 2)
+    assert "bot_logits" not in real_output
+    assert not hasattr(model, "bot_head")
     assert "role_logits" not in real_output
     assert synthetic_output["role_logits"].shape == (4, 3)
     assert synthetic_output["temporal_action_logits"].shape == (4, 2)
@@ -180,7 +278,53 @@ def test_joint_model_accepts_domain_specific_feature_dimensions():
     assert model.geometry_metadata()["decision_geometry"] == (
         "lorentz_distance_prototypes"
     )
-    assert model.geometry_metadata()["domain_specific_bot_heads"] is False
+    assert model.geometry_metadata()["domain_specific_coordination_heads"] is False
+
+
+def test_legacy_bot_head_checkpoint_loads_into_coordination_head():
+    module = _load_module()
+    real, synthetic = _batches(module)
+    metadata = module.merge_heterogeneous_metadata([real.graph, synthetic.graph])
+    model = module.DomainAwareLorentzHGT(
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        metadata=metadata,
+        num_roles=3,
+        num_temporal_actions=2,
+        dropout=0.0,
+    )
+    model(real.graph, domain="real")
+    model(synthetic.graph, domain="synthetic")
+    current_state = model.state_dict()
+    legacy_state = {
+        (
+            key.replace("coordination_head", "bot_head", 1)
+            if key.startswith("coordination_head.")
+            else key
+        ): value
+        for key, value in current_state.items()
+    }
+
+    restored = module.DomainAwareLorentzHGT(
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        metadata=metadata,
+        num_roles=3,
+        num_temporal_actions=2,
+        dropout=0.0,
+    )
+    restored(real.graph, domain="real")
+    restored(synthetic.graph, domain="synthetic")
+    result = restored.load_state_dict(legacy_state)
+
+    assert not result.missing_keys
+    assert not result.unexpected_keys
+    assert torch.equal(
+        restored.coordination_head.prototype_spatial,
+        model.coordination_head.prototype_spatial,
+    )
 
 
 def test_joint_train_step_routes_all_available_losses_and_backpropagates():
@@ -247,7 +391,7 @@ def test_privileged_supervision_is_one_decaying_auxiliary_objective():
     assert late["privileged"] < early["privileged"]
 
 
-def test_dataset_specific_adapters_share_one_bot_prototype_head():
+def test_dataset_specific_adapters_share_one_coordination_prototype_head():
     module = _load_module()
     real, _ = _batches(module)
     metadata = module.merge_heterogeneous_metadata([real.graph])
@@ -263,7 +407,11 @@ def test_dataset_specific_adapters_share_one_bot_prototype_head():
     )
     twibot = model(real.graph, domain="real", dataset_name="twibot22")
     mgtab = model(real.graph, domain="real", dataset_name="mgtab")
-    assert twibot["bot_logits"].shape == mgtab["bot_logits"].shape == (4,)
+    assert (
+        twibot["coordination_logits"].shape
+        == mgtab["coordination_logits"].shape
+        == (4,)
+    )
     assert model.geometry_metadata()["dataset_domains"] == [
         "twibot22", "mgtab", "simulation"
     ]
@@ -280,8 +428,8 @@ def test_real_episode_rejects_privileged_ground_truth_masks():
             episode_id="bad-real",
             domain="real",
             graph=graph,
-            bot_targets=values,
-            bot_mask=torch.ones(4, dtype=torch.bool),
+            coordination_targets=values,
+            coordination_mask=torch.ones(4, dtype=torch.bool),
             role_targets=torch.zeros(4, dtype=torch.long),
             role_mask=privileged,
             campaign_targets=torch.zeros(4, dtype=torch.long),
@@ -348,7 +496,7 @@ def test_manifest_loader_reuses_graph_builder_and_explicit_feature_contract(tmp_
         similarity_threshold=1.1,
     )
     assert batch.graph["user"].node_ids == ["u0", "u1", "u2", "u3"]
-    assert batch.bot_targets.tolist() == [0.0, 0.0, 1.0, 1.0]
+    assert batch.coordination_targets.tolist() == [0.0, 0.0, 1.0, 1.0]
     assert batch.role_mask.all()
     assert batch.temporal_action_mask.all()
 
@@ -365,7 +513,7 @@ def test_manifest_loader_uses_mgtab_adapter_and_preserves_transductive_graph(
     assert batch.dataset_name == "mgtab"
     assert batch.domain == "real"
     assert batch.graph["user"].x.shape == (60, 789)
-    assert batch.bot_mask.sum() == 42
+    assert batch.coordination_mask.sum() == 42
     assert batch.graph["user"].num_nodes == 60
     assert not batch.role_mask.any()
     assert not batch.campaign_mask.any()
@@ -429,8 +577,8 @@ def test_neighbor_sample_masks_context_users_out_of_supervised_losses():
     )
     sliced = module.episode_batch_from_neighbor_sample(parent, sample)
     assert sliced.graph["user"].node_ids == ["u2", "u0", "u3"]
-    assert sliced.bot_targets.tolist() == [1.0, 0.0, 1.0]
-    assert sliced.bot_mask.tolist() == [True, True, False]
+    assert sliced.coordination_targets.tolist() == [1.0, 0.0, 1.0]
+    assert sliced.coordination_mask.tolist() == [True, True, False]
     assert sliced.role_mask.tolist() == [True, True, False]
 
 
@@ -483,8 +631,8 @@ def test_manifest_loader_applies_real_node_split_without_graph_leakage(tmp_path)
     validation = module.load_episode_batch_from_manifest(
         manifest, node_split="val", similarity_threshold=1.1
     )
-    assert train.bot_mask.tolist() == [True, True, False, False]
-    assert validation.bot_mask.tolist() == [False, False, True, False]
+    assert train.coordination_mask.tolist() == [True, True, False, False]
+    assert validation.coordination_mask.tolist() == [False, False, True, False]
     assert not train.role_mask.any()
 
 
@@ -518,9 +666,9 @@ def test_manifest_loader_routes_mgtab_tensors_to_episode_batch_and_hgt(tmp_path)
 
     assert train.dataset_name == "mgtab"
     assert train.graph["user"].x.shape == (60, 789)
-    assert int(train.bot_mask.sum()) == 42
-    assert int(validation.bot_mask.sum()) == 12
-    assert int(test.bot_mask.sum()) == 6
+    assert int(train.coordination_mask.sum()) == 42
+    assert int(validation.coordination_mask.sum()) == 12
+    assert int(test.coordination_mask.sum()) == 6
     assert not train.role_mask.any()
     assert not train.campaign_mask.any()
     assert not train.temporal_action_mask.any()
@@ -537,8 +685,8 @@ def test_manifest_loader_routes_mgtab_tensors_to_episode_batch_and_hgt(tmp_path)
         dropout=0.0,
     )
     output = model(train.graph, domain="real", dataset_name="mgtab")
-    assert output["bot_logits"].shape == (60,)
-    assert torch.isfinite(output["bot_logits"]).all()
+    assert output["coordination_logits"].shape == (60,)
+    assert torch.isfinite(output["coordination_logits"]).all()
 
     _, complete_labels, _ = MGTABAdapter(tmp_path, split_seed=42).load()
     split_path = write_split_csv(
@@ -559,7 +707,7 @@ def test_manifest_loader_routes_mgtab_tensors_to_episode_batch_and_hgt(tmp_path)
     declared = module.load_episode_batch_from_manifest(
         declared_manifest, node_split="train"
     )
-    assert int(declared.bot_mask.sum()) == 42
+    assert int(declared.coordination_mask.sum()) == 42
     assert declared.graph.adapter_manifest["split_source"] == "declared_csv"
     assert len(declared.graph.adapter_manifest["split_file_sha256"]) == 64
 
@@ -580,7 +728,7 @@ def test_evaluation_and_checkpoint_record_calibration_and_geometry(tmp_path):
     model(real.graph, domain="real")
     model(synthetic.graph, domain="synthetic")
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    metrics = module.evaluate_bot_batch(model, real)
+    metrics = module.evaluate_coordination_batch(model, real)
     assert {"auroc", "auprc", "f1", "brier", "ece"}.issubset(metrics)
     checkpoint = module.save_joint_checkpoint(
         tmp_path / "model.pt",
@@ -593,7 +741,7 @@ def test_evaluation_and_checkpoint_record_calibration_and_geometry(tmp_path):
         metrics=metrics,
     )
     payload = torch.load(checkpoint, map_location="cpu")
-    assert payload["schema_version"] == "hyperdecept.joint-checkpoint.v1"
+    assert payload["schema_version"] == "hyperdecept.joint-checkpoint.v2"
     assert payload["plan_id"] == "plan-v1"
     assert payload["geometry"]["geometry_backend"] == (
         "domain_aware_intrinsic_lorentz"

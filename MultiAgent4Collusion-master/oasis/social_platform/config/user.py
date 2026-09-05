@@ -13,6 +13,7 @@
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
 # flake8: noqa: E501
 import json
+import os
 import random
 import sys
 import logging
@@ -205,7 +206,14 @@ class UserInfo:
                     self_description=self_description, safety_prompt=safety_prompt,
                     persuasion_prompt=persuasion_prompt)
         system_content = system_content.strip()
-        logger.debug(f"{self.name} System content: \n{system_content}")
+        if os.getenv("OASIS_LOG_FULL_PROMPTS") == "1":
+            logger.debug(f"{self.name} System content: \n{system_content}")
+        else:
+            logger.debug(
+                "%s system prompt prepared: chars=%s",
+                self.name,
+                len(system_content),
+            )
         return system_content
 
     def to_reddit_system_message(self, action_space_prompt: str = None) -> str:

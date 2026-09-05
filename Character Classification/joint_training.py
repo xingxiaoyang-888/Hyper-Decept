@@ -1,7 +1,7 @@
 """Domain-aware episodic joint training for HyperDecept.
 
 This module reuses :class:`IntrinsicLorentzHGT` as the shared encoder while
-keeping real-world bot supervision separate from privileged simulation labels.
+keeping coordination supervision separate from privileged simulation labels.
 It deliberately does not concatenate real and generated rows into one table:
 each graph remains an auditable episode and the optimizer alternates domains.
 """
@@ -11,11 +11,17 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 from itertools import cycle
+import json
+import os
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
+import re
+from typing import Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+import uuid
 
 import torch
 import torch.nn.functional as F
+
+from coordination_contract import CoordinationCheckpointMixin
 
 from lorentz_hgt import (
     IntrinsicLorentzHGT,
@@ -37,6 +43,133 @@ DEFAULT_FEATURE_COLUMNS = (
     "Dark_Triad_Max", "Contagion_Mean", "Contagion_Max",
     "Volatility_Mean", "Volatility_Max",
 )
+
+# One process loads the same transductive real graph for train/validation/test
+# masks.  Rebuilding a 1GB TwiBot materialization three times is unnecessary
+# and does not change node features or topology.
+_EPISODE_GRAPH_CACHE: dict[tuple, object] = {}
+GRAPH_CACHE_SCHEMA = "hyperdecept.episode-graph-cache.v1"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _graph_cache_contract(
+    manifest,
+    *,
+    feature_columns: Sequence[str],
+    similarity_threshold: float,
+) -> tuple[dict, str]:
+    """Return a content-addressed identity for one immutable episode graph."""
+    artifacts = dict(getattr(manifest, "artifacts", {}) or {})
+    inputs = {}
+    candidates = {
+        "features_csv": artifacts.get("features_csv"),
+        "post_embeddings": artifacts.get("post_embeddings"),
+        "adapter_manifest_json": artifacts.get("adapter_manifest_json"),
+    }
+    source = Path(str(manifest.source_path)).expanduser().resolve()
+    if source.is_file():
+        candidates["source_path"] = str(source)
+    for name, value in candidates.items():
+        if not value:
+            continue
+        path = Path(str(value)).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"graph cache input does not exist: {name}={path}")
+        inputs[name] = {
+            "path": str(path),
+            "bytes": path.stat().st_size,
+            "sha256": _sha256_file(path),
+        }
+    contract = {
+        "schema_version": GRAPH_CACHE_SCHEMA,
+        "episode_id": str(manifest.episode_id),
+        "dataset_name": str(manifest.dataset_name),
+        "domain": str(manifest.domain),
+        "feature_columns": list(feature_columns),
+        "similarity_threshold": float(similarity_threshold),
+        "inputs": inputs,
+    }
+    payload = json.dumps(contract, sort_keys=True, separators=(",", ":"))
+    return contract, hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_trusted_torch(path: Path, *, map_location="cpu"):
+    """Load a locally generated cache across supported PyTorch versions."""
+    try:
+        return torch.load(path, map_location=map_location, weights_only=False)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
+
+
+def _load_disk_graph_cache(cache_path: Path, digest: str):
+    metadata_path = cache_path.with_suffix(".json")
+    if not cache_path.is_file() or not metadata_path.is_file():
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if metadata.get("schema_version") != GRAPH_CACHE_SCHEMA:
+        return None
+    if metadata.get("cache_digest") != digest:
+        return None
+    graph = _load_trusted_torch(cache_path, map_location="cpu")
+    if not hasattr(graph, "metadata") or "user" not in graph.node_types:
+        raise ValueError(f"invalid cached episode graph: {cache_path}")
+    return graph
+
+
+def _write_disk_graph_cache(
+    cache_path: Path,
+    *,
+    graph,
+    contract: Mapping[str, object],
+    digest: str,
+) -> None:
+    """Atomically persist one CPU graph and its auditable cache contract."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    graph = graph.cpu()
+    metadata_path = cache_path.with_suffix(".json")
+    token = f"{os.getpid()}.{uuid.uuid4().hex}"
+    graph_tmp = cache_path.with_suffix(cache_path.suffix + f".{token}.tmp")
+    metadata_tmp = metadata_path.with_suffix(
+        metadata_path.suffix + f".{token}.tmp"
+    )
+    metadata = {
+        "schema_version": GRAPH_CACHE_SCHEMA,
+        "cache_digest": digest,
+        "contract": dict(contract),
+        "node_types": list(graph.node_types),
+        "edge_types": [list(value) for value in graph.edge_types],
+    }
+
+    def publish(temporary: Path, target: Path) -> None:
+        try:
+            temporary.replace(target)
+        except PermissionError:
+            # Windows can reject two simultaneous replacements even though
+            # both writers are publishing the same content-addressed cache.
+            if not target.is_file():
+                raise
+
+    try:
+        torch.save(graph, graph_tmp)
+        metadata_tmp.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        publish(graph_tmp, cache_path)
+        publish(metadata_tmp, metadata_path)
+    finally:
+        graph_tmp.unlink(missing_ok=True)
+        metadata_tmp.unlink(missing_ok=True)
 
 
 def merge_heterogeneous_metadata(graphs: Iterable[object]):
@@ -61,8 +194,8 @@ class EpisodeBatch:
     episode_id: str
     domain: str
     graph: object
-    bot_targets: torch.Tensor
-    bot_mask: torch.Tensor
+    coordination_targets: torch.Tensor
+    coordination_mask: torch.Tensor
     role_targets: torch.Tensor
     role_mask: torch.Tensor
     campaign_targets: torch.Tensor
@@ -82,8 +215,8 @@ class EpisodeBatch:
             raise ValueError("episode graph must contain user nodes")
         num_users = int(self.graph["user"].num_nodes)
         tensors = {
-            "bot_targets": self.bot_targets,
-            "bot_mask": self.bot_mask,
+            "coordination_targets": self.coordination_targets,
+            "coordination_mask": self.coordination_mask,
             "role_targets": self.role_targets,
             "role_mask": self.role_mask,
             "campaign_targets": self.campaign_targets,
@@ -95,7 +228,7 @@ class EpisodeBatch:
             if value.ndim != 1 or value.shape[0] != num_users:
                 raise ValueError(f"{name} must have one value per user node")
         for name in (
-            "bot_mask", "role_mask", "campaign_mask", "temporal_action_mask"
+            "coordination_mask", "role_mask", "campaign_mask", "temporal_action_mask"
         ):
             if getattr(self, name).dtype != torch.bool:
                 raise ValueError(f"{name} must be boolean")
@@ -111,8 +244,8 @@ class EpisodeBatch:
     def to(self, device: torch.device | str) -> "EpisodeBatch":
         self.graph = self.graph.to(device)
         for name in (
-            "bot_targets",
-            "bot_mask",
+            "coordination_targets",
+            "coordination_mask",
             "role_targets",
             "role_mask",
             "campaign_targets",
@@ -155,7 +288,7 @@ def build_episode_batch(
     role_vocabulary: Optional[Mapping[str, int]] = None,
     action_vocabulary: Optional[Mapping[str, int]] = None,
     user_id_column: str = "user_id",
-    bot_column: str = "is_bad",
+    coordination_column: str = "is_bad",
     role_column: str = "role",
     campaign_column: str = "campaign_id",
     action_column: str = "next_action",
@@ -180,8 +313,8 @@ def build_episode_batch(
     lookup = labels.set_index(user_id_column).to_dict("index")
     num_users = len(node_ids)
 
-    bot_targets = torch.zeros(num_users, dtype=torch.float)
-    bot_mask = torch.zeros(num_users, dtype=torch.bool)
+    coordination_targets = torch.zeros(num_users, dtype=torch.float)
+    coordination_mask = torch.zeros(num_users, dtype=torch.bool)
     role_targets = torch.full((num_users,), -1, dtype=torch.long)
     role_mask = torch.zeros(num_users, dtype=torch.bool)
     campaign_targets = torch.full((num_users,), -1, dtype=torch.long)
@@ -203,18 +336,18 @@ def build_episode_batch(
         row = lookup.get(_normalise_identifier(node_id))
         if row is None:
             continue
-        bot_value = _normalise_identifier(row.get(bot_column))
-        if bot_value is not None:
+        coordination_value = _normalise_identifier(row.get(coordination_column))
+        if coordination_value is not None:
             try:
-                parsed_bot = float(bot_value)
+                parsed_coordination = float(coordination_value)
             except ValueError as exc:
                 raise ValueError(
-                    f"invalid binary target for user {node_id}: {bot_value}"
+                    f"invalid binary target for user {node_id}: {coordination_value}"
                 ) from exc
-            if parsed_bot not in {0.0, 1.0}:
+            if parsed_coordination not in {0.0, 1.0}:
                 raise ValueError(f"binary target must be 0 or 1 for user {node_id}")
-            bot_targets[index] = parsed_bot
-            bot_mask[index] = True
+            coordination_targets[index] = parsed_coordination
+            coordination_mask[index] = True
 
         if domain == "synthetic":
             role_value = _numeric_or_vocab(row.get(role_column), role_vocabulary)
@@ -234,8 +367,8 @@ def build_episode_batch(
         episode_id=episode_id,
         domain=domain,
         graph=graph,
-        bot_targets=bot_targets,
-        bot_mask=bot_mask,
+        coordination_targets=coordination_targets,
+        coordination_mask=coordination_mask,
         role_targets=role_targets,
         role_mask=role_mask,
         campaign_targets=campaign_targets,
@@ -293,6 +426,7 @@ def load_episode_batch_from_manifest(
     action_vocabulary: Optional[Mapping[str, int]] = None,
     node_split: Optional[str] = None,
     similarity_threshold: float = 0.7,
+    graph_cache_dir: Optional[str | Path] = None,
 ) -> EpisodeBatch:
     """Load one planned episode through existing feature and graph builders.
 
@@ -521,26 +655,51 @@ def load_episode_batch_from_manifest(
             validate="one_to_one",
         )
 
-    post_embeddings = None
-    post_embeddings_path = artifacts.get("post_embeddings")
-    if post_embeddings_path:
-        post_embeddings = load_post_embeddings(post_embeddings_path)
-    twibot_bundle = None
-    adapter_manifest_path = artifacts.get("adapter_manifest_json")
-    if manifest.dataset_name == "twibot22" and adapter_manifest_path:
-        from data_processing.twibot22_raw_adapter import load_materialized_bundle
-
-        twibot_bundle = load_materialized_bundle(
-            Path(adapter_manifest_path).resolve().parent
-        )
-    graph, _ = build_hetero_data(
-        features["user_id"].tolist(),
-        numeric_features.to_numpy(dtype="float32"),
-        str(manifest.source_path),
-        threshold=similarity_threshold,
-        post_embeddings=post_embeddings,
-        twibot_bundle=twibot_bundle,
+    cache_contract, cache_digest = _graph_cache_contract(
+        manifest,
+        feature_columns=feature_columns,
+        similarity_threshold=similarity_threshold,
     )
+    graph_key = (GRAPH_CACHE_SCHEMA, cache_digest)
+    graph = _EPISODE_GRAPH_CACHE.get(graph_key)
+    cache_path = None
+    if graph is None and graph_cache_dir is not None:
+        safe_episode = re.sub(r"[^A-Za-z0-9_.-]+", "_", manifest.episode_id)
+        cache_path = (
+            Path(graph_cache_dir).expanduser().resolve()
+            / str(manifest.dataset_name)
+            / f"{safe_episode}.{cache_digest[:20]}.pt"
+        )
+        graph = _load_disk_graph_cache(cache_path, cache_digest)
+    if graph is None:
+        post_embeddings = None
+        post_embeddings_path = artifacts.get("post_embeddings")
+        if post_embeddings_path:
+            post_embeddings = load_post_embeddings(post_embeddings_path)
+        twibot_bundle = None
+        adapter_manifest_path = artifacts.get("adapter_manifest_json")
+        if manifest.dataset_name == "twibot22" and adapter_manifest_path:
+            from data_processing.twibot22_raw_adapter import load_materialized_bundle
+
+            twibot_bundle = load_materialized_bundle(
+                Path(adapter_manifest_path).resolve().parent
+            )
+        graph, _ = build_hetero_data(
+            features["user_id"].tolist(),
+            numeric_features.to_numpy(dtype="float32"),
+            str(manifest.source_path),
+            threshold=similarity_threshold,
+            post_embeddings=post_embeddings,
+            twibot_bundle=twibot_bundle,
+        )
+        if cache_path is not None:
+            _write_disk_graph_cache(
+                cache_path,
+                graph=graph,
+                contract=cache_contract,
+                digest=cache_digest,
+            )
+    _EPISODE_GRAPH_CACHE[graph_key] = graph
     return build_episode_batch(
         graph,
         episode_id=manifest.episode_id,
@@ -585,8 +744,8 @@ def episode_batch_from_neighbor_sample(
         episode_id=parent.episode_id,
         domain=parent.domain,
         graph=sampled_graph,
-        bot_targets=slice_values("bot_targets"),
-        bot_mask=slice_values("bot_mask", seed_only=True),
+        coordination_targets=slice_values("coordination_targets"),
+        coordination_mask=slice_values("coordination_mask", seed_only=True),
         role_targets=slice_values("role_targets"),
         role_mask=slice_values("role_mask", seed_only=True),
         campaign_targets=slice_values("campaign_targets"),
@@ -599,7 +758,7 @@ def episode_batch_from_neighbor_sample(
     )
 
 
-class DomainAwareLorentzHGT(torch.nn.Module):
+class DomainAwareLorentzHGT(CoordinationCheckpointMixin, torch.nn.Module):
     """Shared Lorentz encoder with domain-specific inputs and task heads."""
 
     geometry_backend = "domain_aware_intrinsic_lorentz"
@@ -619,6 +778,7 @@ class DomainAwareLorentzHGT(torch.nn.Module):
             "twibot22", "mgtab", "simulation", "real", "synthetic",
         ),
         dropout: float = 0.1,
+        enable_privileged_heads: bool = True,
     ) -> None:
         super().__init__()
         domain_values = tuple(domains)
@@ -634,6 +794,7 @@ class DomainAwareLorentzHGT(torch.nn.Module):
         node_types = tuple(metadata[0])
         self.domains = domain_values
         self.dataset_domains = dataset_values
+        self.enable_privileged_heads = bool(enable_privileged_heads)
         self.feature_adapters = torch.nn.ModuleDict({
             dataset: torch.nn.ModuleDict({
                 node_type: torch.nn.Sequential(
@@ -652,12 +813,13 @@ class DomainAwareLorentzHGT(torch.nn.Module):
             metadata=metadata,
             dropout=dropout,
         )
-        self.bot_head = LorentzPrototypeClassifier(hidden_dim, 2)
-        self.role_head = LorentzPrototypeClassifier(hidden_dim, num_roles)
-        self.campaign_projection = torch.nn.Linear(hidden_dim, campaign_dim)
-        self.temporal_action_head = torch.nn.Linear(
-            hidden_dim, num_temporal_actions
-        )
+        self.coordination_head = LorentzPrototypeClassifier(hidden_dim, 2)
+        if self.enable_privileged_heads:
+            self.role_head = LorentzPrototypeClassifier(hidden_dim, num_roles)
+            self.campaign_projection = torch.nn.Linear(hidden_dim, campaign_dim)
+            self.temporal_action_head = torch.nn.Linear(
+                hidden_dim, num_temporal_actions
+            )
 
     def forward(
         self,
@@ -702,14 +864,16 @@ class DomainAwareLorentzHGT(torch.nn.Module):
         curvature = self.encoder.common_curvature()
         user_lorentz = lorentz_nodes["user"]
         user_tangent = logmap0(user_lorentz, curvature)
-        bot_class_logits = self.bot_head(user_lorentz, curvature)
+        coordination_class_logits = self.coordination_head(user_lorentz, curvature)
         result = {
             "user_lorentz": user_lorentz,
             "user_tangent": user_tangent,
-            "bot_class_logits": bot_class_logits,
-            "bot_logits": bot_class_logits[:, 1] - bot_class_logits[:, 0],
+            "coordination_class_logits": coordination_class_logits,
+            "coordination_logits": (
+                coordination_class_logits[:, 1] - coordination_class_logits[:, 0]
+            ),
         }
-        if domain == "synthetic":
+        if domain == "synthetic" and self.enable_privileged_heads:
             result.update({
                 "role_logits": self.role_head(user_lorentz, curvature),
                 "campaign_embedding": self.campaign_projection(user_tangent),
@@ -724,11 +888,13 @@ class DomainAwareLorentzHGT(torch.nn.Module):
             "domains": list(self.domains),
             "dataset_domains": list(self.dataset_domains),
             "dataset_specific_input_adapters": True,
-            "domain_specific_bot_heads": False,
+            "domain_specific_coordination_heads": False,
             "decision_geometry": "lorentz_distance_prototypes",
-            "bot_prototypes": self.bot_head.num_classes,
-            "role_prototypes": self.role_head.num_classes,
-            "privileged_simulation_heads": ["role", "campaign", "next_action"],
+            "coordination_prototypes": self.coordination_head.num_classes,
+            "privileged_simulation_heads": (
+                ["role", "campaign", "next_action"]
+                if self.enable_privileged_heads else []
+            ),
         })
         return metadata
 
@@ -846,12 +1012,16 @@ def conditional_domain_alignment_loss(
     synthetic_output: Mapping[str, torch.Tensor],
     synthetic_batch: EpisodeBatch,
 ) -> torch.Tensor:
-    """Align domains within bot/human classes to avoid indiscriminate collapse."""
+    """Align domains within coordination classes to avoid indiscriminate collapse."""
     losses = []
     for label in (0.0, 1.0):
-        real_selection = real_batch.bot_mask & (real_batch.bot_targets == label)
+        real_selection = (
+            real_batch.coordination_mask
+            & (real_batch.coordination_targets == label)
+        )
         synthetic_selection = (
-            synthetic_batch.bot_mask & (synthetic_batch.bot_targets == label)
+            synthetic_batch.coordination_mask
+            & (synthetic_batch.coordination_targets == label)
         )
         if real_selection.sum() >= 2 and synthetic_selection.sum() >= 2:
             losses.append(coral_alignment_loss(
@@ -875,9 +1045,11 @@ def hyperbolic_supervised_alignment_loss(
     temperature: float,
 ) -> torch.Tensor:
     """Cross-domain supervised contrastive loss using Lorentz distances."""
-    real_indices = torch.nonzero(real_batch.bot_mask, as_tuple=False).reshape(-1)
+    real_indices = torch.nonzero(
+        real_batch.coordination_mask, as_tuple=False
+    ).reshape(-1)
     synthetic_indices = torch.nonzero(
-        synthetic_batch.bot_mask, as_tuple=False
+        synthetic_batch.coordination_mask, as_tuple=False
     ).reshape(-1)
     if real_indices.numel() < 2 or synthetic_indices.numel() < 2:
         return _zero_like(real_output["user_lorentz"]) + _zero_like(
@@ -885,8 +1057,8 @@ def hyperbolic_supervised_alignment_loss(
         )
     real_points = real_output["user_lorentz"][real_indices]
     synthetic_points = synthetic_output["user_lorentz"][synthetic_indices]
-    real_labels = real_batch.bot_targets[real_indices].to(dtype=torch.long)
-    synthetic_labels = synthetic_batch.bot_targets[synthetic_indices].to(
+    real_labels = real_batch.coordination_targets[real_indices].to(dtype=torch.long)
+    synthetic_labels = synthetic_batch.coordination_targets[synthetic_indices].to(
         dtype=torch.long
     )
     curvature = model.encoder.common_curvature()
@@ -932,7 +1104,7 @@ def compute_episode_losses(
     """Compute detection and one bundled privileged-simulation objective."""
     losses: Dict[str, torch.Tensor] = {}
     reference = output["user_tangent"]
-    if torch.any(batch.bot_mask):
+    if torch.any(batch.coordination_mask):
         configured_positive_weight = (
             config.real_positive_class_weight
             if batch.domain == "real"
@@ -941,18 +1113,18 @@ def compute_episode_losses(
         positive_weight = (
             None
             if configured_positive_weight is None
-            else output["bot_logits"].new_tensor(configured_positive_weight)
+            else output["coordination_logits"].new_tensor(configured_positive_weight)
         )
-        bot_loss = F.binary_cross_entropy_with_logits(
-            output["bot_logits"][batch.bot_mask],
-            batch.bot_targets[batch.bot_mask],
+        coordination_loss = F.binary_cross_entropy_with_logits(
+            output["coordination_logits"][batch.coordination_mask],
+            batch.coordination_targets[batch.coordination_mask],
             pos_weight=positive_weight,
         )
     else:
-        bot_loss = _zero_like(reference)
-    losses["detection"] = config.detection_weight * bot_loss
+        coordination_loss = _zero_like(reference)
+    losses["detection"] = config.detection_weight * coordination_loss
 
-    if batch.domain == "synthetic":
+    if batch.domain == "synthetic" and config.privileged_weight > 0:
         privileged_parts = []
         if torch.any(batch.role_mask):
             privileged_parts.append(
@@ -1079,6 +1251,11 @@ class DomainAlternatingTrainer:
         synthetic_batches: Sequence[EpisodeBatch],
         *,
         max_steps: Optional[int] = None,
+        start_step: int = 0,
+        initial_totals: Optional[Mapping[str, float]] = None,
+        step_callback: Optional[
+            Callable[[int, int, Mapping[str, float]], None]
+        ] = None,
     ) -> Dict[str, float]:
         if not real_batches or not synthetic_batches:
             raise ValueError("both real and synthetic episode sequences are required")
@@ -1087,19 +1264,29 @@ class DomainAlternatingTrainer:
             if max_steps <= 0:
                 raise ValueError("max_steps must be positive")
             steps = min(steps, max_steps)
+        if start_step < 0 or start_step > steps:
+            raise ValueError("start_step must be between zero and the epoch step count")
         real_iterator = cycle(real_batches)
         synthetic_iterator = cycle(synthetic_batches)
-        totals: Dict[str, float] = {}
-        for _ in range(steps):
+        for _ in range(start_step):
+            next(real_iterator)
+            next(synthetic_iterator)
+        totals: Dict[str, float] = {
+            str(name): float(value)
+            for name, value in dict(initial_totals or {}).items()
+        }
+        for step_index in range(start_step, steps):
             values = self.train_step(next(real_iterator), next(synthetic_iterator))
             for name, value in values.items():
                 totals[name] = totals.get(name, 0.0) + value
+            if step_callback is not None:
+                step_callback(step_index + 1, steps, dict(totals))
         self.epoch += 1
         return {name: value / steps for name, value in totals.items()}
 
 
 @torch.no_grad()
-def evaluate_bot_batch(
+def evaluate_coordination_batch(
     model: DomainAwareLorentzHGT,
     batch: EpisodeBatch,
     *,
@@ -1123,11 +1310,11 @@ def evaluate_bot_batch(
         domain=batch.domain,
         dataset_name=batch.dataset_name,
     )
-    mask = batch.bot_mask
+    mask = batch.coordination_mask
     if not torch.any(mask):
-        raise ValueError("evaluation batch contains no bot labels")
-    probabilities = torch.sigmoid(output["bot_logits"][mask]).cpu()
-    targets = batch.bot_targets[mask].to(dtype=torch.long).cpu()
+        raise ValueError("evaluation batch contains no coordination labels")
+    probabilities = torch.sigmoid(output["coordination_logits"][mask]).cpu()
+    targets = batch.coordination_targets[mask].to(dtype=torch.long).cpu()
     predictions = (probabilities >= 0.5).to(dtype=torch.long)
     target_array = targets.numpy()
     probability_array = probabilities.numpy()
@@ -1197,7 +1384,7 @@ def save_joint_checkpoint(
         if name not in omitted_keys
     }
     torch.save({
-        "schema_version": "hyperdecept.joint-checkpoint.v1",
+        "schema_version": "hyperdecept.joint-checkpoint.v2",
         "model_state": serializable_state,
         "uninitialized_model_state_keys": omitted_keys,
         "optimizer_state": optimizer.state_dict(),

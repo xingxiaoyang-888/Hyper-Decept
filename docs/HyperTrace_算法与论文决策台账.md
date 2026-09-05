@@ -77,7 +77,7 @@
 ### 数据事实
 
 - `twibot_1000_multimodal_v5.csv` 包含 1000 个有监督核心用户；
-- `twibot_1000_v5.db` 额外包含 2904 个一阶外部邻居；
+- 历史 `twibot_1000_v5.db` 曾额外包含 2904 个一阶外部邻居；该静态 V5 产物不再进入当前 P2，正式边界节点由官方 TwiBot-22 raw adapter 按审计 core 集合确定。
 - 派生 DB 未保留原始 tweet ID 和时间戳，因此只能声明静态能力；
 - `user_char` 在该导出中是公开 profile description，适配时重命名为 `bio`。
 

@@ -1,0 +1,31 @@
+Linear mixed model fit by REML ['lmerMod']
+Formula: log_review_time ~ condition + operation + (1 | participant) +  
+    (1 | case_id)
+   Data: data
+Control: lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e+05))
+
+REML criterion at convergence: -59.3
+
+Scaled residuals: 
+     Min       1Q   Median       3Q      Max 
+-2.96809 -0.65579  0.00451  0.63504  2.68539 
+
+Random effects:
+ Groups      Name        Variance Std.Dev.
+ participant (Intercept) 0.007302 0.08545 
+ case_id     (Intercept) 0.002882 0.05368 
+ Residual                0.036534 0.19114 
+Number of obs: 240, groups:  participant, 30; case_id, 23
+
+Fixed effects:
+                             Estimate Std. Error t value
+(Intercept)                   3.90062    0.04256  91.640
+conditionstandard_signals     0.46280    0.04880   9.484
+conditionhypertrace_evidence  0.80753    0.04880  16.546
+operationuae                 -0.04860    0.03987  -1.219
+
+Correlation of Fixed Effects:
+            (Intr) cndtns_ cndtnh_
+cndtnstndr_ -0.570                
+cndtnhyprt_ -0.562  0.500         
+operationua -0.459 -0.009  -0.024 

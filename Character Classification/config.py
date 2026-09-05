@@ -23,26 +23,6 @@ DATASET_PRESETS = {
         PROJECT_ROOT / "data" / "simu_db" / "test.db",
         PROJECT_ROOT / "data" / "72agent_deeppersonal.csv",
     ),
-    "twibot120": (
-        PROJECT_ROOT / "data" / "twibot_120_v5.db",
-        PROJECT_ROOT / "data" / "twibot_120_multimodal_v5.csv",
-    ),
-    "twibot_120": (
-        PROJECT_ROOT / "data" / "twibot_120_v5.db",
-        PROJECT_ROOT / "data" / "twibot_120_multimodal_v5.csv",
-    ),
-    "twibot1000": (
-        PROJECT_ROOT / "data" / "twibot_1000_v5.db",
-        PROJECT_ROOT / "data" / "twibot_1000_multimodal_v5.csv",
-    ),
-    "twibot": (
-        PROJECT_ROOT / "data" / "twibot_1000_v5.db",
-        PROJECT_ROOT / "data" / "twibot_1000_multimodal_v5.csv",
-    ),
-    "twibot_1000": (
-        PROJECT_ROOT / "data" / "twibot_1000_v5.db",
-        PROJECT_ROOT / "data" / "twibot_1000_multimodal_v5.csv",
-    ),
     "sim1000": (
         PROJECT_ROOT / "data" / "simu_db" / "test_1000_ver2.db",
         PROJECT_ROOT / "data" / "simu_db" / "test_1000_good_bad_random_bernoulli_.csv",
@@ -83,10 +63,6 @@ def resolve_repo_path(path: Optional[str]) -> Optional[Path]:
 
 def infer_dataset_key(db_path: Optional[str] = None, csv_path: Optional[str] = None) -> str:
     target = " ".join(str(p).lower() for p in (db_path, csv_path) if p)
-    if "twibot_120" in target or "120_multimodal" in target:
-        return "twibot120"
-    if "twibot" in target:
-        return "twibot1000"
     if "test_72" in target or "72agent" in target:
         return "agent72"
     if "test_1000_ver2" in target or "simu_db" in target:

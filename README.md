@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-﻿# Hyper-Decept
-=======
 # Hyper-Decept
->>>>>>> 4e5cd7dbb773e7dde52f6115a880e1494584129c
 
 HyperDecept: A cross-dimensional multimodal framework integrating LLM-native psychological profiling and hyperbolic graph learning for detecting coordinated multi-agent deception.
 
@@ -106,7 +102,6 @@ HyperDecept: A cross-dimensional multimodal framework integrating LLM-native psy
 ### System Requirements
 
 - **Python**: 3.10+ (recommended 3.11)
-<<<<<<< HEAD
 - **GPU**: CUDA-compatible GPU recommended for LLM inference and model training (CPU fallback available)
 - **RAM**: 16GB+ minimum, 32GB+ recommended for large-scale simulations
 
@@ -137,7 +132,6 @@ pip install ijson
 
 # Neo4j visualization (optional, for dynamic follow networks)
 pip install neo4j
-=======
 - **GPU**: CUDA-compatible GPU recommended (CPU fallback available)
 - **RAM**: 16GB+ minimum, 32GB+ for large-scale simulation
 
@@ -146,13 +140,11 @@ pip install neo4j
 ```bash
 # Install all required packages
 pip install -r requirements.txt
->>>>>>> 4e5cd7dbb773e7dde52f6115a880e1494584129c
 
 # Download spaCy language model
 python -m spacy download en_core_web_sm
 ```
 
-<<<<<<< HEAD
 ### Environment Variables (for LLM-based components)
 
 ```bash
@@ -323,26 +315,16 @@ volatility_result = volatility.evaluate_agent(tweets)
 
 ---
 
-### Step 5: Adapt Simulation Data (`data_processing`)
+### Step 5: Build audited episode artifacts (`data_processing`)
 
 > **What**: Converts raw simulation output (or TwiBot-22 benchmark data) into a standardized format (CSV + SQLite) that downstream modules can consume. Handles text truncation, follow-graph sampling, and metadata extraction.
 >
 > **Input**: Raw simulation DB / TwiBot-22 dataset directory
 >
-> **Output**: Standardized `twibot_{N}_v5.db` + `twibot_{N}_multimodal_v5.csv`
+> **Output**: An audited raw/materialized TwiBot-22 bundle or a synthetic episode bundle. The legacy `twibot_{N}_v5.db/csv` sampler is removed and rejected by the current P2 route.
 
-```bash
-# For TwiBot-22 benchmark data:
-cd data_processing
-
-python twinbot_adapter_dynamic.py \
-    --twibot-dir "path/to/twibot22/data" \
-=======
-### HuggingFace Mirror (if blocked in your region)
-
-```bash
-set HF_ENDPOINT=https://hf-mirror.com
-```
+For TwiBot-22, use the official raw directory with the audited adapter and register the
+resulting materialized bundle in the DatasetPlan. The old V5 sampler is intentionally removed.
 
 ---
 ## Core: Multi-Modal Classification & Role Discovery (`Character Classification`)
@@ -375,27 +357,17 @@ For research-grade results, the [TwiBot-22](https://github.com/DigitalHominids/T
 > **Note**: The TwiBot-22 processing pipeline (steps below) takes a **long time** to run. Pre-processed files are available for download: **[link TBD — to be added]**.
 
 **If processing from raw data:**
+
 ```bash
-cd data_processing
-
-python twinbot_adapter_dynamic.py \
-    --twibot-dir "path/to/raw/twibot22" \
->>>>>>> 4e5cd7dbb773e7dde52f6115a880e1494584129c
-    --output-dir "path/to/output" \
-    --total-sample-size 1000 \
-    --max-actions 50 \
-    --max-follows 100
-
-<<<<<<< HEAD
-# Or use the V5.3 interactive version:
-python twinbot_adapter.py
-
-cd ..
+python data_processing/prepare_p2_smoke_data.py twibot \
+  --twibot-dir "path/to/raw/twibot22" \
+  --core-ids "path/to/core_ids.txt" \
+  --output-dir "path/to/bundles/twibot22"
 ```
 
-**Output format**:
-- **CSV**: `user_id`, `user_char` (bio), `followers_count`, `following_count`, `previous_tweets` (pipe-separated), `user_type` (good/bad)
-- **DB Tables**: `user`, `follow`, `agent_actions` (with indexed columns for fast queries)
+The output contract preserves official labels/splits, stable post IDs, observed timestamps,
+one-hop boundary context, and evidence provenance. It never infers campaign, tactical role,
+personality, or unavailable timestamps.
 
 ---
 
@@ -570,12 +542,12 @@ cd Deeppersona/generate_user_profile && python generate_profile.py && cd ../..
 # 2. Build vector store
 cd deeppersona_ai && python profile_chunker.py && python build_vector_store.py && cd ..
 
-# 3. Run a small Twitter simulation (~33 agent inferences, GPT-3.5 cost ~$0.01)
-=======
+# 3. Run a small simulation using the OASIS/DeepPersona instructions in
+#    docs/HyperDecept_P2_Smoke_组员执行指令.md
 cd ..
 ```
 
-This produces the standardized `twibot_{N}_v5.db` and `twibot_{N}_multimodal_v5.csv` files consumed by the core pipeline.
+This produces an auditable simulation episode; it does not produce a legacy TwiBot V5 export.
 
 #### Dataset Presets
 
@@ -584,8 +556,7 @@ All available datasets are configured in `Character Classification/config.py`:
 | `--dataset` | DB file | CSV file | Description |
 |-------------|---------|----------|-------------|
 | `agent72` / `72` | `data/test_72.db` | `data/72agent_deeppersonal.csv` | 72-agent demo (Mode A) |
-| `twibot120` | `data/twibot_120_v5.db` | `data/twibot_120_multimodal_v5.csv` | TwiBot-120 benchmark (Mode B) |
-| `twibot1000` / `twibot` | `data/twibot_1000_v5.db` | `data/twibot_1000_multimodal_v5.csv` | TwiBot-1000 benchmark (Mode B) |
+| `twibot22` | official raw directory / materialized bundle | DatasetPlan artifacts | TwiBot-22 P2 route; no legacy V5 DB/CSV |
 | `sim1000` / `sim` | `data/simu_db/test_1000_ver2.db` | `data/simu_db/test_1000_good_bad_random_bernoulli_.csv` | 1000-agent simulation (Mode A) |
 
 ---
@@ -821,12 +792,10 @@ inference:
 Then launch the simulation:
 
 ```bash
->>>>>>> 4e5cd7dbb773e7dde52f6115a880e1494584129c
 cd MultiAgent4Collusion-master
 python scripts/twitter_gpt_example/twitter_simulation_large.py \
     --config_path scripts/twitter_gpt_example/gpt_example.yaml
 cd ..
-<<<<<<< HEAD
 
 # 4. Run the ultimate detector with the generated DB + CSV
 #    (update DB_FILE and CSV_FILE paths in main_detector.py first)
@@ -856,8 +825,7 @@ project_root/
 │       └── 110_agent.db               # Simulation output
 │
 ├── data/
-│   ├── twibot_1000_v5.db              # Standardized graph database
-│   ├── twibot_1000_multimodal_v5.csv  # Multi-modal feature CSV
+│   ├── bundles/twibot22/               # Audited raw/materialized TwiBot-22 bundle
 │   └── hyperrole_results/
 │       └── hetero_hyperrole_assignments.csv  # Tactical role labels
 │
@@ -883,10 +851,9 @@ project_root/
 ## 📝 Citation
 
 If you use HyperDecept in your research, please cite:
-=======
-```
 
-**Output**: The simulation produces a SQLite database (`.db`) containing the full interaction record (users, posts, follows, likes) and can optionally export a CSV with aggregated features. These files can be consumed by the core detection pipeline.
+**Output**: The simulation produces an auditable SQLite episode plus materialized features,
+labels, event targets, manifest, and checksums consumed by the P2 DatasetPlan.
 
 > **⚠️ Note**: The simulation requires LLM API access (OpenAI, DeepSeek, or compatible) and can be slow for large agent counts. For quick validation of the detection pipeline, use the pre-generated data in `data/` instead.
 
@@ -913,25 +880,23 @@ result = empathy.evaluate_agent(["I lost my job and feel hopeless."])
 **Note**: First run downloads ~2-5 GB of model weights from HuggingFace.
 
 ---
-### Step E: Data Adapter (`data_processing`)
+### Step E: P2 DatasetPlan artifacts (`data_processing`)
 
-> Converts raw TwiBot-22 data into the standardized DB + CSV format consumed by the core pipeline.
+> Converts raw TwiBot-22 data into an audited DatasetPlan bundle consumed by the P2 pipeline.
 
 **Input**: Raw TwiBot-22 dataset directory
-**Output**: Standardized `twibot_{N}_v5.db` + `twibot_{N}_multimodal_v5.csv`
+**Output**: Raw/materialized TwiBot-22 bundle with official labels/splits, observed timestamps,
+stable post IDs, boundary context, provenance, and checksums.
 
 ```bash
-cd data_processing
-python twinbot_adapter_dynamic.py \
+python data_processing/prepare_p2_smoke_data.py twibot \
     --twibot-dir "path/to/twibot22/data" \
-    --output-dir "path/to/output" \
-    --total-sample-size 1000
-cd ..
+    --core-ids "path/to/core_ids.txt" \
+    --output-dir "path/to/bundles/twibot22"
 ```
 
 ---
 ### Citation
->>>>>>> 4e5cd7dbb773e7dde52f6115a880e1494584129c
 
 ```bibtex
 @inproceedings{hyperdecept2025,
@@ -941,8 +906,4 @@ cd ..
   booktitle = {...},
   year      = {2025}
 }
-<<<<<<< HEAD
 ```
-=======
-```
->>>>>>> 4e5cd7dbb773e7dde52f6115a880e1494584129c

@@ -83,6 +83,23 @@ def prepare_twibot(args: argparse.Namespace) -> Path:
     core_path = args.core_ids.expanduser().resolve()
     output_dir = args.output_dir.expanduser().resolve()
     core_ids = load_core_ids(str(core_path))
+    mode = str(getattr(args, "mode", "smoke"))
+    raw_audit = getattr(args, "raw_audit", None)
+    selection_audit = getattr(args, "selection_audit", None)
+    if mode == "formal":
+        missing_audits = [
+            name
+            for name, path in (
+                ("raw audit", raw_audit),
+                ("selection audit", selection_audit),
+            )
+            if path is None or not path.expanduser().resolve().is_file()
+        ]
+        if missing_audits:
+            raise ValueError(
+                "formal TwiBot materialization requires "
+                + " and ".join(missing_audits)
+            )
     if args.expected_core_count is not None and len(core_ids) != args.expected_core_count:
         raise ValueError(
             f"expected {args.expected_core_count} core IDs, found {len(core_ids)}"
@@ -114,8 +131,10 @@ def prepare_twibot(args: argparse.Namespace) -> Path:
 
     manifest = bundle.manifest()
     manifest.update({
-        "schema_version": "hyperdecept.twibot22-smoke.v1",
+        "schema_version": f"hyperdecept.twibot22-{mode}.v1",
         "status": "ready",
+        "mode": mode,
+        "smoke_only": mode == "smoke",
         "source_path": str(root),
         "core_ids_source": str(core_path),
         "core_id_count": len(core_ids),
@@ -127,6 +146,19 @@ def prepare_twibot(args: argparse.Namespace) -> Path:
             if path.is_file()
         },
     })
+    if mode == "formal":
+        raw_audit = raw_audit.expanduser().resolve()
+        selection_audit = selection_audit.expanduser().resolve()
+        manifest["formal_provenance"] = {
+            "raw_audit": {
+                "path": str(raw_audit),
+                "sha256": _sha256(raw_audit),
+            },
+            "selection_audit": {
+                "path": str(selection_audit),
+                "sha256": _sha256(selection_audit),
+            },
+        }
     manifest_path = output_dir / "adapter_manifest.json"
     _write_json(manifest_path, manifest)
     print(json.dumps({
@@ -180,14 +212,31 @@ def prepare_mgtab(args: argparse.Namespace) -> Path:
 
 
 def prepare_twibot_features(args: argparse.Namespace) -> Path:
-    """Build smoke-only 26d features from a materialized raw-adapter bundle."""
+    """Build auditable 26D features from a materialized raw-adapter bundle.
+
+    The semantic projection is fit once on this dataset (not per user).  The
+    four psychology groups are observable lexical proxies over bio/post text;
+    hidden generator personality fields are never read.
+    """
     from sentence_transformers import SentenceTransformer
     from sklearn.decomposition import PCA
 
     root = args.bundle_dir.expanduser().resolve()
     core = pd.read_csv(root / "core_users.csv", low_memory=False)
-    actions = pd.read_csv(root / "actions.csv", low_memory=False)
-    posts = pd.read_csv(root / "posts.csv", low_memory=False)
+    # TwiBot exports contain long evidence/text fields.  The C parser can
+    # overflow its internal token buffer on those rows, while feature
+    # construction only needs a small observable subset.  The Python parser
+    # is slower but robust and keeps the formal materializer deterministic.
+    actions = pd.read_csv(
+        root / "actions.csv",
+        usecols=["actor_id", "action_type", "event_time"],
+        engine="python",
+    )
+    posts = pd.read_csv(
+        root / "posts.csv",
+        usecols=["author_id", "content"],
+        engine="python",
+    )
     core["user_id"] = core["user_id"].astype(str)
     if core["user_id"].duplicated().any():
         raise ValueError("core_users.csv contains duplicate user IDs")
@@ -276,12 +325,44 @@ def prepare_twibot_features(args: argparse.Namespace) -> Path:
     feature["Temporal_Entropy"] = core["user_id"].map(temporal_entropy).fillna(0).to_numpy()
     for name in patterns:
         feature[name] = core["user_id"].map(text_ratios[name]).fillna(0).to_numpy()
-    for name in (
-        "Empathy_Gap_Mean", "Empathy_Gap_Max", "Dark_Triad_Mean",
-        "Dark_Triad_Max", "Contagion_Mean", "Contagion_Max",
-        "Volatility_Mean", "Volatility_Max",
-    ):
-        feature[name] = 0.0
+    # Observable lexical proxies are deliberately simple and auditable.  They
+    # are auxiliary covariates, not labels; each value is a per-user rate and
+    # is recorded as such in the provenance sidecar below.
+    lexicons = {
+        "empathy": {"sorry", "care", "help", "understand", "feel", "support"},
+        "hostile": {"hate", "stupid", "idiot", "destroy", "attack", "enemy"},
+        "dark": {"win", "power", "control", "manipulate", "me", "mine"},
+        "contagion": {"share", "viral", "everyone", "must", "urgent", "trend"},
+        "volatile": {"!", "?", "lol", "wow", "angry", "terrible", "amazing"},
+    }
+    lexical_rows = {}
+    for user_id, group in posts.groupby("author_id") if not posts.empty else ():
+        text = " ".join(group["content"].astype(str)).lower()
+        tokens = set(__import__("re").findall(r"[a-z']+|[!?]", text))
+        total = max(1, len(__import__("re").findall(r"[a-z']+", text)))
+        rates = {name: len(tokens & words) / total for name, words in lexicons.items()}
+        rates["volatility"] = sum(text.count(mark) for mark in ("!", "?")) / total
+        lexical_rows[str(user_id)] = rates
+    empathy_mean, empathy_max, dark_mean, dark_max = [], [], [], []
+    contagion_mean, contagion_max, volatility_mean, volatility_max = [], [], [], []
+    for user_id in core["user_id"]:
+        rates = lexical_rows.get(str(user_id), {})
+        empathy = rates.get("empathy", 0.0) - rates.get("hostile", 0.0)
+        dark = rates.get("dark", 0.0)
+        contagion = rates.get("contagion", 0.0)
+        volatility = rates.get("volatile", 0.0)
+        empathy_mean.append(float(empathy)); empathy_max.append(float(abs(empathy)))
+        dark_mean.append(float(dark)); dark_max.append(float(dark))
+        contagion_mean.append(float(contagion)); contagion_max.append(float(contagion))
+        volatility_mean.append(float(volatility)); volatility_max.append(float(volatility))
+    feature["Empathy_Gap_Mean"] = empathy_mean
+    feature["Empathy_Gap_Max"] = empathy_max
+    feature["Dark_Triad_Mean"] = dark_mean
+    feature["Dark_Triad_Max"] = dark_max
+    feature["Contagion_Mean"] = contagion_mean
+    feature["Contagion_Max"] = contagion_max
+    feature["Volatility_Mean"] = volatility_mean
+    feature["Volatility_Max"] = volatility_max
     feature["user_id"] = core["user_id"].to_numpy()
 
     target = root / "node_features_26d.csv"
@@ -296,10 +377,12 @@ def prepare_twibot_features(args: argparse.Namespace) -> Path:
         "sha256": _sha256(target),
     }
     manifest["feature_contract"] = {
-        "semantic": f"{args.embedding_model}+PCA8_fit_on_smoke_bundle",
+        "semantic": f"{args.embedding_model}+PCA8_fit_on_{args.expected_core_count}_user_bundle",
         "behavioral": "observed_raw_relations_posts_and_timestamps",
-        "psychology": "unavailable_zero_placeholder_smoke_only",
-        "smoke_only": True,
+        "psychology": "observable_lexical_proxy_over_bio_and_posts",
+        "hidden_personality_read": False,
+        "smoke_only": False,
+        "feature_dim": 26,
     }
     _write_json(manifest_path, manifest)
     print(json.dumps({
@@ -455,6 +538,11 @@ def _parser() -> argparse.ArgumentParser:
     twibot.add_argument("--output-dir", required=True, type=Path)
     twibot.add_argument("--expected-core-count", type=int, default=1000)
     twibot.add_argument("--edge-chunksize", type=int, default=250_000)
+    twibot.add_argument(
+        "--mode", choices=("smoke", "formal"), default="smoke"
+    )
+    twibot.add_argument("--raw-audit", type=Path)
+    twibot.add_argument("--selection-audit", type=Path)
     twibot.set_defaults(handler=prepare_twibot)
 
     mgtab = subparsers.add_parser("mgtab", help="prepare the full MGTAB bundle")

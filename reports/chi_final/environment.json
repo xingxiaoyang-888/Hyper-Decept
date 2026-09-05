@@ -1,0 +1,14 @@
+{
+  "python": "3.10.15",
+  "platform": "Linux-3.10.0-1160.el7.x86_64-x86_64-with-glibc2.35",
+  "logical_cpu_count": 128,
+  "torch": "2.3.0a0+6ddf5cf85e.nv24.04",
+  "cuda_runtime": "12.4",
+  "cuda_available": true,
+  "gpu_count": 2,
+  "gpus": [
+    "NVIDIA A800-SXM4-80GB",
+    "NVIDIA A800-SXM4-80GB"
+  ],
+  "git_commit": null
+}

@@ -1,0 +1,261 @@
+% Section 3 body fragment. Consent-procedure details should be completed from
+% the ethics record before submission.
+\section{Formative Study}
+\label{sec:formative}
+
+The formative study examined how participants reason about suspected coordinated
+information operations (CIOs), what makes a coordination claim inspectable, and
+how review support can preserve independent judgment. We used the study to
+derive requirements for HyperTrace rather than to evaluate a finished
+interface. We refer to this activity as a formative interview study, but the
+archived analysis material is structured written response data rather than
+audio-recorded conversational transcripts. The analysis package contains
+anonymized responses from ten participants (P01--P10). The material analyzed for the
+findings comprised the complete responses to questions Q3--Q6, yielding 40
+response-level meaning units. Q2 was retained only as background information
+and was not used to derive themes. Names, contact information, IP addresses,
+and submission metadata were excluded before analysis.
+
+\subsection{Participants and Materials}
+\label{sec:formative-participants}
+
+The ten participants had approximately two years of research experience on
+average. The study was reviewed and approved by the institutional review board
+(IRB) of the authors' college. We report these facts as study-context
+information rather than inferring job titles or professional seniority from the
+anonymous answers. This distinction is important because the themes describe
+review practices and evidentiary needs, not the prevalence of those practices
+in a particular occupational population.
+
+The Q3--Q6 prompts elicited participants' accounts of (i) evidence used to
+distinguish coordinated activity from coincidental or legitimate group
+behavior, (ii) limitations and failure modes of model explanations, (iii) the
+ability to trace an explanation to underlying records and make an independent
+decision, and (iv) how explanations should change when new evidence arrives.
+The prompts were framed as review scenarios rather than as a test of a
+particular algorithm or interface. Quotations in this paper are translated
+from the original Chinese responses; the source-language quote bank is retained
+in the supplementary audit materials.
+
+\begin{table}[t]
+  \centering
+  \caption{Participant and study-context information. The coding archive contains only the anonymous IDs and response material shown here.}
+  \label{tab:formative-participants}
+  \begin{tabular}{p{0.42\linewidth}p{0.45\linewidth}}
+    \toprule
+    Field & Status in current archive\\
+    \midrule
+    Participants & 10 (P01--P10)\\
+    Analysis material & Structured written responses; Q3--Q6\\
+    Meaning units & 40 complete response-level units\\
+    Research experience & Approximately 2 years on average\\
+    Recruitment channel & Not reported\\
+    Ethics review & Approved by the authors' college IRB\\
+    Consent procedure & To be completed from the ethics record\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Coding and Analysis}
+\label{sec:formative-analysis}
+
+Two researchers independently performed AI-assisted open coding on the same
+anonymized material and checked their respective coding outputs. After both
+rounds, they compared the codes item by item. Synonymous labels were merged;
+differences in coding granularity or theme boundaries were resolved through
+consensus, with the decisions recorded in the analysis log. No contradictory
+conclusion-level disagreement was identified. The analysis therefore combines
+inductive attention to participants' wording with a deductive integration into
+four high-level analytic targets (F1--F4). The second coding round retained ten
+subthemes (T1--T10) to preserve within-theme distinctions and cross-cutting
+issues.
+
+We did not calculate support percentages or treat code frequency as evidence of
+population prevalence. The unit of analysis was a complete response-level
+meaning unit, and the purpose of coding was to identify recurring review
+difficulties, evidence requirements, and risks that could inform system design.
+The use of AI assistance is disclosed here and will be described in the
+reproducibility materials; the researchers reviewed, compared, and documented
+the resulting codes rather than presenting model-generated labels as
+independent human coding.
+
+\subsection{Findings}
+\label{sec:formative-findings}
+
+\subsubsection{F1: Coordination judgments require mechanism-level evidence, not risk aggregation}
+\label{sec:f1}
+
+All ten participants contributed a Q3 response coded to F1: P01, P02, P03,
+P04, P05, P06, P07, P08, P09, and P10. T1 was represented by P01, P02, P06,
+and P10; T2 by P03, P04, P05, and P07; P08 combined T1 and T2; and P09
+combined T1 with the cross-cutting independent-judgment issue T8. These
+identifiers refer to coded response units, not to a frequency estimate or a
+claim that every participant endorsed every detail.
+
+Participants distinguished a group of accounts that is jointly high-risk from
+an operation that is coordinated through a shared mechanism. Content
+similarity, similar risk scores, or a short burst of synchronized activity were
+treated as clues rather than conclusions. Participants instead described
+combining posting times, interaction targets, repeated behavioral patterns,
+propagation paths, local graph structure, account life cycles, device or
+account-asset links, and common generation templates. They also described
+actively testing alternative explanations, including a news event, an interest
+community, or a shared network service. As P01 explained:
+
+\begin{quote}
+\emph{``You cannot look only at whether these accounts' content is similar. You also need to consider posting times, retweet targets, interaction relationships, and behavioral patterns.''}
+\end{quote}
+
+The two subthemes separate behavioral regularity (T1) from shared relational,
+account, or generation infrastructure (T2). This distinction prevents a
+single salient signal from being treated as proof of coordination. It also
+motivates evidence views that expose the relationships and event order behind
+an alert, together with plausible benign alternatives.
+
+\subsubsection{F2: Static prediction explanations do not cover adaptive coordination}
+\label{sec:f2}
+
+All ten participants contributed a Q4 response coded to F2: P01, P02, P03,
+P04, P05, P06, P07, P08, P09, and P10. T3 was represented by P03, P04, and
+P08; T4 by P01, P02, P06, and P10; P07 and P09 contributed T5; and P05's
+response was mapped to the cross-cutting T7 boundary concerning evidence-chain
+accountability. The T7 mapping is retained in the codebook because it connects
+explanation failure to downstream evidentiary responsibility; it does not
+change F2's main claim.
+
+Participants viewed a single post explanation, local feature attribution, or
+static salient subgraph as insufficient for explaining how a multi-account
+operation formed or whether the explanation remained valid at the relevant
+time. They anticipated explanation failures caused by adversarial noise,
+structural camouflage, distribution shift, missing social context, implicit
+meaning, slow generation, and excessive information density. P08 summarized the
+temporal problem as follows:
+
+\begin{quote}
+\emph{``Even if XAI provides an explanation, it may be using old data patterns to explain a new attack method.''}
+\end{quote}
+
+The subthemes capture both adversarial or adaptive change (T3) and the limits
+of local attribution for compositional and socially situated behavior (T4).
+Engineering and cognitive usability cut across these concerns (T5): an
+explanation that is slow, overly technical, or simultaneously presents too
+many graphs and scores may be less usable even when its underlying attribution
+is technically correct. The boundary of this finding is equally important:
+participants did not claim that every static explanation is useless; they
+identified conditions under which it can become stale, incomplete, or
+overwhelming.
+
+\subsubsection{F3: Explanation claims must be traceable item by item to source records}
+\label{sec:f3}
+
+All ten participants contributed a Q5 response coded to F3: P01, P02, P03,
+P04, P05, P06, P07, P08, P09, and P10. T6 was represented by P01, P02, P03,
+P04, P05, P06, P07, P08, and P09; T7 by P05 and P10; and T8 by P01, P02,
+and P10. P07 and P09 were also mapped to the cross-cutting usability theme
+T5. Participants may therefore contribute to more than one subtheme within
+the same response.
+
+Participants required each important explanatory claim to resolve to the
+corresponding account, content item, relation, timestamp, or behavioral log.
+Source records were needed not only to establish that an item existed, but also
+to check relation direction, surrounding context, and whether the item was
+available at the decision time. P03 stated:
+
+\begin{quote}
+\emph{``Every node and edge in the explanation should be traceable back to the original data.''}
+\end{quote}
+
+T6 concerns technical reachability from an explanation element to a source
+record. T7 extends this requirement to chain-of-custody, appeal, regulatory,
+or other externally accountable settings. T8 emphasizes that source access is
+also a human-decision requirement: participants rejected treating an AI label
+as evidence in itself. A reviewer should be able to inspect the underlying
+record, qualify the claim, and retain the option to disagree. Participants also
+mentioned counterfactual checks, but the analysis distinguishes a model's
+counterfactual dependence from proof of real-world causality or legal evidence.
+
+\subsubsection{F4: Dynamic review requires explicit and reversible explanation updates}
+\label{sec:f4}
+
+All ten participants contributed a Q6 response coded to F4: P01, P02, P03,
+P04, P05, P06, P07, P08, P09, and P10. T9 was represented by P01, P02, P03,
+P05, P06, and P09; T10 by P02, P04, P07, P08, P09, and P10. P02 and P09
+also contributed the cross-cutting T5 concern about reminder load and
+interruption control. The overlap reflects the codebook's mapping of one
+response to multiple related subthemes, not additional participants.
+
+Participants wanted new evidence to be presented as an explicit increment to an
+existing assessment rather than silently replacing the previous explanation.
+They asked to see which events, accounts, relations, risk states, and
+uncertainties changed, why the change occurred, and what evidence supported the
+new state. P05 described the need for a persistent history:
+
+\begin{quote}
+\emph{``In addition to showing the current conclusion, the system should retain the previous judgment, the rules and evidence used at that time, and why it later changed.''}
+\end{quote}
+
+T9 therefore concerns version history, graph differences, historical
+snapshots, and rollback. T10 concerns changes in risk level, confidence or
+uncertainty, threshold escalation, and task routing. Participants did not ask
+for an alert on every new event. Instead, reminders should be tied to a
+substantive change in risk, evidence, or uncertainty and should remain open to
+human review; otherwise, item-level notifications may create alert fatigue.
+
+\subsection{From Findings to Design Requirements}
+\label{sec:formative-requirements}
+
+We translated the four findings into four requirements for HyperTrace. The
+requirements describe what the review workflow must make possible; they do not
+claim that the interview participants specified the implementation algorithm.
+The mapping is summarized in Table~\ref{tab:formative-requirements}.
+
+\begin{table*}[t]
+  \centering
+  \caption{Mapping formative findings to HyperTrace design requirements and later evaluation.}
+  \label{tab:formative-requirements}
+  \begin{tabular}{p{0.18\linewidth}p{0.25\linewidth}p{0.30\linewidth}p{0.18\linewidth}}
+    \toprule
+    Finding & Design requirement & HyperTrace response & Evaluation link\\
+    \midrule
+    F1: mechanism-level coordination evidence & DR1: expose converging behavioral, relational, and temporal signals and preserve alternative interpretations & Typed evidence subgraph, event sequence, shared targets, and mechanism-level evidence labels & Evidence verification and final decision accuracy\\
+    F2: static explanations can become stale or overload reviewers & DR2: make scope, uncertainty, and explanation limits visible without overwhelming the reviewer & Cutoff and scope state, compact evidence budget, warnings, and progressive disclosure & Temporal validity, sparsity, stability, and workload\\
+    F3: claims must reach original records & DR3: provide item-level evidence provenance and support independent challenge & Evidence IDs, source records, timestamps, relation direction, and source-verification actions & Provenance coverage and source-verification accuracy\\
+    F4: updates must be explicit and reversible & DR4: preserve changes, reasons, and uncertainty across review states & Version history, graph diff, changed margins, reminders, and rollback/review actions & Update traceability and erroneous-recommendation rejection\\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\begin{figure*}[t]
+  \centering
+  \fbox{\parbox{0.92\textwidth}{\centering
+    \vspace{0.25in}
+    \textbf{Figure placeholder: formative findings to design requirements.}\\
+    F1--F4 and T1--T10 should map to DR1--DR4, HyperTrace interface elements,
+    and the corresponding technical or human evaluation measures.\\
+    \vspace{0.25in}
+  }}
+  \caption{Formative findings translated into design requirements, HyperTrace responses, and evaluation measures. The final figure should use only the themes and mappings reported in this section.}
+  \label{fig:formative-to-requirements}
+\end{figure*}
+
+\subsection{Methodological Transparency and Scope}
+\label{sec:formative-transparency}
+
+The study provides design evidence, not a prevalence estimate or a claim that
+all platform reviewers reason in the same way. Its sample, response format,
+language, and the researchers' relationship to the project should be reported
+in the final submission. We will also report the
+translation procedure for the English quotations and retain a de-identified
+question guide, codebook, theme map, quote bank, comparison notes, and audit
+log in the supplementary materials where permitted. Because the coding used
+AI assistance, the paper will state what material was provided to the coding
+tool, how identifying information was removed, what researchers checked, and
+which decisions were made by consensus. No reliability statistic is reported:
+the current archive documents independent AI-assisted coding, comparison, and
+consensus merging, but not a completed inter-rater reliability calculation.
+
+These boundaries shape the rest of the paper. HyperTrace is evaluated against
+the needs identified here, but the formative study itself does not establish
+that the system improves reviewer accuracy. That question is addressed
+separately through the technical explanation evaluation and the controlled
+human review study.

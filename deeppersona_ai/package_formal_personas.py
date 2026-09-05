@@ -1,0 +1,166 @@
+"""Package one independently generated DeepPersona population for simulation."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+from deeppersona_ai.generate_formal_dp_personas import validate_profile
+from deeppersona_ai.profile_chunker import chunk_profile
+
+
+SCHEMA_VERSION = "hyperdecept.formal-dp-personas.v1"
+DESIGN = "independently_generated_fixed_population_reused_across_episode_seeds"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _content_sha256(profile: dict[str, Any]) -> str:
+    content = {
+        key: value
+        for key, value in profile.items()
+        if key not in {"Generated At", "Profile Index"}
+    }
+    serialized = json.dumps(
+        content,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def package_population(
+    *,
+    source: Path,
+    generation_report: Path,
+    output_dir: Path,
+    count: int = 2000,
+    attribute_count: int = 200,
+    minimum_leaves: int = 150,
+) -> dict:
+    """Validate, normalize, chunk, and attest one fixed formal population."""
+
+    source = source.expanduser().resolve()
+    generation_report = generation_report.expanduser().resolve()
+    output_dir = output_dir.expanduser().resolve()
+    report = json.loads(generation_report.read_text(encoding="utf-8"))
+    if report.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError("unsupported DeepPersona generation report schema")
+    if report.get("design") != DESIGN:
+        raise ValueError("generation report does not attest independent personas")
+    if int(report.get("requested_count", -1)) != count:
+        raise ValueError("generation report requested_count mismatch")
+    if int(report.get("total_valid_profiles", -1)) != count:
+        raise ValueError("generation report does not contain the complete population")
+    if int(report.get("attribute_count", -1)) != attribute_count:
+        raise ValueError("generation report attribute_count mismatch")
+    if report.get("consolidated_sha256") != _sha256(source):
+        raise ValueError("source profile file does not match generation report")
+
+    profiles = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(profiles, list) or len(profiles) != count:
+        raise ValueError(f"expected exactly {count} generated profiles")
+    indexes = [profile.get("Profile Index") for profile in profiles]
+    if indexes != list(range(1, count + 1)):
+        raise ValueError("Profile Index values must be ordered and cover 1..count")
+
+    chunks = []
+    records = []
+    content_hashes = set()
+    for agent_id, profile in enumerate(profiles):
+        if not isinstance(profile, dict):
+            raise TypeError(f"profile {agent_id} must be a JSON object")
+        quality = validate_profile(profile, minimum_leaves=minimum_leaves)
+        if not quality["valid"]:
+            raise ValueError(f"profile {agent_id} failed quality checks: {quality['errors']}")
+        content_hash = _content_sha256(profile)
+        if content_hash in content_hashes:
+            raise ValueError(f"duplicate generated persona content at agent {agent_id}")
+        content_hashes.add(content_hash)
+        profile_chunks = chunk_profile(profile, agent_id)
+        if not any(row["section"] == "summary" for row in profile_chunks):
+            raise ValueError(f"profile {agent_id} has no summary chunk")
+        chunks.extend(profile_chunks)
+        records.append({
+            "agent_id": agent_id,
+            "profile_index": agent_id + 1,
+            "content_sha256": content_hash,
+            "nonempty_leaves": quality["nonempty_leaves"],
+            "summary_words": quality["summary_words"],
+            "chunks": len(profile_chunks),
+        })
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    profiles_path = output_dir / "formal_dp_personas.profiles.json"
+    chunks_path = output_dir / "formal_dp_personas.chunks.json"
+    manifest_path = output_dir / "formal_dp_personas.personas.manifest.json"
+    _write_json(profiles_path, profiles)
+    _write_json(chunks_path, chunks)
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "artifact_kind": "shared_population_package",
+        "generator": report.get("generator"),
+        "design": DESIGN,
+        "independence_claim": (
+            "Each agent profile was independently generated by the DeepPersona "
+            "anchor-selection-fill-summary pipeline. The fixed population is "
+            "reused across episode seeds; only graph, role, activity, and attack "
+            "dynamics vary downstream."
+        ),
+        "agents": count,
+        "attribute_count": attribute_count,
+        "minimum_nonempty_leaves": minimum_leaves,
+        "unique_content_hashes": len(content_hashes),
+        "profiles_file": profiles_path.name,
+        "chunks_file": chunks_path.name,
+        "profiles_sha256": _sha256(profiles_path),
+        "chunks_sha256": _sha256(chunks_path),
+        "source_generation_report_sha256": _sha256(generation_report),
+        "source_consolidated_sha256": _sha256(source),
+        "records": records,
+    }
+    _write_json(manifest_path, manifest)
+    return {**manifest, "manifest_path": str(manifest_path)}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument("--generation-report", required=True, type=Path)
+    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--count", type=int, default=2000)
+    parser.add_argument("--attribute-count", type=int, default=200)
+    parser.add_argument("--minimum-leaves", type=int, default=150)
+    args = parser.parse_args()
+    manifest = package_population(
+        source=args.source,
+        generation_report=args.generation_report,
+        output_dir=args.output_dir,
+        count=args.count,
+        attribute_count=args.attribute_count,
+        minimum_leaves=args.minimum_leaves,
+    )
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

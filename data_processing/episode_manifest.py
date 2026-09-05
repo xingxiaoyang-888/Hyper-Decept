@@ -13,6 +13,7 @@ import argparse
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -32,13 +33,7 @@ PURPOSES = {
 PARTITIONS = {"shared", "pool", "external_test", "scale_test"}
 SPLIT_LEVELS = {"node", "episode", "scenario"}
 LABEL_PROVENANCE = {"annotated", "observed", "generated", "inferred"}
-DEFAULT_ATTACK_PHASES = (
-    "benign_warmup",
-    "coordination_onset",
-    "propagation_escalation",
-    "adaptive_evasion",
-    "aftermath",
-)
+DEFAULT_ATTACK_PHASES = ("observed_window", "future_window")
 
 
 def _resolve_manifest_path(value: str, base_dir: Optional[Path]) -> str:
@@ -105,6 +100,7 @@ class EpisodeManifest:
     simulation_seed: Optional[int] = None
     num_agents: Optional[int] = None
     time_steps: Optional[int] = None
+    cutoff_step: Optional[int] = None
     attack_phases: Tuple[str, ...] = ()
     label_provenance: Mapping[str, str] = field(default_factory=dict)
     capabilities: Mapping[str, bool] = field(default_factory=dict)
@@ -165,6 +161,11 @@ class EpisodeManifest:
             raise ValueError("real and external benchmark identities must be dataset-scoped")
         if self.time_steps is not None and self.time_steps <= 0:
             raise ValueError("time_steps must be positive when provided")
+        if self.cutoff_step is not None:
+            if self.time_steps is None:
+                raise ValueError("cutoff_step requires time_steps")
+            if not 0 < self.cutoff_step < self.time_steps:
+                raise ValueError("cutoff_step must be between 1 and time_steps - 1")
         if self.source_sha256 is not None:
             digest = self.source_sha256.lower()
             if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
@@ -419,9 +420,11 @@ def build_recommended_dataset_plan(
     main_seeds: Sequence[int] = (11, 22, 33, 44),
     anchor_num_agents: int = 2000,
     scale_scenarios: Optional[Sequence[str]] = None,
-    scale_sizes: Sequence[int] = (500, 1000, 5000),
+    scale_sizes: Sequence[int] = (),
     scale_seeds: Sequence[int] = (101, 102, 103),
-    time_steps: int = 50,
+    time_steps: int = 30,
+    cutoff_step: int = 18,
+    target_active_fraction: float = 0.075,
 ) -> DatasetPlan:
     """Build the recommended incomplete-factorial data-generation plan.
 
@@ -434,6 +437,10 @@ def build_recommended_dataset_plan(
         raise ValueError("scenarios must contain at least three unique values")
     if anchor_num_agents <= 0 or time_steps <= 0:
         raise ValueError("anchor_num_agents and time_steps must be positive")
+    if not 0 < cutoff_step < time_steps:
+        raise ValueError("cutoff_step must be between 1 and time_steps - 1")
+    if not 0.0 < target_active_fraction <= 1.0:
+        raise ValueError("target_active_fraction must be in (0, 1]")
     if not main_seeds or len(set(main_seeds)) != len(main_seeds):
         raise ValueError("main_seeds must be non-empty and unique")
     if not scale_seeds or len(set(scale_seeds)) != len(scale_seeds):
@@ -466,8 +473,11 @@ def build_recommended_dataset_plan(
                 "features_csv": str(
                     Path(twibot_root) / "derived" / "node_features_26d.csv"
                 ),
-                "labels_csv": str(Path(twibot_root) / "label.csv"),
-                "splits_csv": str(Path(twibot_root) / "split.csv"),
+                "labels_csv": str(Path(twibot_root) / "derived" / "labels.csv"),
+                "splits_csv": str(Path(twibot_root) / "derived" / "labels.csv"),
+                "adapter_manifest_json": str(
+                    Path(twibot_root) / "derived" / "adapter_manifest.json"
+                ),
             },
         ),
         EpisodeManifest(
@@ -509,6 +519,8 @@ def build_recommended_dataset_plan(
             generator_metadata={
                 "split_seed": "42",
                 "multiedge_policy": "coalesce_with_count",
+                "evaluation_scope": "seen_source_holdout",
+                "split_status": "adapter_generated_frozen_hash",
             },
         ),
     ]
@@ -536,6 +548,10 @@ def build_recommended_dataset_plan(
                 "labels_csv": str(Path(fox8_root) / "label.csv"),
                 "splits_csv": str(Path(fox8_root) / "split.csv"),
             },
+            generator_metadata={
+                "evaluation_scope": "external_dataset",
+                "split_status": "independent_audit_required",
+            },
         ))
     if botsim_root is not None:
         episodes.append(EpisodeManifest(
@@ -560,6 +576,10 @@ def build_recommended_dataset_plan(
                 ),
                 "labels_csv": str(Path(botsim_root) / "label.csv"),
                 "splits_csv": str(Path(botsim_root) / "split.csv"),
+            },
+            generator_metadata={
+                "evaluation_scope": "external_dataset",
+                "split_status": "independent_audit_required",
             },
         ))
     simulation_path = Path(simulation_root)
@@ -587,6 +607,7 @@ def build_recommended_dataset_plan(
                 simulation_seed=int(seed),
                 num_agents=anchor_num_agents,
                 time_steps=time_steps,
+                cutoff_step=cutoff_step,
                 attack_phases=DEFAULT_ATTACK_PHASES,
                 label_provenance={
                     "bot": "generated",
@@ -607,6 +628,9 @@ def build_recommended_dataset_plan(
                     "labels_csv": f"{source_prefix}.labels.csv",
                     "event_targets_csv": f"{source_prefix}.event_targets.csv",
                     "episode_manifest": f"{source_prefix}.manifest.json",
+                },
+                generator_metadata={
+                    "evaluation_scope": "held_out_scenario",
                 },
             ))
 
@@ -637,6 +661,7 @@ def build_recommended_dataset_plan(
                     simulation_seed=int(seed),
                     num_agents=int(size),
                     time_steps=time_steps,
+                    cutoff_step=cutoff_step,
                     attack_phases=DEFAULT_ATTACK_PHASES,
                     label_provenance={
                         "bot": "generated",
@@ -656,9 +681,12 @@ def build_recommended_dataset_plan(
                         "features_csv": f"{source_prefix}.features.csv",
                         "labels_csv": f"{source_prefix}.labels.csv",
                         "event_targets_csv": f"{source_prefix}.event_targets.csv",
-                        "episode_manifest": f"{source_prefix}.manifest.json",
-                    },
-                ))
+                    "episode_manifest": f"{source_prefix}.manifest.json",
+                },
+                generator_metadata={
+                    "evaluation_scope": "scale_test",
+                },
+            ))
 
     return DatasetPlan(
         plan_id="hyperdecept_joint_v1",
@@ -669,6 +697,17 @@ def build_recommended_dataset_plan(
             "scale_design": "representative_scenarios_only",
             "anchor_num_agents": anchor_num_agents,
             "time_steps": time_steps,
+            "cutoff_step": cutoff_step,
+            "observed_steps": [1, cutoff_step],
+            "future_steps": [cutoff_step + 1, time_steps],
+            "activation_policy": "budgeted_activity",
+            "target_active_fraction": target_active_fraction,
+            "synthetic_request_ceiling": (
+                len(scenario_ids)
+                * len(main_seeds)
+                * math.ceil(anchor_num_agents * target_active_fraction)
+                * time_steps
+            ),
             "model_seeds": [7, 17, 27],
             "primary_real_metric": "AUPRC",
             "training_protocols": {
@@ -877,9 +916,11 @@ def parse_args() -> argparse.Namespace:
     create.add_argument("--main-seeds", default="11,22,33,44")
     create.add_argument("--anchor-num-agents", type=int, default=2000)
     create.add_argument("--scale-scenarios", default="leader_amplifier,adaptive_evasion")
-    create.add_argument("--scale-sizes", default="500,1000,5000")
+    create.add_argument("--scale-sizes", default="")
     create.add_argument("--scale-seeds", default="101,102,103")
-    create.add_argument("--time-steps", type=int, default=50)
+    create.add_argument("--time-steps", type=int, default=30)
+    create.add_argument("--cutoff-step", type=int, default=18)
+    create.add_argument("--target-active-fraction", type=float, default=0.075)
     validate = subparsers.add_parser("validate", help="validate and summarize a plan")
     validate.add_argument("--input", required=True)
     validate.add_argument("--require-files", action="store_true")
@@ -902,6 +943,8 @@ def main() -> None:
             scale_sizes=_parse_csv_values(args.scale_sizes, int),
             scale_seeds=_parse_csv_values(args.scale_seeds, int),
             time_steps=args.time_steps,
+            cutoff_step=args.cutoff_step,
+            target_active_fraction=args.target_active_fraction,
         )
         output = plan.write(args.output)
         print(json.dumps({"plan": str(output), **plan.summary()}, ensure_ascii=False))

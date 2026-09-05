@@ -301,7 +301,7 @@ def verify_independence(
     Parameters:
         db_path     : SQLite database path
         csv_path    : CSV label file path
-        dataset     : dataset name (e.g., agent72, twibot1000)
+        dataset     : legacy/demo dataset name (e.g., agent72); P2 real datasets use DatasetPlan.
         max_agents  : maximum samples to analyze (for speed)
         save_dir    : output directory for plots
 
@@ -392,4 +392,3 @@ def verify_independence(
         "module_names": module_names,
         "report": report,
     }
-    

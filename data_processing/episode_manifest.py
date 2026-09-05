@@ -473,8 +473,11 @@ def build_recommended_dataset_plan(
                 "features_csv": str(
                     Path(twibot_root) / "derived" / "node_features_26d.csv"
                 ),
-                "labels_csv": str(Path(twibot_root) / "label.csv"),
-                "splits_csv": str(Path(twibot_root) / "split.csv"),
+                "labels_csv": str(Path(twibot_root) / "derived" / "labels.csv"),
+                "splits_csv": str(Path(twibot_root) / "derived" / "labels.csv"),
+                "adapter_manifest_json": str(
+                    Path(twibot_root) / "derived" / "adapter_manifest.json"
+                ),
             },
         ),
         EpisodeManifest(
@@ -516,6 +519,8 @@ def build_recommended_dataset_plan(
             generator_metadata={
                 "split_seed": "42",
                 "multiedge_policy": "coalesce_with_count",
+                "evaluation_scope": "seen_source_holdout",
+                "split_status": "adapter_generated_frozen_hash",
             },
         ),
     ]
@@ -543,6 +548,10 @@ def build_recommended_dataset_plan(
                 "labels_csv": str(Path(fox8_root) / "label.csv"),
                 "splits_csv": str(Path(fox8_root) / "split.csv"),
             },
+            generator_metadata={
+                "evaluation_scope": "external_dataset",
+                "split_status": "independent_audit_required",
+            },
         ))
     if botsim_root is not None:
         episodes.append(EpisodeManifest(
@@ -567,6 +576,10 @@ def build_recommended_dataset_plan(
                 ),
                 "labels_csv": str(Path(botsim_root) / "label.csv"),
                 "splits_csv": str(Path(botsim_root) / "split.csv"),
+            },
+            generator_metadata={
+                "evaluation_scope": "external_dataset",
+                "split_status": "independent_audit_required",
             },
         ))
     simulation_path = Path(simulation_root)
@@ -615,6 +628,9 @@ def build_recommended_dataset_plan(
                     "labels_csv": f"{source_prefix}.labels.csv",
                     "event_targets_csv": f"{source_prefix}.event_targets.csv",
                     "episode_manifest": f"{source_prefix}.manifest.json",
+                },
+                generator_metadata={
+                    "evaluation_scope": "held_out_scenario",
                 },
             ))
 
@@ -665,9 +681,12 @@ def build_recommended_dataset_plan(
                         "features_csv": f"{source_prefix}.features.csv",
                         "labels_csv": f"{source_prefix}.labels.csv",
                         "event_targets_csv": f"{source_prefix}.event_targets.csv",
-                        "episode_manifest": f"{source_prefix}.manifest.json",
-                    },
-                ))
+                    "episode_manifest": f"{source_prefix}.manifest.json",
+                },
+                generator_metadata={
+                    "evaluation_scope": "scale_test",
+                },
+            ))
 
     return DatasetPlan(
         plan_id="hyperdecept_joint_v1",

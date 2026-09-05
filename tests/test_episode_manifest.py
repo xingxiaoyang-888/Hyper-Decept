@@ -47,6 +47,15 @@ def test_recommended_plan_uses_two_day_main_design(tmp_path):
     assert plan.strategy["synthetic_request_ceiling"] == 90_000
     main = [episode for episode in plan.episodes if episode.purpose == "simulation_main"]
     assert all(episode.cutoff_step == 18 for episode in main)
+    twibot = next(
+        episode for episode in plan.episodes if episode.dataset_name == "twibot22"
+    )
+    assert Path(twibot.artifacts["adapter_manifest_json"]).parts[-2:] == (
+        "derived", "adapter_manifest.json",
+    )
+    assert Path(twibot.artifacts["labels_csv"]).parts[-2:] == (
+        "derived", "labels.csv",
+    )
     artifact_report = audit_plan_artifacts(plan)
     assert artifact_report.valid
     assert artifact_report.warnings

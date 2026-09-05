@@ -7,6 +7,8 @@ from typing import Mapping, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
 
+from coordination_contract import CoordinationCheckpointMixin
+
 
 EdgeType = Tuple[str, str, str]
 
@@ -37,7 +39,7 @@ class _DatasetFeatureAdapters(torch.nn.Module):
         }
 
 
-class DomainAwareEuclideanHGT(torch.nn.Module):
+class DomainAwareEuclideanHGT(CoordinationCheckpointMixin, torch.nn.Module):
     """Standard Euclidean HGT baseline with the same input adapter budget."""
 
     geometry_backend = "euclidean_hgt"
@@ -73,7 +75,7 @@ class DomainAwareEuclideanHGT(torch.nn.Module):
             for _ in range(num_layers)
         ])
         self.dropout = float(dropout)
-        self.bot_head = torch.nn.Linear(hidden_dim, 2)
+        self.coordination_head = torch.nn.Linear(hidden_dim, 2)
 
     def forward(
         self,
@@ -106,11 +108,11 @@ class DomainAwareEuclideanHGT(torch.nn.Module):
                 for node_type, current in hidden.items()
             }
         user_tangent = hidden["user"]
-        class_logits = self.bot_head(user_tangent)
+        class_logits = self.coordination_head(user_tangent)
         return {
             "user_tangent": user_tangent,
-            "bot_class_logits": class_logits,
-            "bot_logits": class_logits[:, 1] - class_logits[:, 0],
+            "coordination_class_logits": class_logits,
+            "coordination_logits": class_logits[:, 1] - class_logits[:, 0],
         }
 
     def geometry_metadata(self):
@@ -122,7 +124,7 @@ class DomainAwareEuclideanHGT(torch.nn.Module):
         }
 
 
-class DomainAwareMLP(torch.nn.Module):
+class DomainAwareMLP(CoordinationCheckpointMixin, torch.nn.Module):
     """Per-user no-message-passing baseline for shortcut diagnosis."""
 
     geometry_backend = "node_mlp"
@@ -152,7 +154,7 @@ class DomainAwareMLP(torch.nn.Module):
             )
             for _ in range(num_layers)
         ])
-        self.bot_head = torch.nn.Linear(hidden_dim, 2)
+        self.coordination_head = torch.nn.Linear(hidden_dim, 2)
 
     def forward(
         self,
@@ -171,11 +173,11 @@ class DomainAwareMLP(torch.nn.Module):
         )
         for layer in self.layers:
             user_tangent = user_tangent + layer(user_tangent)
-        class_logits = self.bot_head(user_tangent)
+        class_logits = self.coordination_head(user_tangent)
         return {
             "user_tangent": user_tangent,
-            "bot_class_logits": class_logits,
-            "bot_logits": class_logits[:, 1] - class_logits[:, 0],
+            "coordination_class_logits": class_logits,
+            "coordination_logits": class_logits[:, 1] - class_logits[:, 0],
         }
 
     def geometry_metadata(self):

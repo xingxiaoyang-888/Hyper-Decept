@@ -71,6 +71,9 @@ class MultimodalExtractor:
         if not self.verbose_progress:
             print(" internal progress bars: quiet (set AFG_VERBOSE_PROGRESS=1 to show)")
         
+        # Allow reproducible offline runs to point at an audited local snapshot
+        # while preserving the historical model-name default.
+        model_path = os.getenv("AFG_TEXT_MODEL_PATH", model_path)
         try:
             from sentence_transformers import SentenceTransformer
             try:
@@ -439,6 +442,7 @@ class MultimodalExtractor:
             return None
         digest = hashlib.sha256()
         digest.update(self.psychology_mode.encode("utf-8"))
+        digest.update(os.getenv("AFG_DARK_TRIAD_BACKEND", "nli").encode("utf-8"))
         digest.update(str(self.max_tweets_per_user).encode("utf-8"))
         for texts in agent_tweets:
             digest.update(str(len(texts)).encode("utf-8"))

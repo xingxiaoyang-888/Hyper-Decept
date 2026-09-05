@@ -53,8 +53,8 @@ def _normalise(value: object) -> str:
 
 def _empty_targets(n_users: int) -> dict[str, torch.Tensor]:
     return {
-        "bot_targets": torch.zeros(n_users, dtype=torch.float32),
-        "bot_mask": torch.zeros(n_users, dtype=torch.bool),
+        "coordination_targets": torch.zeros(n_users, dtype=torch.float32),
+        "coordination_mask": torch.zeros(n_users, dtype=torch.bool),
         "role_targets": torch.full((n_users,), -1, dtype=torch.long),
         "role_mask": torch.zeros(n_users, dtype=torch.bool),
         "campaign_targets": torch.full((n_users,), -1, dtype=torch.long),
@@ -213,8 +213,8 @@ def load_external_bundle_episode(
                 continue
             row = label_lookup.loc[user_id]
             if bool(row.get("is_known", False)):
-                targets["bot_targets"][index] = float(row["is_bad"])
-                targets["bot_mask"][index] = True
+                targets["coordination_targets"][index] = float(row["is_bad"])
+                targets["coordination_mask"][index] = True
     return EpisodeBatch(
         episode_id=episode_id or str(manifest.get("operation_id") or bundle.name),
         domain="real",

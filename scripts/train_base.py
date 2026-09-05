@@ -36,7 +36,7 @@ from joint_training import (  # noqa: E402
     EpisodeBatch,
     JointLossConfig,
     compute_episode_losses,
-    evaluate_bot_batch,
+    evaluate_coordination_batch,
     load_episode_batch_from_manifest,
     merge_heterogeneous_metadata,
 )
@@ -155,7 +155,7 @@ def _batches(
             action_vocabulary=None,
             graph_cache_dir=cache_dir,
         )
-        if torch.any(batch.bot_mask):
+        if torch.any(batch.coordination_mask):
             _apply_graph_intervention(
                 batch, graph_intervention, intervention_seed
             )
@@ -174,7 +174,7 @@ def _positive_class_weight(batches: list[EpisodeBatch]) -> float:
     positives = 0
     negatives = 0
     for batch in batches:
-        targets = batch.bot_targets[batch.bot_mask]
+        targets = batch.coordination_targets[batch.coordination_mask]
         positives += int(torch.count_nonzero(targets == 1).item())
         negatives += int(torch.count_nonzero(targets == 0).item())
     if positives == 0 or negatives == 0:
@@ -320,7 +320,12 @@ def run_training(*, plan: DatasetPlan, output_dir: Path, held_out_scenario: str,
             gradient_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.gradient_clip_norm)
             optimizer.step()
             totals.append({"loss_total": float(losses["total"].detach().cpu()), "gradient_norm": float(torch.as_tensor(gradient_norm).detach().cpu())})
-        validation_metrics = _mean([evaluate_bot_batch(model, batch.to(target_device), device=target_device) for batch in validation])
+        validation_metrics = _mean([
+            evaluate_coordination_batch(
+                model, batch.to(target_device), device=target_device
+            )
+            for batch in validation
+        ])
         history.append({"epoch": epoch + 1, "train": _mean(totals), "validation": validation_metrics})
         current_auprc = validation_metrics.get("auprc", float("nan"))
         if np.isfinite(current_auprc) and current_auprc > best_validation_auprc:
@@ -351,7 +356,12 @@ def run_training(*, plan: DatasetPlan, output_dir: Path, held_out_scenario: str,
         best_model_state = deepcopy(model.state_dict())
         best_epoch = start_epoch
     model.load_state_dict(best_model_state)
-    test_metrics = _mean([evaluate_bot_batch(model, batch.to(target_device), device=target_device) for batch in test])
+    test_metrics = _mean([
+        evaluate_coordination_batch(
+            model, batch.to(target_device), device=target_device
+        )
+        for batch in test
+    ])
     result = {"schema_version": "hypertrace.base-training.v2", "status": "passed",
               "plan_id": plan.plan_id, "held_out_scenario": held_out_scenario,
               "seed": seed, "epochs": epochs, "resumed": start_epoch > 0,

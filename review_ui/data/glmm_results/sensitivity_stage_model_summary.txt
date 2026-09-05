@@ -1,0 +1,52 @@
+Generalized linear mixed model fit by maximum likelihood (Laplace
+  Approximation) [glmerMod]
+ Family: binomial  ( logit )
+Formula: correct ~ condition * stage * model_correct + operation + (1 |  
+    participant) + (1 | case_id)
+   Data: long
+Control: control
+
+      AIC       BIC    logLik -2*log(L)  df.resid 
+    365.0     421.5    -167.5     335.0       305 
+
+Scaled residuals: 
+    Min      1Q  Median      3Q     Max 
+-4.5011 -0.9438  0.3694  0.6835  2.4479 
+
+Random effects:
+ Groups      Name        Variance Std.Dev.
+ case_id     (Intercept) 0.000000 0.00000 
+ participant (Intercept) 0.009391 0.09691 
+Number of obs: 320, groups:  case_id, 21; participant, 20
+
+Fixed effects:
+                                                      Estimate Std. Error
+(Intercept)                                             1.0088     0.5407
+conditionstandard_signals                               0.7613     0.7529
+conditionhypertrace_evidence                            0.2257     0.7008
+stagefinal                                             -2.3311     0.8106
+model_correct                                          -0.4141     0.6320
+operationuae                                           -0.4590     0.2780
+conditionstandard_signals:stagefinal                    0.9642     1.0775
+conditionhypertrace_evidence:stagefinal                 2.1055     1.0531
+conditionstandard_signals:model_correct                -0.5127     0.9127
+conditionhypertrace_evidence:model_correct             -0.4628     0.8634
+stagefinal:model_correct                                4.1415     1.0828
+conditionstandard_signals:stagefinal:model_correct     -1.6210     1.4279
+conditionhypertrace_evidence:stagefinal:model_correct  -1.2595     1.5076
+                                                      z value Pr(>|z|)    
+(Intercept)                                             1.866 0.062077 .  
+conditionstandard_signals                               1.011 0.311979    
+conditionhypertrace_evidence                            0.322 0.747402    
+stagefinal                                             -2.876 0.004031 ** 
+model_correct                                          -0.655 0.512282    
+operationuae                                           -1.651 0.098744 .  
+conditionstandard_signals:stagefinal                    0.895 0.370841    
+conditionhypertrace_evidence:stagefinal                 1.999 0.045584 *  
+conditionstandard_signals:model_correct                -0.562 0.574301    
+conditionhypertrace_evidence:model_correct             -0.536 0.591973    
+stagefinal:model_correct                                3.825 0.000131 ***
+conditionstandard_signals:stagefinal:model_correct     -1.135 0.256267    
+conditionhypertrace_evidence:stagefinal:model_correct  -0.835 0.403481    
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1

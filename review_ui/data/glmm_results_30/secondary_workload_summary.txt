@@ -1,0 +1,36 @@
+Linear mixed model fit by REML ['lmerMod']
+Formula: workload ~ condition + operation + (1 | participant) + (1 | case_id)
+   Data: data
+Control: lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e+05))
+
+REML criterion at convergence: -6105.6
+
+Scaled residuals: 
+       Min         1Q     Median         3Q        Max 
+-2.411e-07 -8.365e-08  3.936e-08  5.905e-08  1.968e-07 
+
+Random effects:
+ Groups      Name        Variance  Std.Dev. 
+ participant (Intercept) 7.893e-02 2.809e-01
+ case_id     (Intercept) 2.838e-18 1.685e-09
+ Residual                8.146e-15 9.025e-08
+Number of obs: 240, groups:  participant, 30; case_id, 23
+
+Fixed effects:
+                               Estimate Std. Error t value
+(Intercept)                   2.685e+00  8.861e-02  30.300
+conditionstandard_signals     8.767e-01  1.253e-01   6.996
+conditionhypertrace_evidence  1.982e+00  1.257e-01  15.759
+operationuae                 -4.857e-16  1.180e-08   0.000
+
+Correlation of Fixed Effects:
+            (Intr) cndtns_ cndtnh_
+cndtnstndr_ -0.707                
+cndtnhyprt_ -0.705  0.498         
+operationua  0.000  0.000   0.000 
+optimizer (bobyqa) convergence code: 0 (OK)
+Model failed to converge with max|grad| = 1.68214 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.
+Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?
+

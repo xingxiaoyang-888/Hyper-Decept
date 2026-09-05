@@ -98,8 +98,8 @@ def test_baseline_models_share_detector_output_contract():
         ),
     ):
         output = model(graph, domain="synthetic", dataset_name="deeppersona_oasis")
-        assert output["bot_logits"].shape == (5,)
-        assert output["bot_class_logits"].shape == (5, 2)
+        assert output["coordination_logits"].shape == (5,)
+        assert output["coordination_class_logits"].shape == (5, 2)
         assert output["user_tangent"].shape == (5, 8)
         assert model.enable_privileged_heads is False
 

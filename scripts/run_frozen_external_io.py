@@ -23,8 +23,12 @@ for value in (str(ROOT), str(CHARACTER_DIR)):
     if value not in sys.path:
         sys.path.insert(0, value)
 
-from joint_training import DomainAwareLorentzHGT, evaluate_bot_batch  # noqa: E402
+from joint_training import (  # noqa: E402
+    DomainAwareLorentzHGT,
+    evaluate_coordination_batch,
+)
 from scripts.external_bundle_episode import load_external_bundle_episode  # noqa: E402
+from scripts.frozen_manifest import resolve_frozen_checkpoint  # noqa: E402
 
 
 def _sha256(path: Path) -> str:
@@ -103,7 +107,49 @@ def _build_model(checkpoint: dict, metadata):
     return model
 
 
-def run(checkpoint_path: Path, bundle_path: Path, output_path: Path, device: str) -> dict:
+def _warm_start_provenance(
+    checkpoint_path: Path,
+    checkpoint: dict,
+    freeze_manifest_path: Path | None,
+) -> tuple[dict, str, str | None]:
+    checkpoint_warm_start = dict(checkpoint.get("warm_start_report") or {})
+    checkpoint_source = checkpoint_warm_start.get("source_operation")
+    if freeze_manifest_path is None:
+        return checkpoint_warm_start, "checkpoint", None
+
+    freeze_manifest_path = Path(freeze_manifest_path)
+    freeze = json.loads(freeze_manifest_path.read_text(encoding="utf-8"))
+    matches = [
+        entry for entry in freeze.get("checkpoints", [])
+        if resolve_frozen_checkpoint(freeze_manifest_path, entry)
+        == checkpoint_path.resolve()
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            "checkpoint must have exactly one entry in the freeze manifest"
+        )
+    entry = matches[0]
+    if _sha256(checkpoint_path) != entry.get("sha256"):
+        raise ValueError("checkpoint hash does not match freeze manifest")
+    manifest_warm_start = dict(entry.get("warm_start") or {})
+    manifest_source = manifest_warm_start.get("source_operation")
+    if checkpoint_source and manifest_source and checkpoint_source != manifest_source:
+        raise ValueError("checkpoint and freeze manifest source operations disagree")
+    merged = {**manifest_warm_start, **checkpoint_warm_start}
+    source = checkpoint_source or manifest_source
+    if source is not None:
+        merged["source_operation"] = source
+    provenance = "checkpoint" if checkpoint_source else "freeze_manifest"
+    return merged, provenance, _sha256(freeze_manifest_path)
+
+
+def run(
+    checkpoint_path: Path,
+    bundle_path: Path,
+    output_path: Path,
+    device: str,
+    freeze_manifest_path: Path | None = None,
+) -> dict:
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     allowed_schemas = {
         "hypertrace.base-best.v2",
@@ -119,8 +165,16 @@ def run(checkpoint_path: Path, bundle_path: Path, output_path: Path, device: str
     model = _build_model(checkpoint, metadata)
     target_device = torch.device(device)
     model.to(target_device)
-    metrics = evaluate_bot_batch(model, batch.to(target_device), device=target_device)
-    warm_start = checkpoint.get("warm_start_report") or {}
+    metrics = evaluate_coordination_batch(
+        model, batch.to(target_device), device=target_device
+    )
+    warm_start, source_provenance, freeze_manifest_sha256 = (
+        _warm_start_provenance(
+            checkpoint_path,
+            checkpoint,
+            freeze_manifest_path,
+        )
+    )
     source_operation = warm_start.get("source_operation")
     target_operation = str(batch.episode_id)
     operation_disjoint = bool(source_operation and source_operation != target_operation)
@@ -148,6 +202,8 @@ def run(checkpoint_path: Path, bundle_path: Path, output_path: Path, device: str
         "checkpoint_schema": checkpoint.get("schema_version"),
         "warm_start": warm_start,
         "source_operation": source_operation,
+        "source_operation_provenance": source_provenance,
+        "freeze_manifest_sha256": freeze_manifest_sha256,
         "target_operation": target_operation,
         "operation_disjoint": operation_disjoint,
         "evaluation_protocol": (
@@ -168,8 +224,15 @@ def main() -> None:
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--freeze-manifest", type=Path, default=None)
     args = parser.parse_args()
-    run(args.checkpoint, args.bundle, args.output, args.device)
+    run(
+        args.checkpoint,
+        args.bundle,
+        args.output,
+        args.device,
+        freeze_manifest_path=args.freeze_manifest,
+    )
 
 
 if __name__ == "__main__":

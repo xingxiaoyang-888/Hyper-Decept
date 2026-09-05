@@ -33,7 +33,7 @@ from joint_training import (  # noqa: E402
     DomainAlternatingTrainer,
     DomainAwareLorentzHGT,
     JointLossConfig,
-    evaluate_bot_batch,
+    evaluate_coordination_batch,
     load_episode_batch_from_manifest,
     merge_heterogeneous_metadata,
     save_joint_checkpoint,
@@ -155,10 +155,10 @@ def main() -> None:
     twibot_train_metrics = trainer.train_step(twibot_train, synthetic_batch)
     mgtab_train_metrics = trainer.train_step(mgtab_train, synthetic_batch)
     validation_metrics = {
-        "twibot22": evaluate_bot_batch(
+        "twibot22": evaluate_coordination_batch(
             model, twibot_validation, device=args.device
         ),
-        "mgtab": evaluate_bot_batch(
+        "mgtab": evaluate_coordination_batch(
             model, mgtab_validation, device=args.device
         ),
     }
@@ -182,13 +182,15 @@ def main() -> None:
         "mgtab_manifest": str(mgtab_path),
         "simulation_manifest": str(simulation_path),
         "twibot_users": int(twibot_train.graph["user"].num_nodes),
-        "twibot_train_labels": int(twibot_train.bot_mask.sum()),
-        "twibot_validation_labels": int(twibot_validation.bot_mask.sum()),
+        "twibot_train_labels": int(twibot_train.coordination_mask.sum()),
+        "twibot_validation_labels": int(twibot_validation.coordination_mask.sum()),
         "mgtab_users": int(mgtab_train.graph["user"].num_nodes),
-        "mgtab_train_labels": int(mgtab_train.bot_mask.sum()),
-        "mgtab_validation_labels": int(mgtab_validation.bot_mask.sum()),
+        "mgtab_train_labels": int(mgtab_train.coordination_mask.sum()),
+        "mgtab_validation_labels": int(mgtab_validation.coordination_mask.sum()),
         "synthetic_users": int(synthetic_batch.graph["user"].num_nodes),
-        "synthetic_bot_labels": int(synthetic_batch.bot_mask.sum()),
+        "synthetic_coordination_labels": int(
+            synthetic_batch.coordination_mask.sum()
+        ),
         "synthetic_role_labels": int(synthetic_batch.role_mask.sum()),
         "synthetic_campaign_labels": int(synthetic_batch.campaign_mask.sum()),
         "synthetic_action_labels": int(synthetic_batch.temporal_action_mask.sum()),

@@ -17,6 +17,7 @@ for value in (ROOT, CHARACTER_DIR):
 
 from lorentz_hgt import lorentz_distance, lorentz_to_poincare
 from scripts.external_bundle_episode import load_external_bundle_episode
+from scripts.frozen_manifest import resolve_frozen_checkpoint
 from scripts.run_frozen_external_io import _build_model, _checkpoint_edge_types, _sha256
 
 
@@ -110,7 +111,7 @@ def main() -> None:
     selected_ids = scores_frame["user_id"].astype(str).tolist()
     score_lookup = scores_frame.set_index("user_id").to_dict("index")
     batch = load_external_bundle_episode(args.bundle, load_labels=False)
-    if torch.any(batch.bot_mask): raise ValueError("label-blind explanation loader unexpectedly exposed labels")
+    if torch.any(batch.coordination_mask): raise ValueError("label-blind explanation loader unexpectedly exposed labels")
     device = torch.device(args.device); batch.to(device)
     all_ids = np.asarray(batch.graph["user"].node_ids, dtype=str)
     if len(set(all_ids)) != len(all_ids):
@@ -128,16 +129,16 @@ def main() -> None:
     counterfactual: dict[str, list[dict[str, float]]] = {uid: [] for uid in selected_ids}
     metadata = None
     for entry in entries:
-        path = Path(entry["frozen_checkpoint"])
+        path = resolve_frozen_checkpoint(args.freeze_manifest, entry)
         if _sha256(path) != entry["sha256"]: raise ValueError(f"checkpoint hash mismatch: {path}")
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         if metadata is None: metadata = (tuple(sorted(batch.graph.node_types)), _checkpoint_edge_types(checkpoint["model"]))
         model = _build_model(checkpoint, metadata).to(device).eval()
         with torch.no_grad(): baseline = model(batch.graph, domain=batch.domain, dataset_name=batch.dataset_name)
-        probabilities = torch.sigmoid(baseline["bot_logits"]).cpu().numpy()
+        probabilities = torch.sigmoid(baseline["coordination_logits"]).cpu().numpy()
         curvature = model.encoder.common_curvature(); points = baseline["user_lorentz"][selected_indices]
         poincare = lorentz_to_poincare(points, curvature)
-        prototypes = model.bot_head.prototypes(curvature)
+        prototypes = model.coordination_head.prototypes(curvature)
         distances = _to_numpy(
             lorentz_distance(
                 points.unsqueeze(1), prototypes.unsqueeze(0), curvature
@@ -150,7 +151,7 @@ def main() -> None:
             geometry[uid].append({"poincare_radius": float(torch.linalg.vector_norm(poincare[local]).cpu()), "distance_to_normal": float(distances[local, 0]), "distance_to_coordination": float(distances[local, 1]), "geodesic_margin": float(distances[local, 0] - distances[local, 1]), "risk_probability": float(probabilities[global_index])})
             mask = _incident_mask(batch.graph, global_index)
             with torch.no_grad(): removed = model(batch.graph, domain=batch.domain, dataset_name=batch.dataset_name, edge_mask_dict=mask)
-            removed_prob = torch.sigmoid(removed["bot_logits"]).cpu().numpy()
+            removed_prob = torch.sigmoid(removed["coordination_logits"]).cpu().numpy()
             counterfactual[uid].append({"baseline_percentile": base_pct, "removed_percentile": _percentile(removed_prob[reference_indices], reference_ids, reference_lookup[uid]), "baseline_probability": float(probabilities[global_index]), "removed_probability": float(removed_prob[global_index])})
             del removed, removed_prob, mask
         del model, baseline, probabilities, checkpoint

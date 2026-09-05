@@ -1,0 +1,34 @@
+Generalized linear mixed model fit by maximum likelihood (Laplace
+  Approximation) [glmerMod]
+ Family: binomial  ( logit )
+Formula: rsr ~ condition + operation + (1 | participant) + (1 | case_id)
+   Data: frame
+Control: control
+
+      AIC       BIC    logLik -2*log(L)  df.resid 
+     87.4     100.2     -37.7      75.4        57 
+
+Scaled residuals: 
+    Min      1Q  Median      3Q     Max 
+-2.4308 -0.8104  0.4114  0.7404  1.5049 
+
+Random effects:
+ Groups      Name        Variance Std.Dev.
+ participant (Intercept) 0        0       
+ case_id     (Intercept) 0        0       
+Number of obs: 63, groups:  participant, 29; case_id, 3
+
+Fixed effects:
+                             Estimate Std. Error z value Pr(>|z|)   
+(Intercept)                   -0.8175     0.5848  -1.398  0.16213   
+conditionstandard_signals      1.0215     0.6197   1.648  0.09926 . 
+conditionhypertrace_evidence   2.1969     0.7776   2.825  0.00472 **
+operationuae                   0.3970     0.5719   0.694  0.48756   
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Correlation of Fixed Effects:
+            (Intr) cndtns_ cndtnh_
+cndtnstndr_ -0.591                
+cndtnhyprt_ -0.491  0.417         
+operationua -0.649  0.068   0.085 

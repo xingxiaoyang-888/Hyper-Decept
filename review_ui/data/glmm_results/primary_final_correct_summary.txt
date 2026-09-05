@@ -1,0 +1,52 @@
+Generalized linear mixed model fit by maximum likelihood (Laplace
+  Approximation) [glmerMod]
+ Family: binomial  ( logit )
+Formula: final_correct ~ condition * model_correct + initial_correct +  
+    operation + (1 | participant) + (1 | case_id)
+   Data: data
+Control: control
+
+      AIC       BIC    logLik -2*log(L)  df.resid 
+    146.0     176.8     -63.0     126.0       150 
+
+Scaled residuals: 
+    Min      1Q  Median      3Q     Max 
+-5.3765 -0.2313  0.2386  0.4488  1.9601 
+
+Random effects:
+ Groups      Name        Variance Std.Dev.
+ case_id     (Intercept) 0.0000   0.0000  
+ participant (Intercept) 0.1896   0.4354  
+Number of obs: 160, groups:  case_id, 21; participant, 20
+
+Fixed effects:
+                                           Estimate Std. Error z value Pr(>|z|)
+(Intercept)                                 -3.0091     0.9039  -3.329 0.000871
+conditionstandard_signals                    1.6893     0.8375   2.017 0.043693
+conditionhypertrace_evidence                 2.5395     0.8674   2.928 0.003416
+model_correct                                4.4814     0.9772   4.586 4.52e-06
+initial_correct                              1.5123     0.5339   2.832 0.004620
+operationuae                                 0.2690     0.4822   0.558 0.576978
+conditionstandard_signals:model_correct     -2.2105     1.1474  -1.927 0.054027
+conditionhypertrace_evidence:model_correct  -1.8682     1.2944  -1.443 0.148946
+                                              
+(Intercept)                                ***
+conditionstandard_signals                  *  
+conditionhypertrace_evidence               ** 
+model_correct                              ***
+initial_correct                            ** 
+operationuae                                  
+conditionstandard_signals:model_correct    .  
+conditionhypertrace_evidence:model_correct    
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Correlation of Fixed Effects:
+            (Intr) cndtns_ cndtnh_ mdl_cr intl_c opertn cndtns_:_
+cndtnstndr_ -0.618                                               
+cndtnhyprt_ -0.667  0.642                                        
+model_crrct -0.711  0.533   0.554                                
+initl_crrct -0.557  0.006   0.131   0.316                        
+operationua -0.422  0.001   0.020   0.170  0.141                 
+cndtnstn_:_  0.432 -0.669  -0.442  -0.762 -0.040  0.019          
+cndtnhyp_:_  0.422 -0.401  -0.616  -0.695 -0.075 -0.037  0.571   

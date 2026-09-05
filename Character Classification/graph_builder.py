@@ -306,6 +306,12 @@ def _build_twibot_boundary_features(bundle):
     """Combine observed profile counts with sampled open-neighborhood degree."""
     boundary = bundle.boundary_users.copy()
     edges = bundle.follow_edges
+    # Legacy materialized bundles may encode repeated multiplicities as a
+    # concatenated string when an unquoted CSV field was recovered.  Treat
+    # only numeric values as observed evidence; invalid values are missing,
+    # never silently interpreted as a fabricated degree.
+    multiplicity = pd.to_numeric(edges["multiplicity"], errors="coerce").fillna(0.0)
+    edges = edges.assign(multiplicity=multiplicity)
     incoming = edges.groupby("followee_id")["multiplicity"].sum()
     outgoing = edges.groupby("follower_id")["multiplicity"].sum()
     sampled_in = boundary["user_id"].map(incoming).fillna(0.0).to_numpy(float)
@@ -324,8 +330,8 @@ def _build_twibot_boundary_features(bundle):
     ]).astype(np.float32)
 
 
-def _add_twibot_static_bundle(data, bundle, user_map, post_embeddings=None):
-    """Add TwiBot boundary nodes, real follow edges and static text actions."""
+def _add_twibot_bundle(data, bundle, user_map, post_embeddings=None):
+    """Add an audited TwiBot-22 bundle without changing source semantics."""
     import torch
 
     boundary_ids = bundle.boundary_users["user_id"].astype(str).tolist()
@@ -463,7 +469,7 @@ def _add_twibot_static_bundle(data, bundle, user_map, post_embeddings=None):
 
 def _add_twibot_raw_bundle(data, bundle, user_map, post_embeddings=None):
     """Materialize a raw TwiBot-22 bundle while preserving temporal metadata."""
-    _add_twibot_static_bundle(
+    _add_twibot_bundle(
         data, bundle, user_map, post_embeddings=post_embeddings
     )
     posts = getattr(bundle, "posts", None)
@@ -620,24 +626,11 @@ def build_hetero_data(
 
     if {"user", "follow", "agent_actions"}.issubset(tables) and "post" not in tables:
         conn.close()
-        from data_processing.dataset_adapter import TwiBotStaticAdapter
-
-        bundle = TwiBotStaticAdapter(
-            db_path=db_path,
-            core_user_ids=user_ids,
-        ).load()
-        _add_twibot_static_bundle(
-            data, bundle, user_map, post_embeddings=post_embeddings
+        raise ValueError(
+            "Legacy TwiBot V5 CSV/DB exports are not supported. Use the "
+            "official TwiBot-22 raw directory or an audited materialized "
+            "TwiBot-22 bundle in the P2 DatasetPlan."
         )
-        rev_user_map = {value: key for key, value in user_map.items()}
-        logger.info(
-            "  TwiBot static graph: core=%d, boundary=%d, text=%d, edge_types=%d",
-            len(user_ids),
-            data["boundary_user"].num_nodes,
-            data["tweet"].num_nodes if "tweet" in data.node_types else 0,
-            len(data.edge_types),
-        )
-        return data, rev_user_map
 
     if 'follow' in tables:
         try:

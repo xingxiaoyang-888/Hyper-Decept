@@ -319,6 +319,7 @@ async def running(
     export_visualizations: bool = True,
     force_bad_leader_action: bool = False,
     deep_persona_chunks_path: str | None = None,
+    deep_persona_manifest_path: str | None = None,
     model_configs: dict[str, Any] | None = None,
     inference_configs: dict[str, Any] | None = None,
     defense_configs: dict[str, Any] | None = None,
@@ -344,6 +345,18 @@ async def running(
                 f"DeepPersona chunks do not exist: {chunks_path}"
             )
         os.environ["DEEP_PERSONA_CHUNKS_PATH"] = str(chunks_path)
+    # The formal-plan builder includes the manifest so that a run can verify
+    # the exact persona population used.  Upstream OASIS only consumes the
+    # chunk file at runtime; accepting and validating the manifest here keeps
+    # the configuration contract auditable without passing an unsupported
+    # keyword into the engine.
+    if deep_persona_manifest_path is not None:
+        manifest_path = Path(deep_persona_manifest_path).expanduser().resolve()
+        if not manifest_path.is_file():
+            raise FileNotFoundError(
+                f"DeepPersona manifest does not exist: {manifest_path}"
+            )
+        os.environ["DEEP_PERSONA_MANIFEST_PATH"] = str(manifest_path)
     db_path = DEFAULT_DB_PATH if db_path is None else db_path
     csv_path = DEFAULT_CSV_PATH if csv_path is None else csv_path
     if os.path.exists(db_path):

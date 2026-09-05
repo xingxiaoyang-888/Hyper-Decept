@@ -55,7 +55,6 @@ from graph_builder import (
     compute_graph_features,
     get_original_graph,
 )
-from data_processing.dataset_adapter import detect_dataset_kind
 from new_feature_extractor import MultimodalExtractor as _Extractor
 from visualizer import CognitiveVisualizer
 
@@ -392,13 +391,8 @@ def run_classifier(
             n_db = registry.register_db(db_file)
             n_csv = 0
             if os.path.isfile(csv_file):
-                observable_aliases = (
-                    {"user_char": "bio"}
-                    if detect_dataset_kind(db_file) == "twibot_static_v5"
-                    else None
-                )
                 n_csv = registry.register_csv(
-                    csv_file, observable_aliases=observable_aliases
+                    csv_file
                 )
 
             # Register per-user text evidence using the SAME splitter the

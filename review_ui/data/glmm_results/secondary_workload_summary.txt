@@ -1,0 +1,35 @@
+Linear mixed model fit by REML ['lmerMod']
+Formula: workload ~ condition + operation + (1 | participant) + (1 | case_id)
+   Data: data
+Control: lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e+05))
+
+REML criterion at convergence: -3157.1
+
+Scaled residuals: 
+       Min         1Q     Median         3Q        Max 
+-1.249e-06 -3.612e-07  3.839e-08  2.406e-07  1.413e-06 
+
+Random effects:
+ Groups      Name        Variance  Std.Dev. 
+ case_id     (Intercept) 5.720e-02 2.392e-01
+ participant (Intercept) 5.866e-02 2.422e-01
+ Residual                1.204e-13 3.470e-07
+Number of obs: 160, groups:  case_id, 21; participant, 20
+
+Fixed effects:
+                             Estimate Std. Error t value
+(Intercept)                   2.95402    0.12438  23.749
+conditionstandard_signals     0.45754    0.13472   3.396
+conditionhypertrace_evidence  1.74459    0.13477  12.945
+operationuae                  0.01656    0.10451   0.158
+
+Correlation of Fixed Effects:
+            (Intr) cndtns_ cndtnh_
+cndtnstndr_ -0.583                
+cndtnhyprt_ -0.583  0.538         
+operationua -0.439  0.000   0.000 
+optimizer (bobyqa) convergence code: 3 (bobyqa -- a trust region step failed to reduce q)
+unable to evaluate scaled gradient
+Model failed to converge: degenerate  Hessian with 2 negative eigenvalues
+  See ?lme4::convergence and ?lme4::troubleshooting.
+

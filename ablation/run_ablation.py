@@ -3,7 +3,7 @@ run_ablation.py — Unified entry point for ablation experiments.
 
 Using predefined datasets (recommended):
   python -m ablation.run_ablation --dataset agent72
-  python -m ablation.run_ablation --dataset twibot1000 --repeats 3 --folds 5
+  python -m ablation.run_ablation --dataset agent72 --repeats 3 --folds 5
 
 Custom data paths:
   python -m ablation.run_ablation --db "path/to/data.db" --csv "path/to/labels.csv"
@@ -31,9 +31,8 @@ def main():
     
     # Data paths (three specification modes)
     parser.add_argument("--dataset", type=str, default=None,
-                        choices=["agent72", "72", "test72", "twibot120", "twibot",
-                                  "twibot1000", "sim1000", "sim"],
-                        help="Predefined dataset name (e.g., agent72, twibot1000)")
+                        choices=["agent72", "72", "test72", "sim1000", "sim"],
+                        help="Predefined legacy/demo dataset name")
     parser.add_argument("--db", type=str, default=None,
                         help="SQLite database path (overrides preset)")
     parser.add_argument("--csv", type=str, default=None,

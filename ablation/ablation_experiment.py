@@ -304,7 +304,7 @@ def verify_independence(
 
     csv_path: CSV label file path
 
-    dataset: Dataset name (e.g., agent72, twibot1000)
+    dataset: Legacy/demo dataset name (e.g., agent72); P2 real datasets are loaded by DatasetPlan.
 
     max_agents: Maximum number of samples to analyze (for acceleration)
 

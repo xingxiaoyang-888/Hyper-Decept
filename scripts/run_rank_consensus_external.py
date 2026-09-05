@@ -9,6 +9,7 @@ import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from scripts.external_bundle_episode import load_external_bundle_episode
+from scripts.frozen_manifest import resolve_frozen_checkpoint
 from scripts.run_frozen_external_io import _build_model, _checkpoint_edge_types, _sha256
 
 BUDGETS = (0.005, 0.01, 0.02, 0.05)
@@ -50,14 +51,14 @@ def main() -> None:
     device = torch.device(args.device)
     batch.to(device)
     user_ids = np.asarray(batch.graph["user"].node_ids, dtype=str)
-    known = batch.bot_mask.cpu().numpy().astype(bool)
+    known = batch.coordination_mask.cpu().numpy().astype(bool)
     known_indices = np.flatnonzero(known)
     known_ids = user_ids[known_indices]
     rank_rows = []
     checkpoint_records = []
     metadata = None
     for entry in entries:
-        checkpoint_path = Path(entry["frozen_checkpoint"])
+        checkpoint_path = resolve_frozen_checkpoint(args.freeze_manifest, entry)
         if _sha256(checkpoint_path) != entry["sha256"]:
             raise ValueError(f"frozen checkpoint hash mismatch: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -66,7 +67,9 @@ def main() -> None:
         model = _build_model(checkpoint, metadata).to(device).eval()
         with torch.no_grad():
             output = model(batch.graph, domain=batch.domain, dataset_name=batch.dataset_name)
-            scores = torch.sigmoid(output["bot_logits"]).cpu().numpy()[known_indices]
+            scores = torch.sigmoid(
+                output["coordination_logits"]
+            ).cpu().numpy()[known_indices]
         rank_rows.append(_percentile_ranks(scores, known_ids))
         checkpoint_records.append({
             "checkpoint": str(checkpoint_path.resolve()), "sha256": entry["sha256"],
@@ -80,7 +83,7 @@ def main() -> None:
     consensus = rank_matrix.mean(axis=0)
     disagreement = rank_matrix.std(axis=0)
     order = np.lexsort((known_ids, -consensus))
-    targets = batch.bot_targets.cpu().numpy().astype(np.int64)[known_indices]
+    targets = batch.coordination_targets.cpu().numpy().astype(np.int64)[known_indices]
     positives = int(targets.sum())
     prevalence = positives / len(targets)
     budget_metrics = []

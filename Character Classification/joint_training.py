@@ -1,7 +1,7 @@
 """Domain-aware episodic joint training for HyperDecept.
 
 This module reuses :class:`IntrinsicLorentzHGT` as the shared encoder while
-keeping real-world bot supervision separate from privileged simulation labels.
+keeping coordination supervision separate from privileged simulation labels.
 It deliberately does not concatenate real and generated rows into one table:
 each graph remains an auditable episode and the optimizer alternates domains.
 """
@@ -20,6 +20,8 @@ import uuid
 
 import torch
 import torch.nn.functional as F
+
+from coordination_contract import CoordinationCheckpointMixin
 
 from lorentz_hgt import (
     IntrinsicLorentzHGT,
@@ -192,8 +194,8 @@ class EpisodeBatch:
     episode_id: str
     domain: str
     graph: object
-    bot_targets: torch.Tensor
-    bot_mask: torch.Tensor
+    coordination_targets: torch.Tensor
+    coordination_mask: torch.Tensor
     role_targets: torch.Tensor
     role_mask: torch.Tensor
     campaign_targets: torch.Tensor
@@ -213,8 +215,8 @@ class EpisodeBatch:
             raise ValueError("episode graph must contain user nodes")
         num_users = int(self.graph["user"].num_nodes)
         tensors = {
-            "bot_targets": self.bot_targets,
-            "bot_mask": self.bot_mask,
+            "coordination_targets": self.coordination_targets,
+            "coordination_mask": self.coordination_mask,
             "role_targets": self.role_targets,
             "role_mask": self.role_mask,
             "campaign_targets": self.campaign_targets,
@@ -226,7 +228,7 @@ class EpisodeBatch:
             if value.ndim != 1 or value.shape[0] != num_users:
                 raise ValueError(f"{name} must have one value per user node")
         for name in (
-            "bot_mask", "role_mask", "campaign_mask", "temporal_action_mask"
+            "coordination_mask", "role_mask", "campaign_mask", "temporal_action_mask"
         ):
             if getattr(self, name).dtype != torch.bool:
                 raise ValueError(f"{name} must be boolean")
@@ -242,8 +244,8 @@ class EpisodeBatch:
     def to(self, device: torch.device | str) -> "EpisodeBatch":
         self.graph = self.graph.to(device)
         for name in (
-            "bot_targets",
-            "bot_mask",
+            "coordination_targets",
+            "coordination_mask",
             "role_targets",
             "role_mask",
             "campaign_targets",
@@ -286,7 +288,7 @@ def build_episode_batch(
     role_vocabulary: Optional[Mapping[str, int]] = None,
     action_vocabulary: Optional[Mapping[str, int]] = None,
     user_id_column: str = "user_id",
-    bot_column: str = "is_bad",
+    coordination_column: str = "is_bad",
     role_column: str = "role",
     campaign_column: str = "campaign_id",
     action_column: str = "next_action",
@@ -311,8 +313,8 @@ def build_episode_batch(
     lookup = labels.set_index(user_id_column).to_dict("index")
     num_users = len(node_ids)
 
-    bot_targets = torch.zeros(num_users, dtype=torch.float)
-    bot_mask = torch.zeros(num_users, dtype=torch.bool)
+    coordination_targets = torch.zeros(num_users, dtype=torch.float)
+    coordination_mask = torch.zeros(num_users, dtype=torch.bool)
     role_targets = torch.full((num_users,), -1, dtype=torch.long)
     role_mask = torch.zeros(num_users, dtype=torch.bool)
     campaign_targets = torch.full((num_users,), -1, dtype=torch.long)
@@ -334,18 +336,18 @@ def build_episode_batch(
         row = lookup.get(_normalise_identifier(node_id))
         if row is None:
             continue
-        bot_value = _normalise_identifier(row.get(bot_column))
-        if bot_value is not None:
+        coordination_value = _normalise_identifier(row.get(coordination_column))
+        if coordination_value is not None:
             try:
-                parsed_bot = float(bot_value)
+                parsed_coordination = float(coordination_value)
             except ValueError as exc:
                 raise ValueError(
-                    f"invalid binary target for user {node_id}: {bot_value}"
+                    f"invalid binary target for user {node_id}: {coordination_value}"
                 ) from exc
-            if parsed_bot not in {0.0, 1.0}:
+            if parsed_coordination not in {0.0, 1.0}:
                 raise ValueError(f"binary target must be 0 or 1 for user {node_id}")
-            bot_targets[index] = parsed_bot
-            bot_mask[index] = True
+            coordination_targets[index] = parsed_coordination
+            coordination_mask[index] = True
 
         if domain == "synthetic":
             role_value = _numeric_or_vocab(row.get(role_column), role_vocabulary)
@@ -365,8 +367,8 @@ def build_episode_batch(
         episode_id=episode_id,
         domain=domain,
         graph=graph,
-        bot_targets=bot_targets,
-        bot_mask=bot_mask,
+        coordination_targets=coordination_targets,
+        coordination_mask=coordination_mask,
         role_targets=role_targets,
         role_mask=role_mask,
         campaign_targets=campaign_targets,
@@ -742,8 +744,8 @@ def episode_batch_from_neighbor_sample(
         episode_id=parent.episode_id,
         domain=parent.domain,
         graph=sampled_graph,
-        bot_targets=slice_values("bot_targets"),
-        bot_mask=slice_values("bot_mask", seed_only=True),
+        coordination_targets=slice_values("coordination_targets"),
+        coordination_mask=slice_values("coordination_mask", seed_only=True),
         role_targets=slice_values("role_targets"),
         role_mask=slice_values("role_mask", seed_only=True),
         campaign_targets=slice_values("campaign_targets"),
@@ -756,7 +758,7 @@ def episode_batch_from_neighbor_sample(
     )
 
 
-class DomainAwareLorentzHGT(torch.nn.Module):
+class DomainAwareLorentzHGT(CoordinationCheckpointMixin, torch.nn.Module):
     """Shared Lorentz encoder with domain-specific inputs and task heads."""
 
     geometry_backend = "domain_aware_intrinsic_lorentz"
@@ -811,7 +813,7 @@ class DomainAwareLorentzHGT(torch.nn.Module):
             metadata=metadata,
             dropout=dropout,
         )
-        self.bot_head = LorentzPrototypeClassifier(hidden_dim, 2)
+        self.coordination_head = LorentzPrototypeClassifier(hidden_dim, 2)
         if self.enable_privileged_heads:
             self.role_head = LorentzPrototypeClassifier(hidden_dim, num_roles)
             self.campaign_projection = torch.nn.Linear(hidden_dim, campaign_dim)
@@ -862,12 +864,14 @@ class DomainAwareLorentzHGT(torch.nn.Module):
         curvature = self.encoder.common_curvature()
         user_lorentz = lorentz_nodes["user"]
         user_tangent = logmap0(user_lorentz, curvature)
-        bot_class_logits = self.bot_head(user_lorentz, curvature)
+        coordination_class_logits = self.coordination_head(user_lorentz, curvature)
         result = {
             "user_lorentz": user_lorentz,
             "user_tangent": user_tangent,
-            "bot_class_logits": bot_class_logits,
-            "bot_logits": bot_class_logits[:, 1] - bot_class_logits[:, 0],
+            "coordination_class_logits": coordination_class_logits,
+            "coordination_logits": (
+                coordination_class_logits[:, 1] - coordination_class_logits[:, 0]
+            ),
         }
         if domain == "synthetic" and self.enable_privileged_heads:
             result.update({
@@ -884,9 +888,9 @@ class DomainAwareLorentzHGT(torch.nn.Module):
             "domains": list(self.domains),
             "dataset_domains": list(self.dataset_domains),
             "dataset_specific_input_adapters": True,
-            "domain_specific_bot_heads": False,
+            "domain_specific_coordination_heads": False,
             "decision_geometry": "lorentz_distance_prototypes",
-            "bot_prototypes": self.bot_head.num_classes,
+            "coordination_prototypes": self.coordination_head.num_classes,
             "privileged_simulation_heads": (
                 ["role", "campaign", "next_action"]
                 if self.enable_privileged_heads else []
@@ -1008,12 +1012,16 @@ def conditional_domain_alignment_loss(
     synthetic_output: Mapping[str, torch.Tensor],
     synthetic_batch: EpisodeBatch,
 ) -> torch.Tensor:
-    """Align domains within bot/human classes to avoid indiscriminate collapse."""
+    """Align domains within coordination classes to avoid indiscriminate collapse."""
     losses = []
     for label in (0.0, 1.0):
-        real_selection = real_batch.bot_mask & (real_batch.bot_targets == label)
+        real_selection = (
+            real_batch.coordination_mask
+            & (real_batch.coordination_targets == label)
+        )
         synthetic_selection = (
-            synthetic_batch.bot_mask & (synthetic_batch.bot_targets == label)
+            synthetic_batch.coordination_mask
+            & (synthetic_batch.coordination_targets == label)
         )
         if real_selection.sum() >= 2 and synthetic_selection.sum() >= 2:
             losses.append(coral_alignment_loss(
@@ -1037,9 +1045,11 @@ def hyperbolic_supervised_alignment_loss(
     temperature: float,
 ) -> torch.Tensor:
     """Cross-domain supervised contrastive loss using Lorentz distances."""
-    real_indices = torch.nonzero(real_batch.bot_mask, as_tuple=False).reshape(-1)
+    real_indices = torch.nonzero(
+        real_batch.coordination_mask, as_tuple=False
+    ).reshape(-1)
     synthetic_indices = torch.nonzero(
-        synthetic_batch.bot_mask, as_tuple=False
+        synthetic_batch.coordination_mask, as_tuple=False
     ).reshape(-1)
     if real_indices.numel() < 2 or synthetic_indices.numel() < 2:
         return _zero_like(real_output["user_lorentz"]) + _zero_like(
@@ -1047,8 +1057,8 @@ def hyperbolic_supervised_alignment_loss(
         )
     real_points = real_output["user_lorentz"][real_indices]
     synthetic_points = synthetic_output["user_lorentz"][synthetic_indices]
-    real_labels = real_batch.bot_targets[real_indices].to(dtype=torch.long)
-    synthetic_labels = synthetic_batch.bot_targets[synthetic_indices].to(
+    real_labels = real_batch.coordination_targets[real_indices].to(dtype=torch.long)
+    synthetic_labels = synthetic_batch.coordination_targets[synthetic_indices].to(
         dtype=torch.long
     )
     curvature = model.encoder.common_curvature()
@@ -1094,7 +1104,7 @@ def compute_episode_losses(
     """Compute detection and one bundled privileged-simulation objective."""
     losses: Dict[str, torch.Tensor] = {}
     reference = output["user_tangent"]
-    if torch.any(batch.bot_mask):
+    if torch.any(batch.coordination_mask):
         configured_positive_weight = (
             config.real_positive_class_weight
             if batch.domain == "real"
@@ -1103,16 +1113,16 @@ def compute_episode_losses(
         positive_weight = (
             None
             if configured_positive_weight is None
-            else output["bot_logits"].new_tensor(configured_positive_weight)
+            else output["coordination_logits"].new_tensor(configured_positive_weight)
         )
-        bot_loss = F.binary_cross_entropy_with_logits(
-            output["bot_logits"][batch.bot_mask],
-            batch.bot_targets[batch.bot_mask],
+        coordination_loss = F.binary_cross_entropy_with_logits(
+            output["coordination_logits"][batch.coordination_mask],
+            batch.coordination_targets[batch.coordination_mask],
             pos_weight=positive_weight,
         )
     else:
-        bot_loss = _zero_like(reference)
-    losses["detection"] = config.detection_weight * bot_loss
+        coordination_loss = _zero_like(reference)
+    losses["detection"] = config.detection_weight * coordination_loss
 
     if batch.domain == "synthetic" and config.privileged_weight > 0:
         privileged_parts = []
@@ -1276,7 +1286,7 @@ class DomainAlternatingTrainer:
 
 
 @torch.no_grad()
-def evaluate_bot_batch(
+def evaluate_coordination_batch(
     model: DomainAwareLorentzHGT,
     batch: EpisodeBatch,
     *,
@@ -1300,11 +1310,11 @@ def evaluate_bot_batch(
         domain=batch.domain,
         dataset_name=batch.dataset_name,
     )
-    mask = batch.bot_mask
+    mask = batch.coordination_mask
     if not torch.any(mask):
-        raise ValueError("evaluation batch contains no bot labels")
-    probabilities = torch.sigmoid(output["bot_logits"][mask]).cpu()
-    targets = batch.bot_targets[mask].to(dtype=torch.long).cpu()
+        raise ValueError("evaluation batch contains no coordination labels")
+    probabilities = torch.sigmoid(output["coordination_logits"][mask]).cpu()
+    targets = batch.coordination_targets[mask].to(dtype=torch.long).cpu()
     predictions = (probabilities >= 0.5).to(dtype=torch.long)
     target_array = targets.numpy()
     probability_array = probabilities.numpy()
@@ -1374,7 +1384,7 @@ def save_joint_checkpoint(
         if name not in omitted_keys
     }
     torch.save({
-        "schema_version": "hyperdecept.joint-checkpoint.v1",
+        "schema_version": "hyperdecept.joint-checkpoint.v2",
         "model_state": serializable_state,
         "uninitialized_model_state_keys": omitted_keys,
         "optimizer_state": optimizer.state_dict(),

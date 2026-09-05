@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from data_processing.episode_manifest import EpisodeManifest, DatasetPlan
@@ -70,7 +71,7 @@ def test_load_protocol_batches_respects_real_node_and_synthetic_episode_splits(
         return SimpleNamespace(
             domain=manifest.domain,
             dataset_name=manifest.dataset_name,
-            bot_mask=torch.tensor([True]),
+            coordination_mask=torch.tensor([True]),
         )
 
     monkeypatch.setattr(module, "load_episode_batch_from_manifest", fake_loader)
@@ -116,7 +117,7 @@ def test_load_protocol_batches_filters_real_domain(monkeypatch):
         return SimpleNamespace(
             domain=manifest.domain,
             dataset_name=manifest.dataset_name,
-            bot_mask=torch.tensor([True]),
+            coordination_mask=torch.tensor([True]),
         )
 
     monkeypatch.setattr(module, "load_episode_batch_from_manifest", fake_loader)
@@ -152,7 +153,7 @@ def test_load_protocol_batches_includes_external_real_test_split(monkeypatch):
         return SimpleNamespace(
             domain="real",
             dataset_name=manifest.dataset_name,
-            bot_mask=torch.tensor([True]),
+            coordination_mask=torch.tensor([True]),
         )
 
     monkeypatch.setattr(module, "load_episode_batch_from_manifest", fake_loader)
@@ -200,3 +201,44 @@ def test_action_vocabulary_uses_only_training_episodes(tmp_path):
     assignments = {train.episode_id: "train", test.episode_id: "test"}
 
     assert module._action_vocabulary(plan, assignments) == {"post": 0, "reply": 1}
+
+
+def test_resume_checkpoint_rejects_a_different_run_signature(tmp_path):
+    module = _load_runner()
+    target = tmp_path / "last_checkpoint.pt"
+    module._atomic_torch_save({
+        "schema_version": "hyperdecept.p2-resume-checkpoint.v1",
+        "run_signature": "expected",
+    }, target)
+
+    loaded = module._load_resume_checkpoint(
+        target, expected_signature="expected"
+    )
+    assert loaded["run_signature"] == "expected"
+    with pytest.raises(ValueError, match="does not match"):
+        module._load_resume_checkpoint(target, expected_signature="different")
+
+
+def test_run_contract_is_stable_and_includes_plan_digest():
+    module = _load_runner()
+    kwargs = dict(
+        plan_id="formal",
+        plan_digest="digest-a",
+        protocol_id="P2_multisource_real",
+        held_out_scenario="leader_amplifier",
+        seed=7,
+        hidden_dim=64,
+        num_heads=4,
+        num_layers=2,
+        dropout=0.1,
+        learning_rate=1e-3,
+        similarity_threshold=0.7,
+        max_steps=None,
+        loss_config=module.JointLossConfig(),
+    )
+    first_contract, first_signature = module._run_contract(**kwargs)
+    second_contract, second_signature = module._run_contract(**kwargs)
+    assert first_contract == second_contract
+    assert first_signature == second_signature
+    changed = dict(kwargs, plan_digest="digest-b")
+    assert module._run_contract(**changed)[1] != first_signature

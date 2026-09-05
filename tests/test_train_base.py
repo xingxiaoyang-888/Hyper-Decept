@@ -24,8 +24,8 @@ def test_atomic_torch_save_replaces_complete_checkpoint(tmp_path) -> None:
 def _batch(targets):
     values = torch.tensor(targets, dtype=torch.float32)
     return SimpleNamespace(
-        bot_targets=values,
-        bot_mask=torch.ones(values.shape[0], dtype=torch.bool),
+        coordination_targets=values,
+        coordination_mask=torch.ones(values.shape[0], dtype=torch.bool),
     )
 
 
@@ -41,8 +41,8 @@ def test_positive_class_weight_requires_both_classes():
 def test_coordination_only_objective_skips_privileged_targets():
     batch = SimpleNamespace(
         domain="synthetic",
-        bot_mask=torch.tensor([True, True]),
-        bot_targets=torch.tensor([0.0, 1.0]),
+        coordination_mask=torch.tensor([True, True]),
+        coordination_targets=torch.tensor([0.0, 1.0]),
         role_mask=torch.tensor([True, True]),
         role_targets=torch.tensor([0, 1]),
         campaign_mask=torch.tensor([True, True]),
@@ -52,7 +52,7 @@ def test_coordination_only_objective_skips_privileged_targets():
     )
     output = {
         "user_tangent": torch.ones((2, 2), requires_grad=True),
-        "bot_logits": torch.tensor([0.0, 0.0], requires_grad=True),
+        "coordination_logits": torch.tensor([0.0, 0.0], requires_grad=True),
     }
     losses = compute_episode_losses(
         SimpleNamespace(),

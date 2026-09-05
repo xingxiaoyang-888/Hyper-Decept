@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.sqlite3
+tests
+data/.admin_token
+data/.study_salt
+data/*.audit.json
